@@ -1,0 +1,284 @@
+/**
+ * rv-extras-validator.ts — Dev-mode GLB extras parity validator.
+ *
+ * Logs warnings for GLB extras fields that are present in the data
+ * but not consumed or explicitly ignored by the TypeScript parsers.
+ * This catches C#→TypeScript drift when new fields are added to Unity components.
+ *
+ * Only active in dev mode (import.meta.env.DEV). Zero overhead in production.
+ *
+ * Usage:
+ *   validateExtras('Drive', driveData);
+ *   // Logs: [Parity] Unhandled Drive field: "SpeedOverride" (value: 0)
+ */
+
+/** Fields consumed by each TypeScript parser (actively read and used). */
+const CONSUMED: Record<string, string[]> = {
+  // parseDriveExtras() — C# source: Drive.cs (Packages/io.realvirtual.starter/Runtime/Components/Drive.cs)
+  Drive: [
+    'Direction', 'ReverseDirection', 'Offset', 'StartPosition',
+    'TargetSpeed', 'Acceleration', 'UseAcceleration',
+    'UseLimits', 'LowerLimit', 'UpperLimit',
+  ],
+
+  // parseTransportSurfaceExtras() — C# source: TransportSurface.cs
+  TransportSurface: [
+    'TransportDirection', 'Radial', 'TextureScale', 'HeightOffsetOverride',
+  ],
+
+  // parseSensorExtras() — C# source: Sensor.cs
+  Sensor: [
+    'UseRaycast',        // C# field — maps to mode 'Raycast' vs 'Collision'
+    'RayCastDirection',  // Vector3 — local-space ray direction (Raycast mode)
+    'RayCastLength',     // float — max detection distance in mm (Raycast mode)
+    // NOTE: 'InvertSignal' and 'Mode' do NOT exist in C# Sensor.cs.
+    // They were legacy WebViewer fields. C# uses 'UseRaycast' instead.
+  ],
+
+  // parseSourceExtras() — C# source: Source.cs
+  Source: [
+    'AutomaticGeneration', 'Interval', 'GenerateIfDistance',
+    'ThisObjectAsMU', 'PlaceOnTransportSurface',
+    // Legacy WebViewer field names (fallback):
+    'Spawn', 'SpawnInterval', 'SpawnDistance',
+  ],
+
+  // Sink — no extras parsed yet
+  Sink: [],
+
+  // MU — no extras parsed yet (template nodes only)
+  MU: [],
+
+  // BoxCollider — used by createAABBFromExtras()
+  BoxCollider: ['center', 'size'],
+
+  // Signal types — used by signal registration loop
+  PLCOutputBool: ['Status'],
+  PLCInputBool: ['Status'],
+  PLCOutputFloat: ['Status'],
+  PLCInputFloat: ['Status'],
+  PLCOutputInt: ['Status'],
+  PLCInputInt: ['Status'],
+
+  // DrivesRecorder — recorder settings parsing
+  DrivesRecorder: [
+    'PlayOnStart', 'ReplayStartFrame', 'ReplayEndFrame', 'Loop',
+    'DrivesRecording',  // ScriptableObject reference
+  ],
+
+  // DrivesRecording_compact — parsed by parseCompactRecording()
+  DrivesRecording_compact: [
+    'fixedDeltaTime', 'numberFrames', 'driveCount', 'drives', 'positions', 'sequences',
+  ],
+
+  // ReplayRecording — parsed in the traverse loop
+  ReplayRecording: [
+    'Sequence', 'StartOnSignal', 'IsReplayingSignal',
+  ],
+
+  // LogicStep types — parsed by RVLogicEngine.build()
+  LogicStep_SerialContainer: [],  // container, no extra fields
+  LogicStep_ParallelContainer: [],
+  LogicStep_SetSignalBool: ['Signal', 'SetToTrue'],
+  LogicStep_WaitForSensor: ['Sensor', 'WaitForOccupied'],
+  LogicStep_WaitForSignalBool: ['Signal', 'WaitForTrue'],
+  LogicStep_Delay: ['Duration'],
+  LogicStep_DriveToPosition: ['drive', 'Destination', 'Relative', 'Direction'],
+  LogicStep_DriveTo: ['drive', 'Destination', 'Relative', 'Direction'],
+  LogicStep_SetDriveSpeed: ['drive', 'Speed'],
+  LogicStep_Enable: ['Target', 'Enable'],
+  LogicStep_Pause: [],  // debugging breakpoint, no fields consumed
+};
+
+/**
+ * Fields intentionally ignored — present in GLB but not needed in WebViewer.
+ * These are runtime status fields, Unity-only features, or component references
+ * that have no WebViewer equivalent.
+ */
+const IGNORED: Record<string, string[]> = {
+  Drive: [
+    // Runtime status (read-only in C#, meaningless at load time)
+    'CurrentSpeed', 'CurrentPosition', 'PositionOverwriteValue',
+    'IsPosition', 'IsSpeed', 'IsStopped', 'IsRunning',
+    'IsAtTargetSpeed', 'IsAtTarget', 'IsAtLowerLimit', 'IsAtUpperLimit',
+    'IsSubDrive',
+    // Features not implemented in WebViewer
+    'SpeedOverride', 'SpeedScaleTransportSurface',
+    'JumpToLowerLimitOnUpperLimit', 'LimitRayCast',
+    'SmoothAcceleration', 'Jerk', 'smoothMotion',
+    'JogForward', 'JogBackward', 'TargetPosition',
+    'TargetStartMove', 'ResetDrive', '_StopDrive',
+    'MoveThisRigidBody', 'UseInteract',
+    // realvirtual component metadata
+    'Name', 'Active',
+  ],
+
+  TransportSurface: [
+    // Unity physics features not in WebViewer
+    'AnimateSurface', 'AdvancedSurface',
+    'ChangeConstraintsOnEnter', 'ConstraintsEnter',
+    'ChangeConstraintsOnExit', 'ConstraintsExit',
+    'DriveReference', 'ParentDrive',
+    'UseMeshCollider', 'DebugMode', 'Layer',
+    'UseAGXPhysics',
+    // Runtime status
+    'speed', 'SpeedScaleTransportSurface', 'IsGuided', 'LoadedPart',
+    'Name', 'Active',
+  ],
+
+  Sensor: [
+    // Display/visualization (not in WebViewer)
+    'DisplayStatus', 'MaterialOccupied', 'MaterialNotOccupied',
+    'ShowSensorLinerenderer', 'RayCastDisplayWidth',
+    // Raycast details (not consumed)
+    'AdditionalRayCastLayers',
+    // Signal connections (handled via signal store)
+    'SensorOccupied', 'SensorNotOccupied',
+    // Filtering
+    'LimitSensorToTag',
+    // Debug
+    'PauseOnSensor',
+    // Runtime status
+    'Occupied', 'LastTriggeredBy', 'RayCastDistance',
+    'LastTriggeredID', 'LastTriggeredGlobalID',
+    'Counter', 'ColliderCounter', 'CollidingMus', 'CollidingObjects',
+    'Name', 'Active',
+    // Legacy WebViewer fields that don't exist in C#
+    'InvertSignal', 'Mode',
+  ],
+
+  Source: [
+    // Features not in WebViewer
+    'Destination', 'Enabled', 'FreezeSourcePosition',
+    'DontVisualize', 'HideOnStop',
+    'Mass', 'SetCenterOfMass', 'CenterOfMass',
+    'GenerateOnLayer', 'OnCreateDestroyComponents',
+    'StartInterval', 'RandomDistance', 'RangeDistance',
+    'LimitNumber', 'MaxNumberMUs',
+    'UsePooling', 'PoolSize', 'PrewarmPool', 'AllowPoolGrowth',
+    'GenerateMU', 'DeleteAllMU',
+    'SourceGenerate', 'SourceGenerateOnDistance',
+    'UseAGXPhysics', 'overrideMaterial',
+    // Runtime status
+    'Created', 'PooledCount', 'ActiveCount',
+    'Name', 'Active',
+  ],
+
+  Sink: [
+    'DeleteMus', 'DeleteOnlyTag', 'DestroyFadeTime', 'Dissolve',
+    'Delete', 'UseAGXPhysics',
+    'SumDestroyed', 'DestroyedPerHour', 'CollidingObjects',
+    'Name', 'Active',
+  ],
+
+  MU: [
+    'DebugMode', 'ID', 'GlobalID', 'MUAppearences',
+    'FixedBy', 'LastFixedBy', 'LoadedOn', 'StandardParent',
+    'ParentBeforeFix', 'CollidedWithSensors', 'LoadedMus', 'CreatedBy',
+    'SurfaceAlignSmoothment', 'UnfixSpeedInterpolate', 'NumInterpolations',
+    'TransportSurfaces', 'Velocity',
+    'Name', 'Active',
+  ],
+
+  DrivesRecorder: [
+    // Runtime status
+    'RecordAllDrivesWithinScene', 'Recording', 'Replaying',
+    'RecordOnStart', 'CurrentFrame', 'NumberFrames',
+    'CurrentSeconds', 'Duration', 'JumpToPositon',
+    'Name', 'Active',
+  ],
+
+  // Behavior extras — intentionally passed through raw
+  Drive_ErraticPosition: ['MinPos', 'MaxPos', 'Speed', 'IterateBetweenMaxAndMin', 'Name', 'Active'],
+  Drive_Cylinder: ['Out', 'In', 'OneBitCylinder', 'InvertOutputLogic', 'MinPos', 'MaxPos', 'TimeOut', 'TimeIn',
+    'StopWhenDrivingToMin', 'StopWhenDrivingToMax',
+    '_out', '_in', '_isOut', '_isIn', '_movingOut', '_movingIn', '_isMax', '_isMin',
+    'IsOut', 'IsIn', 'IsMax', 'IsMin', 'IsMovingOut', 'IsMovingIn',
+    'Name', 'Active', '_fullTypeName', '_version', '_enabled'],
+  Drive_Gear: ['*'],      // Not yet consumed, pass-through
+  Drive_Simple: ['Forward', 'Backward', 'Speed', 'Accelaration', 'IsAtPosition', 'IsAtSpeed', 'IsDriving',
+    'ScaleSpeed', 'CurrentPositionScale', 'CurrentPositionOffset', 'ScaleFeedbackPosition', 'Name', 'Active'],
+  Drive_CAM: ['*'],       // Not yet consumed, pass-through
+
+  // ReplayRecording
+  ReplayRecording: ['Name', 'Active'],
+
+  // LogicStep containers — generic fields
+  LogicStep_SerialContainer: ['Name', 'Active'],
+  LogicStep_ParallelContainer: ['Name', 'Active'],
+  LogicStep_SetSignalBool: ['Name', 'Active'],
+  LogicStep_WaitForSensor: ['Name', 'Active'],
+  LogicStep_WaitForSignalBool: ['Name', 'Active'],
+  LogicStep_Delay: ['Name', 'Active'],
+  LogicStep_DriveToPosition: ['Name', 'Active'],
+  LogicStep_SetDriveSpeed: ['Name', 'Active'],
+  LogicStep_Enable: ['Name', 'Active'],
+  LogicStep_Pause: ['Name', 'Active'],
+  LogicStep_DriveTo: ['Name', 'Active'],
+};
+
+/** Summary of unhandled fields per component type (collected during load) */
+const unhandledSummary = new Map<string, Map<string, unknown>>();
+
+/**
+ * Validate GLB extras for a component type.
+ * Logs warnings for fields not in CONSUMED or IGNORED lists.
+ * Only active in dev mode.
+ */
+export function validateExtras(componentType: string, data: Record<string, unknown>): void {
+  if (!import.meta.env.DEV) return;
+
+  const consumed = new Set(CONSUMED[componentType] ?? []);
+  const ignored = IGNORED[componentType] ?? [];
+
+  // Wildcard '*' in ignored means skip all validation for this type
+  if (ignored.includes('*')) return;
+
+  const ignoredSet = new Set(ignored);
+  const known = new Set([...consumed, ...ignoredSet]);
+
+  for (const key of Object.keys(data)) {
+    if (!known.has(key)) {
+      // Collect for summary
+      if (!unhandledSummary.has(componentType)) {
+        unhandledSummary.set(componentType, new Map());
+      }
+      const typeMap = unhandledSummary.get(componentType)!;
+      if (!typeMap.has(key)) {
+        typeMap.set(key, data[key]);
+      }
+    }
+  }
+}
+
+/**
+ * Print summary of all unhandled fields found during GLB load.
+ * Call once after the full traverse is complete.
+ */
+export function printParitySummary(): void {
+  if (!import.meta.env.DEV) return;
+  if (unhandledSummary.size === 0) return;
+
+  let totalFields = 0;
+  const lines: string[] = [];
+
+  for (const [type, fields] of unhandledSummary) {
+    for (const [field, value] of fields) {
+      const preview = typeof value === 'object' ? '{...}' : JSON.stringify(value);
+      lines.push(`  ${type}.${field} = ${preview}`);
+      totalFields++;
+    }
+  }
+
+  console.warn(
+    `[Parity] ${totalFields} unhandled GLB extras field(s) — add to CONSUMED or IGNORED in rv-extras-validator.ts:\n` +
+    lines.join('\n')
+  );
+}
+
+/**
+ * Clear collected summary (call before loading a new model).
+ */
+export function resetParityValidator(): void {
+  unhandledSummary.clear();
+}
