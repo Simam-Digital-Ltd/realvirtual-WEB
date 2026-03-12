@@ -6,8 +6,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Object3D } from 'three';
-import { RVDrive, DriveDirection } from '../src/rv-drive';
-import { SignalStore } from '../src/rv-signal-store';
+import { RVDrive, DriveDirection } from '../src/core/engine/rv-drive';
+import { SignalStore } from '../src/core/engine/rv-signal-store';
 import {
   StepState,
   RVSerialContainer,
@@ -19,8 +19,8 @@ import {
   RVDriveTo,
   RVSetDriveSpeed,
   RVEnable,
-} from '../src/rv-logic-step';
-import type { RVSensor } from '../src/rv-sensor';
+} from '../src/core/engine/rv-logic-step';
+import type { RVSensor } from '../src/core/engine/rv-sensor';
 
 function makeDrive(name: string, startPos = 0): RVDrive {
   const node = new Object3D();

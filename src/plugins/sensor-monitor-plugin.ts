@@ -7,9 +7,9 @@
 
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
-import type { LoadResult } from '../rv-scene-loader';
-import type { RVSensor } from '../rv-sensor';
-import { RingBuffer } from '../rv-ring-buffer';
+import type { LoadResult } from '../core/engine/rv-scene-loader';
+import type { RVSensor } from '../core/engine/rv-sensor';
+import { RingBuffer } from '../core/engine/rv-ring-buffer';
 
 export interface SensorEvent {
   sensorPath: string;

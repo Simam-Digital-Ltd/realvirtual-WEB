@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { Vector3, Object3D } from 'three';
-import { AABB } from '../src/rv-aabb';
+import { AABB } from '../src/core/engine/rv-aabb';
 
 describe('AABB', () => {
   it('should create AABB with correct min/max from halfSize', () => {

@@ -6,9 +6,9 @@
  */
 import { describe, it, expect } from 'vitest';
 import { Object3D } from 'three';
-import { RVDrive, DriveDirection } from '../src/rv-drive';
-import { RVDrivesPlayback, type CompactRecording } from '../src/rv-drives-playback';
-import { NodeRegistry } from '../src/rv-node-registry';
+import { RVDrive, DriveDirection } from '../src/core/engine/rv-drive';
+import { RVDrivesPlayback, type CompactRecording } from '../src/core/engine/rv-drives-playback';
+import { NodeRegistry } from '../src/core/engine/rv-node-registry';
 
 function makeDrive(name: string): RVDrive {
   const node = new Object3D();

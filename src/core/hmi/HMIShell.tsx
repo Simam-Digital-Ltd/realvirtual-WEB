@@ -1,6 +1,6 @@
 import { Box } from '@mui/material';
-import { useViewer } from '../hooks/use-viewer';
-import type { UISlot } from '../core/rv-ui-plugin';
+import { useViewer } from '../../hooks/use-viewer';
+import type { UISlot } from '../rv-ui-plugin';
 
 interface HMIShellProps {
   children: React.ReactNode;

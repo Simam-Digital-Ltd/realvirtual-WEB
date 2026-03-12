@@ -8,8 +8,8 @@
 
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
-import type { LoadResult } from '../rv-scene-loader';
-import type { RVDrive } from '../rv-drive';
+import type { LoadResult } from '../core/engine/rv-scene-loader';
+import type { RVDrive } from '../core/engine/rv-drive';
 
 export class DriveOrderPlugin implements RVViewerPlugin {
   readonly id = 'drive-order';

@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { TextField, InputAdornment, Box, Paper, IconButton } from '@mui/material';
 import { Search, Clear } from '@mui/icons-material';
 import { CameraBar } from './CameraBar';
-import { useDriveFilter } from '../hooks/use-drive-filter';
+import { useDriveFilter } from '../../hooks/use-drive-filter';
 
 /** Height of the bottom bar area (search + padding) for layout calculations. */
 export const BOTTOM_BAR_HEIGHT = 52;

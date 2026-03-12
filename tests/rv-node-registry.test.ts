@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Object3D } from 'three';
-import { NodeRegistry, type ComponentRef } from '../src/rv-node-registry';
+import { NodeRegistry, type ComponentRef } from '../src/core/engine/rv-node-registry';
 
 // ─── Helpers ──────────────────────────────────────────────────────
 

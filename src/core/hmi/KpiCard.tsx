@@ -7,6 +7,7 @@ interface KpiCardProps {
   secondary?: string;
   color?: string;
   sparkline?: number[];
+  onClick?: () => void;
 }
 
 function MiniSparkline({ data, color }: { data: number[]; color: string }) {
@@ -50,16 +51,17 @@ function MiniSparkline({ data, color }: { data: number[]; color: string }) {
 // Static dummy sparkline data per KPI
 const SPARKLINES: Record<string, number[]> = {
   OEE: [82, 84, 81, 86, 87, 85, 88, 87, 86, 87, 89, 87, 86, 88, 87],
-  'Parts/h': [290, 305, 298, 310, 315, 308, 320, 312, 318, 312, 315, 312, 310, 314, 312],
+  'Parts/h': [26, 28, 27, 29, 30, 28, 31, 28, 30, 28, 29, 28, 27, 29, 28],
   'Cycle Time': [4.5, 4.3, 4.4, 4.1, 4.2, 4.3, 4.1, 4.2, 4.3, 4.2, 4.1, 4.2, 4.3, 4.2, 4.2],
 };
 
-export function KpiCard({ label, value, unit, secondary, color = '#4fc3f7' }: KpiCardProps) {
+export function KpiCard({ label, value, unit, secondary, color = '#4fc3f7', onClick }: KpiCardProps) {
   const sparkData = SPARKLINES[label] || [];
 
   return (
     <Paper
       elevation={4}
+      onClick={onClick}
       sx={{
         position: 'relative',
         overflow: 'hidden',
@@ -68,7 +70,9 @@ export function KpiCard({ label, value, unit, secondary, color = '#4fc3f7' }: Kp
         py: 1,
         borderRadius: 2,
         pointerEvents: 'auto',
-        cursor: 'default',
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+        '&:hover': onClick ? { transform: 'translateY(-1px)', boxShadow: 8 } : undefined,
       }}
     >
       <MiniSparkline data={sparkData} color={color} />

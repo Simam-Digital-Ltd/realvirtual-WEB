@@ -2,6 +2,7 @@ import { Scene, Object3D, Box3, Vector3, Quaternion, BufferAttribute, Mesh, Buff
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { RVDrive, DriveDirection, type DriveConfig } from './rv-drive';
+import { RVErraticDriver } from './rv-erratic';
 import { AABB } from './rv-aabb';
 import { RVTransportSurface, type TransportSurfaceConfig } from './rv-transport-surface';
 import { RVSensor, type SensorConfig } from './rv-sensor';
@@ -392,6 +393,17 @@ export async function loadGLB(url: string, scene: Scene): Promise<LoadResult> {
         const drive = new RVDrive(node, config);
         drives.push(drive);
         registry.register('Drive', path, drive);
+
+        // Construct DriveBehaviors — mirrors Unity's Drive owning its IDriveBehavior[]
+        if (behaviors.includes('Drive_ErraticPosition')) {
+          const extras = behaviorExtras['Drive_ErraticPosition'];
+          drive.driveBehaviors.push(new RVErraticDriver(drive, extras ? {
+            minPos: extras['MinPos'] as number | undefined,
+            maxPos: extras['MaxPos'] as number | undefined,
+            speed: extras['Speed'] as number | undefined,
+            iterateBetweenMaxAndMin: extras['IterateBetweenMaxAndMin'] as boolean | undefined,
+          } : undefined));
+        }
 
         console.log(
           `  Drive: ${node.name} [${config.direction}${config.reverseDirection ? ' REV' : ''}]` +

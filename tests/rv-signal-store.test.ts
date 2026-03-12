@@ -4,7 +4,7 @@
  * Tests the central signal store for PLC signal communication.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { SignalStore } from '../src/rv-signal-store';
+import { SignalStore } from '../src/core/engine/rv-signal-store';
 
 describe('SignalStore', () => {
   it('should register and get signals', () => {

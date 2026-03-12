@@ -5,7 +5,6 @@
  */
 import { describe, it, expect } from 'vitest';
 import { UIPluginRegistry } from '../src/core/rv-ui-registry';
-import type { RVUIPlugin } from '../src/core/rv-ui-plugin';
 
 // Dummy components (just need to be distinguishable)
 const CompA = () => null;
@@ -15,7 +14,7 @@ const CompC = () => null;
 describe('UIPluginRegistry', () => {
   it('registers and retrieves slot components', () => {
     const reg = new UIPluginRegistry();
-    const plugin: RVUIPlugin = {
+    const plugin = {
       id: 'test-ui',
       slots: [
         { slot: 'kpi-bar', component: CompA as any, order: 10 },
@@ -32,7 +31,7 @@ describe('UIPluginRegistry', () => {
 
   it('sorts by order within slot', () => {
     const reg = new UIPluginRegistry();
-    const plugin: RVUIPlugin = {
+    const plugin = {
       id: 'order-test',
       slots: [
         { slot: 'kpi-bar', component: CompB as any, order: 20 },
@@ -48,7 +47,7 @@ describe('UIPluginRegistry', () => {
 
   it('settings-tabs are returned separately', () => {
     const reg = new UIPluginRegistry();
-    const plugin: RVUIPlugin = {
+    const plugin = {
       id: 'settings-test',
       slots: [
         { slot: 'settings-tab', component: CompA as any, label: 'Dev Tools', order: 100 },

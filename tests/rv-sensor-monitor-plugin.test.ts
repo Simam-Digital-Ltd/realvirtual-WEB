@@ -5,7 +5,7 @@
  * and the RingBuffer event history.
  */
 import { describe, it, expect } from 'vitest';
-import { RingBuffer } from '../src/rv-ring-buffer';
+import { RingBuffer } from '../src/core/engine/rv-ring-buffer';
 
 // Simplified sensor mock matching RVSensor's onChanged signature
 class MockSensor {

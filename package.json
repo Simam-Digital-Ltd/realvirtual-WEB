@@ -9,8 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "webtest": "node scripts/webtest.mjs",
-    "webtest:headless": "node scripts/webtest.mjs --headless"
+    "e2e": "npx playwright test",
+    "e2e:headed": "npx playwright test --headed"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",

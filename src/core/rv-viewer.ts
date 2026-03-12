@@ -34,24 +34,22 @@ import {
   SRGBColorSpace,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import Stats from 'stats.js';
+import Stats from 'stats-gl';
 
 import { EventEmitter } from './rv-events';
-import { loadGLB, type LoadResult } from '../rv-scene-loader';
-import { SimulationLoop } from '../rv-simulation-loop';
-import { RVErraticDriver } from '../rv-erratic';
-import { setupDriveHover, type RVDriveHover } from '../rv-drive-hover';
-import { RVHighlightManager } from '../rv-highlight-manager';
-import type { RVDrive } from '../rv-drive';
-import type { RVTransportManager } from '../rv-transport-manager';
-import type { SignalStore } from '../rv-signal-store';
-import type { RVDrivesPlayback } from '../rv-drives-playback';
-import type { RVReplayRecording } from '../rv-replay-recording';
-import type { RVLogicEngine } from '../rv-logic-engine';
-import type { NodeRegistry } from '../rv-node-registry';
-import { DriveDataRecorder } from '../rv-drive-recorder';
+import { loadGLB, type LoadResult } from './engine/rv-scene-loader';
+import { SimulationLoop } from './engine/rv-simulation-loop';
+import { setupDriveHover, type RVDriveHover } from './engine/rv-drive-hover';
+import { RVHighlightManager } from './engine/rv-highlight-manager';
+import type { RVDrive } from './engine/rv-drive';
+import type { RVTransportManager } from './engine/rv-transport-manager';
+import type { SignalStore } from './engine/rv-signal-store';
+import type { RVDrivesPlayback } from './engine/rv-drives-playback';
+import type { RVReplayRecording } from './engine/rv-replay-recording';
+import type { RVLogicEngine } from './engine/rv-logic-engine';
+import type { NodeRegistry } from './engine/rv-node-registry';
+import { DriveDataRecorder } from './engine/rv-drive-recorder';
 import type { RVViewerPlugin } from './rv-plugin';
-import type { RVUIPlugin } from './rv-ui-plugin';
 import { UIPluginRegistry } from './rv-ui-registry';
 
 // ─── Public Types ───────────────────────────────────────────────────────
@@ -140,12 +138,15 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _physicsPluginActive = false;
   /** Last successful load result (for retroactive onModelLoaded). */
   private _lastLoadResult: LoadResult | null = null;
+  /** URL of the currently loaded model (for reloadModel). */
+  private _currentModelUrl: string | null = null;
 
   /** UI plugin registry for React slot rendering. */
   readonly uiRegistry = new UIPluginRegistry();
 
   /**
-   * Register a core plugin. Sorted into cached lifecycle lists.
+   * Register a plugin. Sorted into cached lifecycle lists.
+   * If the plugin has `slots`, its UI entries are auto-registered into the HMI.
    * Duplicate IDs are rejected with a warning. Chainable.
    */
   use(plugin: RVViewerPlugin): this {
@@ -166,6 +167,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     if (plugin.handlesTransport) this._physicsPluginActive = true;
 
+    // Auto-register UI slot entries if the plugin provides them
+    if (plugin.slots && plugin.slots.length > 0) {
+      this.uiRegistry.register(plugin);
+    }
+
     // Retroactive: if model already loaded, call onModelLoaded immediately
     if (this.drives.length > 0 && this._lastLoadResult && plugin.onModelLoaded) {
       try {
@@ -174,14 +180,6 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         console.error(`[RVViewer] Plugin '${plugin.id}' onModelLoaded error:`, e);
       }
     }
-    return this;
-  }
-
-  /**
-   * Register a UI plugin. Its slot entries are added to the uiRegistry. Chainable.
-   */
-  useUI(uiPlugin: RVUIPlugin): this {
-    this.uiRegistry.register(uiPlugin);
     return this;
   }
 
@@ -257,7 +255,6 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _savedShadowState = true;
 
   // --- Internal ---
-  private erraticDrivers: RVErraticDriver[] = [];
   private replayRecordings: RVReplayRecording[] = [];
   private currentModel: Object3D | null = null;
   private sceneFixtures = new Set<Object3D>();
@@ -265,6 +262,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private simTickCount = 0;
   private fpsFrameCount = 0;
   private fpsAccumTime = 0;
+  private rendererInfoFrameCount = 0;
+  private _lastGeoCount = 0;
+  private _lastTexCount = 0;
   private hemiLight!: HemisphereLight;
   private dirLight!: DirectionalLight;
   private fillLight!: DirectionalLight;
@@ -382,14 +382,25 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.sceneFixtures.add(ground);
     }
 
-    // --- Stats.js ---
-    this.stats = new Stats();
-    this.stats.showPanel(0);
+    // --- Stats-gl (FPS + CPU + GPU profiler) ---
+    this.stats = new Stats({
+      trackGPU: true,
+      trackHz: true,
+      trackCPT: false,
+      logsPerSecond: 4,
+      graphsPerSecond: 30,
+      samplesLog: 40,
+      samplesGraph: 10,
+      precision: 2,
+      minimal: false,
+      horizontal: true,
+    });
     this.stats.dom.style.position = 'absolute';
-    this.stats.dom.style.top = '12px';
-    this.stats.dom.style.left = '220px';
+    this.stats.dom.style.bottom = '12px';
+    this.stats.dom.style.left = '12px';
     this.stats.dom.style.display = 'none';
     document.body.appendChild(this.stats.dom);
+    this.stats.init(this.renderer);
 
     // --- Simulation Loop ---
     this.loop = new SimulationLoop(this.renderer);
@@ -463,6 +474,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   /** Load a GLB model and start all simulation systems. */
   async loadModel(url: string): Promise<LoadResult> {
     this.clearModel();
+    this._currentModelUrl = url;
 
     const result = await loadGLB(url, this.scene);
 
@@ -480,19 +492,6 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     // Drive hover highlighting (hover events emitted in render loop)
     this.driveHover = setupDriveHover(this.renderer, this.camera, this.scene, result.registry, this.highlighter);
-
-    // Erratic drivers
-    this.erraticDrivers = this.drives
-      .filter((drive) => drive.config.behaviors.includes('Drive_ErraticPosition'))
-      .map((drive) => {
-        const extras = drive.config.behaviorExtras['Drive_ErraticPosition'];
-        return new RVErraticDriver(drive, extras ? {
-          minPos: extras['MinPos'] as number | undefined,
-          maxPos: extras['MaxPos'] as number | undefined,
-          speed: extras['Speed'] as number | undefined,
-          iterateBetweenMaxAndMin: extras['IterateBetweenMaxAndMin'] as boolean | undefined,
-        } : undefined);
-      });
 
     // LogicEngine
     if (this.logicEngine) {
@@ -544,6 +543,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       }
     }
 
+    // Re-evaluate _physicsPluginActive — plugins may have changed handlesTransport in onModelLoaded
+    this._physicsPluginActive = this._plugins.some(p => p.handlesTransport);
+
     console.log(`[RVViewer] Model loaded: ${this.drives.length} drives, ${this.signalStore?.size ?? 0} signals`);
     this.emit('model-loaded', { result });
     return result;
@@ -577,7 +579,6 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.currentModel = null;
     }
     this.drives = [];
-    this.erraticDrivers = [];
     if (this.playback) {
       this.playback.stop();
       this.playback = null;
@@ -596,6 +597,22 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.emit('model-cleared');
   }
 
+  /** URL of the currently loaded model (null if no model loaded). */
+  get currentModelUrl(): string | null {
+    return this._currentModelUrl;
+  }
+
+  /**
+   * Reload the current model. Useful when physics settings change and
+   * the world needs to be rebuilt from scratch.
+   * Returns the LoadResult, or null if no model was loaded.
+   */
+  async reloadModel(): Promise<LoadResult | null> {
+    if (!this._currentModelUrl) return null;
+    const url = this._currentModelUrl;
+    return this.loadModel(url);
+  }
+
   /** Clean up all resources. */
   dispose(): void {
     // Plugin lifecycle: dispose (before everything else)
@@ -612,6 +629,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     }
     this.controls.dispose();
     this.renderer.dispose();
+    this.stats.dispose();
     this.stats.dom.remove();
     this.removeAllListeners();
   }
@@ -709,6 +727,15 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.fillLight.intensity = 0.4 * v;
     this.hemiLight.intensity = 0.9 * v;
   }
+
+  // ─── Profiler Overlay ────────────────────────────────────────────────
+
+  /** Show/hide the stats-gl FPS/CPU/GPU overlay. */
+  get showStats(): boolean { return this.stats.dom.style.display !== 'none'; }
+  set showStats(v: boolean) { this.stats.dom.style.display = v ? '' : 'none'; }
+
+  /** Enable/disable periodic renderer.info console logging. */
+  rendererInfoLogging = false;
 
   // ─── Renderer Info (for dev tools) ────────────────────────────────────
 
@@ -820,18 +847,13 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       rr.fixedUpdate(dt);
     }
 
-    // ── Plugins Pre (interface signals, erratic, replay, CAM) ──
+    // ── Plugins Pre (interface signals, replay, CAM) ──
     for (const p of this._prePlugins) {
       try { p.onFixedUpdatePre!(dt); }
       catch (e) { console.error(`[RVViewer] Plugin '${p.id}' onFixedUpdatePre error:`, e); }
     }
 
-    // Erratic drivers (legacy — not yet migrated to plugin)
-    for (const erratic of this.erraticDrivers) {
-      erratic.update(dt);
-    }
-
-    // ── Core Drive Physics (drives[] may be topologically sorted by DriveOrderPlugin) ──
+    // ── Core Drive Physics (behaviors + motion, drives[] may be topologically sorted) ──
     for (const drive of this.drives) {
       drive.update(dt);
     }
@@ -892,6 +914,31 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     }
 
     this.stats.end();
+    this.stats.update();
+
+    // --- Renderer.info periodic logging (every 5s at 60fps) ---
+    if (this.rendererInfoLogging) {
+      this.rendererInfoFrameCount++;
+      if (this.rendererInfoFrameCount >= 300) {
+        this.rendererInfoFrameCount = 0;
+        const info = this.renderer.info;
+        const mem = info.memory;
+        const rnd = info.render;
+        console.log(
+          `[Perf] Draw calls: ${rnd.calls} | Tris: ${rnd.triangles} | ` +
+          `Geo: ${mem.geometries} | Tex: ${mem.textures}`
+        );
+        // Leak warning: geometry/texture count should be stable
+        if (this._lastGeoCount > 0 && mem.geometries > this._lastGeoCount + 10) {
+          console.warn(`[Perf] Geometry count growing: ${this._lastGeoCount} → ${mem.geometries}`);
+        }
+        if (this._lastTexCount > 0 && mem.textures > this._lastTexCount + 5) {
+          console.warn(`[Perf] Texture count growing: ${this._lastTexCount} → ${mem.textures}`);
+        }
+        this._lastGeoCount = mem.geometries;
+        this._lastTexCount = mem.textures;
+      }
+    }
   }
 
   private createGround(): Mesh {

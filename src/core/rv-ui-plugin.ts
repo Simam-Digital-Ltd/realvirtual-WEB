@@ -1,8 +1,10 @@
 /**
- * RVUIPlugin — Interface for React UI slot plugins.
+ * UI Slot types for the HMI layout.
  *
- * UI plugins register React components into named layout slots
- * (kpi-bar, button-group, search-bar, messages, views, settings-tab).
+ * Plugins register React components into named layout slots
+ * (kpi-bar, button-group, search-bar, messages, views, settings-tab)
+ * via the `slots` property on RVViewerPlugin.
+ *
  * The HMI shell renders all registered components per slot.
  */
 
@@ -32,11 +34,4 @@ export interface UISlotEntry {
   order?: number;
   /** For settings-tab: tab label text. */
   label?: string;
-}
-
-export interface RVUIPlugin {
-  /** Unique UI plugin ID. */
-  readonly id: string;
-  /** Slot entries this plugin provides. */
-  readonly slots: UISlotEntry[];
 }

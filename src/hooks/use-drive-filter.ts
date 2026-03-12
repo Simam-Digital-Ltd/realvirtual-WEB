@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useViewer } from './use-viewer';
-import type { RVDrive } from '../rv-drive';
+import type { RVDrive } from '../core/engine/rv-drive';
 
 export interface DriveFilterState {
   filter: string;

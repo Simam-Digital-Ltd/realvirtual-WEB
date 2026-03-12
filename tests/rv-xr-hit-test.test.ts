@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { Scene, Object3D } from 'three';
-import { RVXRHitTester } from '../src/rv-xr-hit-test';
+import { RVXRHitTester } from '../src/core/engine/rv-xr-hit-test';
 
 describe('RVXRHitTester', () => {
   test('reticle starts invisible', () => {

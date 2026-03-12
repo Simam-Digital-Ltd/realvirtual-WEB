@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { Vector3, type Object3D } from 'three';
 import { Box, Typography } from '@mui/material';
-import { useHoveredDrive, useFocusedDrive } from '../hooks/use-drives';
-import { useViewer } from '../hooks/use-viewer';
-import type { RVDrive } from '../rv-drive';
+import { useHoveredDrive, useFocusedDrive } from '../../hooks/use-drives';
+import { useViewer } from '../../hooks/use-viewer';
+import type { RVDrive } from '../engine/rv-drive';
 
 const OFFSET_X = 16;
 const OFFSET_Y = -12;

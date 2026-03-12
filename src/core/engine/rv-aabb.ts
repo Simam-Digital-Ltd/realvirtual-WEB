@@ -12,7 +12,7 @@ export class AABB {
   readonly max = new Vector3();
 
   /** Local-space offset from node origin (e.g., BoxCollider center) */
-  private localCenter = new Vector3();
+  readonly localCenter = new Vector3();
   /** Reference to the scene node for position updates */
   private node: Object3D | null = null;
 

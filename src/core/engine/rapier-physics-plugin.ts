@@ -13,21 +13,29 @@
  *   dispose → cleanup WASM resources
  */
 
-import type { RVViewerPlugin } from '../core/rv-plugin';
-import type { RVViewer } from '../core/rv-viewer';
-import type { LoadResult } from '../rv-scene-loader';
-import { RVPhysicsWorld } from '../rv-physics-world';
-import type { RVTransportSurface } from '../rv-transport-surface';
-import type { RVSensor } from '../rv-sensor';
-import type { RVSink } from '../rv-sink';
-import type { RVMovingUnit } from '../rv-mu';
-import { Vector3, Quaternion, MathUtils } from 'three';
+import type { RVViewerPlugin } from '../rv-plugin';
+import type { RVViewer } from '../rv-viewer';
+import type { LoadResult } from './rv-scene-loader';
+import { RVPhysicsWorld } from './rv-physics-world';
+import type { AABB } from './rv-aabb';
+import type { RVTransportSurface } from './rv-transport-surface';
+import type { RVSensor } from './rv-sensor';
+import type { RVSink } from './rv-sink';
+import type { RVMovingUnit } from './rv-mu';
+import type { RVTransportManager } from './rv-transport-manager';
+import {
+  Vector3, Quaternion, MathUtils, Box3,
+  BoxGeometry, EdgesGeometry, LineSegments, LineBasicMaterial,
+  Object3D, Group,
+} from 'three';
 import { loadPhysicsSettings } from '../hmi/physics-settings-store';
-import { debug } from '../rv-debug';
+import { debug } from './rv-debug';
 
 // Pre-allocated temp vectors for zero-GC hot path
-const _surfacePos = new Vector3();
 const _muWorldPos = new Vector3();
+const _worldQuat = new Quaternion();
+const _localCenter = new Vector3();
+const _worldScale = new Vector3();
 
 export class RapierPhysicsPlugin implements RVViewerPlugin {
   readonly id = 'rapier-physics';
@@ -55,6 +63,11 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
 
   /** Node sync map: MU ID → { position, quaternion } for Rapier → Three.js sync */
   private _nodeSyncMap = new Map<string, { position: Vector3; quaternion: Quaternion }>();
+
+  /** Debug wireframe group (added to scene when debugWireframes is enabled) */
+  private _debugGroup: Group | null = null;
+  /** Debug wireframe materials by type */
+  private static _debugMaterials: Record<string, LineBasicMaterial> | null = null;
 
   // ─── WASM Preloading ──────────────────────────────────────────
 
@@ -109,37 +122,77 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       substeps: settings.substeps,
     });
 
+    // Add ground plane collider so MUs don't fall through the void
+    this._physicsWorld.addGroundPlane(settings.friction);
+
     const tm = viewer.transportManager;
     if (!tm) return;
+
+    /**
+     * Compute world-space center of a BoxCollider using localToWorld().
+     * The AABB localCenter is in the node's local glTF space — localToWorld()
+     * applies the full matrixWorld transform (position + rotation + scale)
+     * without manual decomposition, avoiding edge cases.
+     */
+    const computeWorldCenter = (node: Object3D, aabb: AABB) => {
+      node.updateWorldMatrix(true, false);
+      _localCenter.copy(aabb.localCenter);
+      node.localToWorld(_localCenter);
+      return { x: _localCenter.x, y: _localCenter.y, z: _localCenter.z };
+    };
+
+    /**
+     * Get world-space half-extents: BoxCollider local halfSize × node world scale.
+     */
+    const getScaledHalfExtents = (node: Object3D, aabb: AABB) => {
+      node.getWorldScale(_worldScale);
+      return {
+        x: aabb.halfSize.x * Math.abs(_worldScale.x),
+        y: aabb.halfSize.y * Math.abs(_worldScale.y),
+        z: aabb.halfSize.z * Math.abs(_worldScale.z),
+      };
+    };
+
+    // Helper: get world quaternion from node
+    const getWorldQuat = (node: Object3D) => {
+      node.getWorldQuaternion(_worldQuat);
+      return { x: _worldQuat.x, y: _worldQuat.y, z: _worldQuat.z, w: _worldQuat.w };
+    };
 
     // Build conveyor surfaces as kinematic bodies
     for (const surface of tm.surfaces) {
       const surfaceId = `surface_${surface.node.name}_${surface.node.id}`;
       this._surfaceIds.set(surface, surfaceId);
 
+      // Refresh AABB to ensure it's computed with current world matrix
       surface.node.updateWorldMatrix(true, false);
-      surface.node.getWorldPosition(_surfacePos);
+      surface.updateAABB();
 
-      const halfExtents = {
-        x: surface.aabb.halfSize.x,
-        y: surface.aabb.halfSize.y,
-        z: surface.aabb.halfSize.z,
-      };
+      const halfExtents = getScaledHalfExtents(surface.node, surface.aabb);
 
       // Speed in m/s (currentSpeed is in mm/s)
       const speedMs = surface.speed / 1000;
       const dir = surface.config.transportDirection.clone().normalize();
 
+      const center = computeWorldCenter(surface.node, surface.aabb);
+      const rotation = getWorldQuat(surface.node);
+
       this._physicsWorld.addConveyorSurface(
         surfaceId,
-        { x: surface.aabb.center.x, y: surface.aabb.center.y, z: surface.aabb.center.z },
+        center,
+        rotation,
         halfExtents,
         { x: dir.x, y: dir.y, z: dir.z },
         speedMs,
         settings.friction,
       );
 
-      debug('transport', `[Rapier] Surface "${surface.node.name}" → kinematic body, speed=${speedMs.toFixed(3)} m/s`);
+      debug('transport',
+        `[Rapier] Surface "${surface.node.name}" → kinematic body` +
+        ` pos=(${center.x.toFixed(3)}, ${center.y.toFixed(3)}, ${center.z.toFixed(3)})` +
+        ` he=(${halfExtents.x.toFixed(3)}, ${halfExtents.y.toFixed(3)}, ${halfExtents.z.toFixed(3)})` +
+        ` speed=${speedMs.toFixed(3)} m/s`,
+      );
     }
 
     // Build sensors as fixed bodies with sensor colliders
@@ -149,10 +202,17 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
         this._sensorIds.set(sensor, sensorId);
         this._sensorLookup.set(sensorId, sensor);
 
+        sensor.node.updateWorldMatrix(true, false);
+        sensor.updateAABB();
+        const center = computeWorldCenter(sensor.node, sensor.aabb);
+        const rotation = getWorldQuat(sensor.node);
+        const sensorHe = getScaledHalfExtents(sensor.node, sensor.aabb);
+
         this._physicsWorld.addSensor(
           sensorId,
-          { x: sensor.aabb.center.x, y: sensor.aabb.center.y, z: sensor.aabb.center.z },
-          { x: sensor.aabb.halfSize.x, y: sensor.aabb.halfSize.y, z: sensor.aabb.halfSize.z },
+          center,
+          rotation,
+          sensorHe,
         );
 
         debug('sensor', `[Rapier] Sensor "${sensor.node.name}" → sensor collider`);
@@ -165,10 +225,17 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       const sinkId = `sink_${sink.node.name}_${sink.node.id}`;
       this._sinkSensors.set(sinkId, sink);
 
+      sink.node.updateWorldMatrix(true, false);
+      sink.updateAABB();
+      const center = computeWorldCenter(sink.node, sink.aabb);
+      const rotation = getWorldQuat(sink.node);
+      const sinkHe = getScaledHalfExtents(sink.node, sink.aabb);
+
       this._physicsWorld.addSensor(
         sinkId,
-        { x: sink.aabb.center.x, y: sink.aabb.center.y, z: sink.aabb.center.z },
-        { x: sink.aabb.halfSize.x, y: sink.aabb.halfSize.y, z: sink.aabb.halfSize.z },
+        center,
+        rotation,
+        sinkHe,
       );
 
       debug('transport', `[Rapier] Sink "${sink.node.name}" → sensor collider`);
@@ -189,9 +256,16 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       }
     };
 
+    // Diagnostic: validate collider positions against mesh bounding boxes
+    if (settings.debugWireframes) {
+      this._validateColliderPositions(tm);
+      this._buildDebugWireframes(viewer);
+    }
+
     console.log(
       `[RapierPhysicsPlugin] World built: ${tm.surfaces.length} surfaces, ` +
-      `${tm.sensors.length} sensors, ${tm.sinks.length} sinks`,
+      `${tm.sensors.length} sensors, ${tm.sinks.length} sinks` +
+      (settings.debugWireframes ? ' (debug wireframes ON)' : ''),
     );
   }
 
@@ -395,7 +469,152 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     }
   }
 
+  // ─── Debug Wireframes ─────────────────────────────────────────
+
+  /**
+   * Build Three.js wireframe boxes from the Rapier collider info and add to scene.
+   * Colors: green = conveyor surface, cyan = sensor/sink, yellow = MU.
+   */
+  private _buildDebugWireframes(viewer: RVViewer): void {
+    if (!this._physicsWorld) return;
+
+    this._disposeDebugWireframes(viewer);
+
+    // Lazy-init shared materials
+    if (!RapierPhysicsPlugin._debugMaterials) {
+      RapierPhysicsPlugin._debugMaterials = {
+        surface: new LineBasicMaterial({ color: 0x00ff00, depthTest: false }),
+        sensor: new LineBasicMaterial({ color: 0x00ffff, depthTest: false }),
+        mu: new LineBasicMaterial({ color: 0xffff00, depthTest: false }),
+      };
+    }
+
+    this._debugGroup = new Group();
+    this._debugGroup.name = '__rapier_debug__';
+    this._debugGroup.renderOrder = 9999;
+
+    const bodies = this._physicsWorld.getDebugBodies();
+    for (const b of bodies) {
+      const geo = new BoxGeometry(b.halfExtents.x * 2, b.halfExtents.y * 2, b.halfExtents.z * 2);
+      const edges = new EdgesGeometry(geo);
+      const mat = RapierPhysicsPlugin._debugMaterials[b.type] ?? RapierPhysicsPlugin._debugMaterials.sensor;
+      const line = new LineSegments(edges, mat);
+      line.position.set(b.position.x, b.position.y, b.position.z);
+      line.quaternion.set(b.rotation.x, b.rotation.y, b.rotation.z, b.rotation.w);
+      line.frustumCulled = false;
+      this._debugGroup.add(line);
+      geo.dispose();
+    }
+
+    viewer.scene?.add(this._debugGroup);
+    console.log(`[RapierPhysicsPlugin] Debug wireframes: ${bodies.length} colliders visualized`);
+  }
+
+  /**
+   * Remove and dispose debug wireframe group from scene.
+   */
+  private _disposeDebugWireframes(viewer?: RVViewer): void {
+    if (!this._debugGroup) return;
+
+    // Remove all children geometries
+    for (const child of this._debugGroup.children) {
+      if (child instanceof LineSegments) {
+        child.geometry.dispose();
+      }
+    }
+    this._debugGroup.removeFromParent();
+    this._debugGroup = null;
+  }
+
+  /**
+   * Diagnostic: compare each Rapier collider against the corresponding node.
+   * Checks position, rotation, AND mesh-child rotation to identify mismatches.
+   * Logs warnings for deviations to help debug collider alignment issues.
+   */
+  private _validateColliderPositions(tm: RVTransportManager): void {
+    if (!this._physicsWorld) return;
+
+    const bodies = this._physicsWorld.getDebugBodies();
+    const _box = new Box3();
+    const _meshCenter = new Vector3();
+    const _nodeQuat = new Quaternion();
+    const _meshQuat = new Quaternion();
+    const _boxSize = new Vector3();
+    let maxPosDelta = 0;
+    let maxRotDelta = 0;
+
+    const allNodes = new Map<string, Object3D>();
+    for (const s of tm.surfaces) allNodes.set(`surface_${s.node.name}_${s.node.id}`, s.node);
+    for (const s of tm.sensors) allNodes.set(`sensor_${s.node.name}_${s.node.id}`, s.node);
+    for (const s of tm.sinks) allNodes.set(`sink_${s.node.name}_${s.node.id}`, s.node);
+
+    for (const b of bodies) {
+      if (b.type === 'mu') continue;
+      const node = allNodes.get(b.id);
+      if (!node) continue;
+
+      node.updateWorldMatrix(true, false);
+
+      // === Position check (collider vs mesh bounding box center) ===
+      _box.setFromObject(node);
+      _box.getCenter(_meshCenter);
+      _box.getSize(_boxSize);
+
+      const dx = b.position.x - _meshCenter.x;
+      const dy = b.position.y - _meshCenter.y;
+      const dz = b.position.z - _meshCenter.z;
+      const posDelta = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      maxPosDelta = Math.max(maxPosDelta, posDelta);
+
+      // === Rotation check (Rapier body vs node world quaternion) ===
+      node.getWorldQuaternion(_nodeQuat);
+      const bodyQuat = new Quaternion(b.rotation.x, b.rotation.y, b.rotation.z, b.rotation.w);
+      const rotAngle = _nodeQuat.angleTo(bodyQuat) * (180 / Math.PI);
+      maxRotDelta = Math.max(maxRotDelta, rotAngle);
+
+      // === Mesh child rotation check ===
+      // Find the first Mesh child and compare its world rotation to the node's
+      let meshChild: Object3D | null = null;
+      let meshChildRotDiff = 0;
+      node.traverse((child) => {
+        if (!meshChild && child !== node && (child as { isMesh?: boolean }).isMesh) {
+          meshChild = child;
+        }
+      });
+      if (meshChild) {
+        (meshChild as Object3D).getWorldQuaternion(_meshQuat);
+        meshChildRotDiff = _nodeQuat.angleTo(_meshQuat) * (180 / Math.PI);
+      }
+
+      // === Size check (Rapier halfExtents vs mesh bounding box) ===
+      const heRatioX = _boxSize.x > 0.001 ? (b.halfExtents.x * 2) / _boxSize.x : 1;
+      const heRatioY = _boxSize.y > 0.001 ? (b.halfExtents.y * 2) / _boxSize.y : 1;
+      const heRatioZ = _boxSize.z > 0.001 ? (b.halfExtents.z * 2) / _boxSize.z : 1;
+
+      // Log comprehensive diagnostic for every collider
+      const hasIssue = posDelta > 0.05 || rotAngle > 1 || meshChildRotDiff > 1;
+      const logFn = hasIssue ? console.warn : console.log;
+      logFn(
+        `[Rapier] ${hasIssue ? '⚠️' : '✓'} "${b.id}" (${b.type}):` +
+        `\n  pos: collider=(${b.position.x.toFixed(3)}, ${b.position.y.toFixed(3)}, ${b.position.z.toFixed(3)})` +
+        ` meshBox=(${_meshCenter.x.toFixed(3)}, ${_meshCenter.y.toFixed(3)}, ${_meshCenter.z.toFixed(3)})` +
+        ` delta=${(posDelta * 1000).toFixed(1)}mm` +
+        `\n  rot: body→node angle=${rotAngle.toFixed(1)}°` +
+        (meshChild ? ` node→meshChild angle=${meshChildRotDiff.toFixed(1)}°` : ' (no mesh child)') +
+        `\n  size: he=(${b.halfExtents.x.toFixed(3)}, ${b.halfExtents.y.toFixed(3)}, ${b.halfExtents.z.toFixed(3)})` +
+        ` meshBox=(${(_boxSize.x / 2).toFixed(3)}, ${(_boxSize.y / 2).toFixed(3)}, ${(_boxSize.z / 2).toFixed(3)})` +
+        ` ratio=(${heRatioX.toFixed(2)}, ${heRatioY.toFixed(2)}, ${heRatioZ.toFixed(2)})`,
+      );
+    }
+
+    console.log(
+      `[Rapier] Collider validation summary: max pos delta=${(maxPosDelta * 1000).toFixed(1)}mm, ` +
+      `max rot delta=${maxRotDelta.toFixed(1)}°`,
+    );
+  }
+
   private _cleanup(): void {
+    this._disposeDebugWireframes(this._viewer ?? undefined);
     this._physicsWorld?.dispose();
     this._physicsWorld = null;
     this._viewer = null;

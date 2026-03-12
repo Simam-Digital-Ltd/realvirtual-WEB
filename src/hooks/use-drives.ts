@@ -9,7 +9,7 @@
 
 import { useState, useEffect } from 'react';
 import { useViewer } from './use-viewer';
-import type { RVDrive } from '../rv-drive';
+import type { RVDrive } from '../core/engine/rv-drive';
 import type { Object3D } from 'three';
 
 export interface DriveHoverState {

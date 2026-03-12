@@ -21,6 +21,16 @@ export interface DriveConfig {
   behaviorExtras: Record<string, Record<string, unknown>>;
 }
 
+/**
+ * IDriveBehavior - mirrors Unity's IDriveBehavior interface.
+ * Behaviors are owned by the drive and called before drive physics,
+ * exactly like Unity's Drive.CalcFixedUpdate() calls its DriveBehaviours.
+ */
+export interface IDriveBehavior {
+  /** Called every fixed timestep, before drive physics. Sets targetPosition/targetSpeed/startMove. */
+  update(dt: number): void;
+}
+
 // Reusable temp objects to avoid GC
 const _euler = new Euler();
 const _deltaQuat = new Quaternion();
@@ -59,6 +69,9 @@ export class RVDrive {
 
   /** When true, update() skips physics and only applies transform (for DrivesPlayback) */
   positionOverwrite = false;
+
+  /** Drive behaviors called before physics, mirroring Unity's IDriveBehavior pattern */
+  readonly driveBehaviors: IDriveBehavior[] = [];
 
   // Direction axis (in local space)
   private axis = new Vector3();
@@ -112,6 +125,11 @@ export class RVDrive {
     if (this.positionOverwrite) {
       this.applyToNode();
       return;
+    }
+
+    // Call drive behaviors first (mirrors Unity: Drive.CalcFixedUpdate calls IDriveBehavior[])
+    for (const behavior of this.driveBehaviors) {
+      behavior.update(dt);
     }
 
     // Jog mode: continuous motion at targetSpeed (used by Drive_Simple / conveyors)

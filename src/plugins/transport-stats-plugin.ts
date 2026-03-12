@@ -7,8 +7,8 @@
 
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
-import type { LoadResult } from '../rv-scene-loader';
-import { RingBuffer } from '../rv-ring-buffer';
+import type { LoadResult } from '../core/engine/rv-scene-loader';
+import { RingBuffer } from '../core/engine/rv-ring-buffer';
 
 export class TransportStatsPlugin implements RVViewerPlugin {
   readonly id = 'transport-stats';

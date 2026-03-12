@@ -4,12 +4,13 @@
  * Thin orchestrator that creates an RVViewer, handles model selection
  * (URL params, localStorage, Firebase demo mode), and initializes the HMI.
  *
- * All 3D, simulation, and data logic lives in RVViewer (core/rv-viewer.ts).
- * All UI lives in hmi/ and hooks/.
+ * All 3D, simulation, and data logic lives in RVViewer (core/rv-viewer.ts)
+ * and the engine subsystems (core/engine/).
+ * All UI lives in core/hmi/ (layout) and custom/ (content).
  */
 
 import { RVViewer } from './core/rv-viewer';
-import { initHMI } from './hmi/hmi-entry';
+import { initHMI } from './custom/hmi-entry';
 import { initTestRunner } from './rv-test-runner';
 
 // Core Plugins
@@ -18,7 +19,10 @@ import { TransportStatsPlugin } from './plugins/transport-stats-plugin';
 import { CameraEventsPlugin } from './plugins/camera-events-plugin';
 import { DriveOrderPlugin } from './plugins/drive-order-plugin';
 import { KpiDemoPlugin } from './plugins/kpi-demo-plugin';
-import { RapierPhysicsPlugin } from './plugins/rapier-physics-plugin';
+import { RapierPhysicsPlugin } from './core/engine/rapier-physics-plugin';
+
+// Demo HMI content (registers KPI cards, nav buttons, message tiles into HMI slots)
+import { DemoHMIPlugin } from './custom/demo-hmi-plugin';
 
 // --- localStorage keys ---
 const LS_KEY_MODEL = 'rv-webviewer-last-model';
@@ -67,7 +71,8 @@ async function init() {
     .use(new SensorMonitorPlugin())
     .use(new TransportStatsPlugin())
     .use(new CameraEventsPlugin())
-    .use(new KpiDemoPlugin());
+    .use(new KpiDemoPlugin())
+    .use(new DemoHMIPlugin());
 
   // --- Model discovery ---
   const modelFiles = import.meta.glob('/public/models/*.glb', { query: '?url', import: 'default', eager: true }) as Record<string, string>;

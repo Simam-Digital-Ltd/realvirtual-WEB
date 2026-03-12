@@ -1,12 +1,15 @@
-import { RVDrive } from './rv-drive';
+import { RVDrive, type IDriveBehavior } from './rv-drive';
 
 /**
  * RVErraticDriver - TypeScript port of Drive_ErraticPosition.cs
  *
  * Continuously moves a drive to random positions between MinPos and MaxPos.
  * When one target is reached, picks a new random target.
+ *
+ * Implements IDriveBehavior — owned by the drive and called during drive.update(),
+ * mirroring Unity's Drive.CalcFixedUpdate() calling its DriveBehaviours.
  */
-export class RVErraticDriver {
+export class RVErraticDriver implements IDriveBehavior {
   readonly drive: RVDrive;
   readonly minPos: number;
   readonly maxPos: number;

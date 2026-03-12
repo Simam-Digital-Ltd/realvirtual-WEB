@@ -1,13 +1,18 @@
 /**
- * RVViewerPlugin — Interface for viewer lifecycle plugins.
+ * RVViewerPlugin — Interface for viewer plugins.
  *
  * Plugins register via viewer.use(plugin) and receive callbacks at key
  * lifecycle points. Each callback is isolated with try/catch so a
  * faulty plugin cannot freeze the simulation.
+ *
+ * Plugins can also provide UI by declaring a `slots` array. Slot entries
+ * are automatically registered into the HMI layout (kpi-bar, button-group,
+ * messages, etc.) when viewer.use() is called.
  */
 
-import type { LoadResult } from '../rv-scene-loader';
+import type { LoadResult } from './engine/rv-scene-loader';
 import type { RVViewer } from './rv-viewer';
+import type { UISlotEntry } from './rv-ui-plugin';
 
 export interface RVViewerPlugin {
   /** Unique plugin ID (e.g. 'drive-recorder', 'sensor-monitor'). */
@@ -18,6 +23,9 @@ export interface RVViewerPlugin {
 
   /** When true: plugin handles transport (transportManager.update is skipped). */
   readonly handlesTransport?: boolean;
+
+  /** UI slot entries this plugin provides (KPI cards, buttons, messages, etc.). */
+  readonly slots?: UISlotEntry[];
 
   // ── Lifecycle Callbacks ──
 

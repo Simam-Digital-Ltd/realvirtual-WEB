@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from 'vitest';
-import { SimulationLoop } from '../src/rv-simulation-loop';
+import { SimulationLoop } from '../src/core/engine/rv-simulation-loop';
 
 describe('SimulationLoop XR compatibility', () => {
   test('uses setAnimationLoop when renderer provided', () => {

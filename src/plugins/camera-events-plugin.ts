@@ -6,7 +6,7 @@
 
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
-import type { LoadResult } from '../rv-scene-loader';
+import type { LoadResult } from '../core/engine/rv-scene-loader';
 
 export class CameraEventsPlugin implements RVViewerPlugin {
   readonly id = 'camera-events';

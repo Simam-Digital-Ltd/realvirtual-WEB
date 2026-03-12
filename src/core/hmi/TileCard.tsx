@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { Paper, Box, Typography, IconButton } from '@mui/material';
 import { Warning, Build, Speed, Sensors, Close, OpenInNew } from '@mui/icons-material';
-import { useViewer } from '../hooks/use-viewer';
+import { useViewer } from '../../hooks/use-viewer';
 
 const iconMap: Record<string, React.ReactElement> = {
   warning: <Warning />,
@@ -44,10 +44,9 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
     if (componentPath) {
       viewer.focusByPath(componentPath);
       viewer.highlightByPath(componentPath, true);
-      // Filter chart to this drive and open chart if closed
+      // Only filter chart if already open — don't force it open
       const driveName = componentPath.split('/').pop() ?? componentPath;
       viewer.filterDrives(driveName);
-      viewer.toggleDriveChart(true);
     }
   }, [viewer, componentPath]);
 

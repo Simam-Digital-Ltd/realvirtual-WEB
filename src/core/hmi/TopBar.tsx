@@ -2,36 +2,18 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Vector3 } from 'three';
 import { Typography, Box, IconButton, Paper, Button, CircularProgress, Tabs, Tab, Switch, Slider, Tooltip } from '@mui/material';
 import { Settings, Close, PlayArrow, CheckCircle, Error as ErrorIcon } from '@mui/icons-material';
-import { KpiCard } from './KpiCard';
-import { useViewer } from '../hooks/use-viewer';
+import { useViewer } from '../../hooks/use-viewer';
 import { loadVisualSettings, saveVisualSettings, type VisualSettings, type CameraBookmark } from './visual-settings-store';
+import { loadPhysicsSettings, savePhysicsSettings, type PhysicsSettings } from './physics-settings-store';
 
 export function TopBar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState(0);
 
   return (
-    <Box
-      sx={{
-        position: 'fixed',
-        top: 8,
-        left: 0,
-        right: 0,
-        zIndex: 1200,
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'center',
-        gap: 1.5,
-        pointerEvents: 'none',
-      }}
-    >
-      {/* KPI cards — horizontally centered */}
-      <KpiCard label="OEE" value="87" unit="%" color="#66bb6a" secondary="Target: 90%" />
-      <KpiCard label="Parts/h" value="312" unit="p/h" color="#4fc3f7" secondary="Shift total: 2,480" />
-      <KpiCard label="Cycle Time" value="4.2" unit="s" color="#ffa726" secondary="Avg last hour" />
-
+    <>
       {/* Settings button — fixed top-right */}
-      <Paper elevation={4} sx={{ position: 'fixed', top: 8, right: 8, borderRadius: 2, pointerEvents: 'auto', zIndex: 1200 }}>
+      <Paper elevation={4} sx={{ position: 'fixed', top: 8, right: 8, borderRadius: 2, pointerEvents: 'auto', zIndex: 9001 }}>
         <IconButton
           size="small"
           color={settingsOpen ? 'primary' : 'inherit'}
@@ -48,7 +30,7 @@ export function TopBar() {
           sx={{
             position: 'fixed',
             inset: 0,
-            zIndex: 1300,
+            zIndex: 9000,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -79,6 +61,7 @@ export function TopBar() {
             >
               <Tab label="Model" />
               <Tab label="Visual" />
+              <Tab label="Physics" />
               <Tab label="Dev Tools" />
               <Tab label="Tests" />
             </Tabs>
@@ -86,13 +69,14 @@ export function TopBar() {
             <Box sx={{ p: 3, flex: 1 }}>
               {settingsTab === 0 && <ModelTab />}
               {settingsTab === 1 && <VisualTab />}
-              {settingsTab === 2 && <DevToolsTab />}
-              {settingsTab === 3 && <TestsTab />}
+              {settingsTab === 2 && <PhysicsTab />}
+              {settingsTab === 3 && <DevToolsTab />}
+              {settingsTab === 4 && <TestsTab />}
             </Box>
           </Paper>
         </Box>
       )}
-    </Box>
+    </>
   );
 }
 
@@ -274,6 +258,115 @@ function VisualTab() {
   );
 }
 
+/* ─── Tab: Physics ─── */
+
+function PhysicsTab() {
+  const viewer = useViewer();
+  const settingsRef = useRef(loadPhysicsSettings());
+  const [enabled, setEnabled] = useState(settingsRef.current.enabled);
+  const [gravity, setGravity] = useState(settingsRef.current.gravity);
+  const [friction, setFriction] = useState(settingsRef.current.friction);
+  const [debugVis, setDebugVis] = useState(settingsRef.current.debugWireframes);
+  const [substeps, setSubsteps] = useState(settingsRef.current.substeps);
+  const [reloading, setReloading] = useState(false);
+
+  const persist = (patch: Partial<PhysicsSettings>) => {
+    Object.assign(settingsRef.current, patch);
+    savePhysicsSettings(settingsRef.current);
+  };
+
+  /** Save settings and reload model to apply physics changes. */
+  const persistAndReload = (patch: Partial<PhysicsSettings>) => {
+    persist(patch);
+    if (!viewer.currentModelUrl) return;
+    setReloading(true);
+    viewer.reloadModel().then(() => setReloading(false)).catch(() => setReloading(false));
+  };
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+      {/* Physics on/off */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box>
+          <Typography variant="body2" sx={{ color: 'text.primary' }}>Rapier.js Physics</Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+            Replaces kinematic transport with rigid-body physics
+          </Typography>
+        </Box>
+        <Switch size="small" checked={enabled} disabled={reloading} onChange={(_, v) => { setEnabled(v); persistAndReload({ enabled: v }); }} />
+      </Box>
+
+      {/* Gravity */}
+      <Box sx={{ opacity: enabled ? 1 : 0.4, pointerEvents: enabled ? 'auto' : 'none' }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+          Gravity (m/s²)
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+          <Slider size="small" min={0} max={20} step={0.1} value={gravity} onChange={(_, v) => { const val = v as number; setGravity(val); persist({ gravity: val }); }} onChangeCommitted={(_, v) => { persistAndReload({ gravity: v as number }); }} sx={{ flex: 1 }} />
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 40, textAlign: 'right' }}>
+            {gravity.toFixed(1)}
+          </Typography>
+        </Box>
+      </Box>
+
+      {/* Friction */}
+      <Box sx={{ opacity: enabled ? 1 : 0.4, pointerEvents: enabled ? 'auto' : 'none' }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+          Surface Friction
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+          <Slider size="small" min={0} max={3} step={0.1} value={friction} onChange={(_, v) => { const val = v as number; setFriction(val); persist({ friction: val }); }} onChangeCommitted={(_, v) => { persistAndReload({ friction: v as number }); }} sx={{ flex: 1 }} />
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
+            {friction.toFixed(1)}
+          </Typography>
+        </Box>
+      </Box>
+
+      {/* Substeps */}
+      <Box sx={{ opacity: enabled ? 1 : 0.4, pointerEvents: enabled ? 'auto' : 'none' }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+          Substeps
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+          <Slider size="small" min={1} max={4} step={1} marks value={substeps} onChange={(_, v) => { const val = v as number; setSubsteps(val); persist({ substeps: val }); }} onChangeCommitted={(_, v) => { persistAndReload({ substeps: v as number }); }} sx={{ flex: 1 }} />
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 16, textAlign: 'right' }}>
+            {substeps}
+          </Typography>
+        </Box>
+      </Box>
+
+      {/* Debug visualization */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: enabled ? 1 : 0.4, pointerEvents: enabled ? 'auto' : 'none' }}>
+        <Box>
+          <Typography variant="body2" sx={{ color: 'text.primary' }}>Debug Wireframes</Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+            Show collider shapes as wireframes
+          </Typography>
+        </Box>
+        <Switch size="small" checked={debugVis} disabled={reloading} onChange={(_, v) => { setDebugVis(v); persistAndReload({ debugWireframes: v }); }} />
+      </Box>
+
+      {/* Status */}
+      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+          Status
+        </Typography>
+        <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          <StatRow label="Engine" value={enabled ? 'Rapier.js (WASM)' : 'Kinematic'} color={enabled ? '#66bb6a' : '#4fc3f7'} />
+          <StatRow label="MU Bodies" value="—" />
+          <StatRow label="Conveyors" value="—" />
+        </Box>
+      </Box>
+
+      {reloading && (
+        <Typography variant="caption" sx={{ color: '#ffa726', fontStyle: 'italic' }}>
+          Reloading model to apply physics settings...
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
 /* ─── Tab: Dev Tools ─── */
 
 interface DevStats {
@@ -311,6 +404,8 @@ function DevToolsTab() {
   const [stats, setStats] = useState<DevStats | null>(null);
   const [benchRunning, setBenchRunning] = useState(false);
   const [benchResult, setBenchResult] = useState<{ uncappedFps: number; avgFrameMs: number; headroom: number } | null>(null);
+  const [showStats, setShowStats] = useState(viewer.showStats);
+  const [infoLogging, setInfoLogging] = useState(viewer.rendererInfoLogging);
 
   const runBenchmark = useCallback(async () => {
     setBenchRunning(true);
@@ -350,7 +445,24 @@ function DevToolsTab() {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {/* Profiler toggles */}
       <Box>
+        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+          Profiler
+        </Typography>
+        <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body2" sx={{ color: 'text.primary' }}>FPS / GPU Overlay</Typography>
+            <Switch size="small" checked={showStats} onChange={(_, v) => { viewer.showStats = v; setShowStats(v); }} />
+          </Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body2" sx={{ color: 'text.primary' }}>Console Perf Log</Typography>
+            <Switch size="small" checked={infoLogging} onChange={(_, v) => { viewer.rendererInfoLogging = v; setInfoLogging(v); }} />
+          </Box>
+        </Box>
+      </Box>
+
+      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
         <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
           Stats
         </Typography>

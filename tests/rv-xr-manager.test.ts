@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach } from 'vitest';
 import { mockNavigatorXR, clearNavigatorXR } from './mocks/webxr-mock';
-import { RVXRManager } from '../src/rv-xr-manager';
+import { RVXRManager } from '../src/core/engine/rv-xr-manager';
 
 describe('RVXRManager', () => {
   afterEach(() => clearNavigatorXR());

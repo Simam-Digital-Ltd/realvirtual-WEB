@@ -116,6 +116,33 @@ export class RVPhysicsWorld {
     this.physicsReady = false;
   }
 
+  // ─── Ground Plane ───────────────────────────────────────────────
+
+  /**
+   * Add a static ground plane at y=0. This prevents MUs from falling
+   * through the void when they miss or leave a conveyor surface.
+   * Uses a large thin cuboid (50m × 0.01m × 50m).
+   */
+  addGroundPlane(friction?: number): void {
+    if (!this._world || !this.physicsReady) return;
+    const R = this._rapier;
+
+    const bodyDesc = R.RigidBodyDesc.fixed()
+      .setTranslation(0, -0.01, 0); // bottom of cuboid at y=-0.02, top at y=0
+    const body = this._world.createRigidBody(bodyDesc);
+
+    const f = friction ?? this._friction;
+    R.ColliderDesc
+      .cuboid(50, 0.01, 50)
+      .setFriction(f)
+      .setFrictionCombineRule(R.CoefficientCombineRule.Max);
+    const colliderDesc = R.ColliderDesc
+      .cuboid(50, 0.01, 50)
+      .setFriction(f)
+      .setFrictionCombineRule(R.CoefficientCombineRule.Max);
+    this._world.createCollider(colliderDesc, body);
+  }
+
   // ─── Body Count ──────────────────────────────────────────────────
 
   /** Total number of rigid bodies in the world (MUs + surfaces + sensor bodies). */
@@ -251,7 +278,8 @@ export class RVPhysicsWorld {
    *
    * @param surfaceId Unique surface identifier
    * @param position World position {x, y, z} in meters
-   * @param halfExtents Half-size of the collider box in meters
+   * @param rotation World rotation quaternion (default: identity)
+   * @param halfExtents Half-size of the collider box in meters (local space)
    * @param direction Normalized transport direction
    * @param speed Speed in m/s (already converted from mm/s)
    * @param friction Friction coefficient (default uses world config)
@@ -259,6 +287,7 @@ export class RVPhysicsWorld {
   addConveyorSurface(
     surfaceId: string,
     position: { x: number; y: number; z: number },
+    rotation: { x: number; y: number; z: number; w: number } | null,
     halfExtents: { x: number; y: number; z: number },
     direction: { x: number; y: number; z: number },
     speed: number,
@@ -269,6 +298,9 @@ export class RVPhysicsWorld {
 
     const bodyDesc = R.RigidBodyDesc.kinematicVelocityBased()
       .setTranslation(position.x, position.y, position.z);
+    if (rotation) {
+      bodyDesc.setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w });
+    }
     const body = this._world.createRigidBody(bodyDesc);
 
     const f = friction ?? this._friction;
@@ -278,8 +310,8 @@ export class RVPhysicsWorld {
       .setFrictionCombineRule(R.CoefficientCombineRule.Max);
     const collider = this._world.createCollider(colliderDesc, body);
 
-    // Set initial velocity
-    body.setLinvel({ x: direction.x * speed, y: 0, z: direction.z * speed }, true);
+    // Set initial velocity (all 3 components — y matters for inclined conveyors)
+    body.setLinvel({ x: direction.x * speed, y: direction.y * speed, z: direction.z * speed }, true);
 
     this._surfaceMap.set(surfaceId, { body, collider });
   }
@@ -297,7 +329,7 @@ export class RVPhysicsWorld {
   ): void {
     const info = this._surfaceMap.get(surfaceId);
     if (!info) return;
-    info.body.setLinvel({ x: direction.x * speed, y: 0, z: direction.z * speed }, true);
+    info.body.setLinvel({ x: direction.x * speed, y: direction.y * speed, z: direction.z * speed }, true);
   }
 
   /**
@@ -332,11 +364,13 @@ export class RVPhysicsWorld {
    *
    * @param sensorId Unique sensor identifier
    * @param position World position in meters
-   * @param halfExtents Half-size of sensor zone in meters
+   * @param rotation World rotation quaternion (default: identity)
+   * @param halfExtents Half-size of sensor zone in meters (local space)
    */
   addSensor(
     sensorId: string,
     position: { x: number; y: number; z: number },
+    rotation: { x: number; y: number; z: number; w: number } | null,
     halfExtents: { x: number; y: number; z: number },
   ): void {
     if (!this._world || !this.physicsReady) return;
@@ -344,6 +378,9 @@ export class RVPhysicsWorld {
 
     const bodyDesc = R.RigidBodyDesc.fixed()
       .setTranslation(position.x, position.y, position.z);
+    if (rotation) {
+      bodyDesc.setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w });
+    }
     const body = this._world.createRigidBody(bodyDesc);
 
     const colliderDesc = R.ColliderDesc
@@ -500,5 +537,69 @@ export class RVPhysicsWorld {
   /** Get the Rapier module reference. */
   get rapier(): typeof RAPIER {
     return this._rapier;
+  }
+
+  // ─── Debug Info ────────────────────────────────────────────────
+
+  /** Get all collider info for debug visualization. */
+  getDebugBodies(): Array<{
+    type: 'surface' | 'mu' | 'sensor';
+    id: string;
+    position: { x: number; y: number; z: number };
+    rotation: { x: number; y: number; z: number; w: number };
+    halfExtents: { x: number; y: number; z: number };
+  }> {
+    if (!this._world) return [];
+    const result: Array<{
+      type: 'surface' | 'mu' | 'sensor';
+      id: string;
+      position: { x: number; y: number; z: number };
+      rotation: { x: number; y: number; z: number; w: number };
+      halfExtents: { x: number; y: number; z: number };
+    }> = [];
+
+    for (const [id, info] of this._surfaceMap) {
+      const t = info.body.translation();
+      const r = info.body.rotation();
+      const shape = info.collider.shape;
+      const he = (shape as unknown as { halfExtents: { x: number; y: number; z: number } }).halfExtents;
+      result.push({
+        type: 'surface',
+        id,
+        position: { x: t.x, y: t.y, z: t.z },
+        rotation: { x: r.x, y: r.y, z: r.z, w: r.w },
+        halfExtents: he ? { x: he.x, y: he.y, z: he.z } : { x: 0.1, y: 0.1, z: 0.1 },
+      });
+    }
+
+    for (const [id, info] of this._bodyMap) {
+      const t = info.body.translation();
+      const r = info.body.rotation();
+      const shape = info.collider.shape;
+      const he = (shape as unknown as { halfExtents: { x: number; y: number; z: number } }).halfExtents;
+      result.push({
+        type: 'mu',
+        id,
+        position: { x: t.x, y: t.y, z: t.z },
+        rotation: { x: r.x, y: r.y, z: r.z, w: r.w },
+        halfExtents: he ? { x: he.x, y: he.y, z: he.z } : { x: 0.1, y: 0.1, z: 0.1 },
+      });
+    }
+
+    for (const [, entry] of this._sensorMap) {
+      const t = entry.info.body.translation();
+      const r = entry.info.body.rotation();
+      const shape = entry.info.collider.shape;
+      const he = (shape as unknown as { halfExtents: { x: number; y: number; z: number } }).halfExtents;
+      result.push({
+        type: 'sensor',
+        id: entry.sensorId,
+        position: { x: t.x, y: t.y, z: t.z },
+        rotation: { x: r.x, y: r.y, z: r.z, w: r.w },
+        halfExtents: he ? { x: he.x, y: he.y, z: he.z } : { x: 0.1, y: 0.1, z: 0.1 },
+      });
+    }
+
+    return result;
   }
 }

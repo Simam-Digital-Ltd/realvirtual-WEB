@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { RVPhysicsWorld } from '../src/rv-physics-world';
+import { RVPhysicsWorld } from '../src/core/engine/rv-physics-world';
 import { Vector3, Quaternion } from 'three';
 
 beforeAll(async () => {
@@ -100,6 +100,7 @@ describe('Conveyor Surface Management', () => {
     pw.addConveyorSurface(
       'conv1',
       { x: 0, y: 0, z: 0 },
+      null,
       { x: 1, y: 0.05, z: 0.5 },
       { x: 1, y: 0, z: 0 },
       0.5,
@@ -109,11 +110,26 @@ describe('Conveyor Surface Management', () => {
     pw.dispose();
   });
 
+  it('addConveyorSurface with rotation applies quaternion', () => {
+    const pw = createPhysicsWorld();
+    pw.addConveyorSurface(
+      'conv1',
+      { x: 0, y: 0, z: 0 },
+      { x: 0, y: 0.7071, z: 0, w: 0.7071 }, // 90° around Y
+      { x: 1, y: 0.05, z: 0.5 },
+      { x: 1, y: 0, z: 0 },
+      0.5,
+    );
+    expect(pw.hasSurface('conv1')).toBe(true);
+    pw.dispose();
+  });
+
   it('updateConveyorVelocity changes surface speed', () => {
     const pw = createPhysicsWorld();
     pw.addConveyorSurface(
       'conv1',
       { x: 0, y: 0, z: 0 },
+      null,
       { x: 1, y: 0.05, z: 0.5 },
       { x: 1, y: 0, z: 0 },
       0.5,
@@ -182,7 +198,7 @@ describe('Sensor Events', () => {
     const pw = createPhysicsWorld({ gravity: { x: 0, y: -9.81, z: 0 } });
 
     // Sensor at ground level
-    pw.addSensor('sensor1', { x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 });
+    pw.addSensor('sensor1', { x: 0, y: 0, z: 0 }, null, { x: 1, y: 1, z: 1 });
 
     // MU starts above sensor and will fall into it
     pw.addMU('mu1', { x: 0, y: 0.5, z: 0 }, halfExtents);
@@ -207,7 +223,7 @@ describe('Sensor Events', () => {
     const pw = createPhysicsWorld({ gravity: { x: 0, y: 0, z: 0 } });
 
     // Large sensor zone
-    pw.addSensor('sensor1', { x: 0, y: 0, z: 0 }, { x: 5, y: 5, z: 5 });
+    pw.addSensor('sensor1', { x: 0, y: 0, z: 0 }, null, { x: 5, y: 5, z: 5 });
 
     // MU inside sensor zone (no gravity, stays in place)
     pw.addMU('mu1', { x: 0, y: 0, z: 0 }, halfExtents);
@@ -371,6 +387,7 @@ describe('Conveyor + MU Integration', () => {
     pw.addConveyorSurface(
       'conv1',
       { x: 0, y: -0.05, z: 0 },
+      null,
       { x: 2, y: 0.05, z: 0.5 },
       { x: 1, y: 0, z: 0 },
       1.0,
@@ -403,6 +420,7 @@ describe('Backpressure & Stacking', () => {
     pw.addConveyorSurface(
       'conv1',
       { x: 2, y: -0.05, z: 0 },
+      null,
       { x: 3, y: 0.05, z: 0.5 },
       { x: 1, y: 0, z: 0 },
       0.5,
@@ -447,6 +465,7 @@ describe('Backpressure & Stacking', () => {
     pw.addConveyorSurface(
       'conv1',
       { x: 0, y: -0.05, z: 0 },
+      null,
       { x: 3, y: 0.05, z: 0.5 },
       { x: 1, y: 0, z: 0 },
       1.0,

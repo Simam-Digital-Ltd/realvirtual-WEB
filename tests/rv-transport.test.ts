@@ -6,12 +6,12 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Object3D, Vector3, Scene } from 'three';
-import { AABB } from '../src/rv-aabb';
-import { RVMovingUnit } from '../src/rv-mu';
-import { RVTransportSurface, type TransportSurfaceConfig } from '../src/rv-transport-surface';
-import { RVSensor, type SensorConfig } from '../src/rv-sensor';
-import { RVSink } from '../src/rv-sink';
-import { RVTransportManager } from '../src/rv-transport-manager';
+import { AABB } from '../src/core/engine/rv-aabb';
+import { RVMovingUnit } from '../src/core/engine/rv-mu';
+import { RVTransportSurface, type TransportSurfaceConfig } from '../src/core/engine/rv-transport-surface';
+import { RVSensor, type SensorConfig } from '../src/core/engine/rv-sensor';
+import { RVSink } from '../src/core/engine/rv-sink';
+import { RVTransportManager } from '../src/core/engine/rv-transport-manager';
 
 // ─── Helpers ──────────────────────────────────────────────────────
 

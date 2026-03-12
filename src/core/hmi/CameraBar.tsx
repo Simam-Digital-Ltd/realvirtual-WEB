@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { Vector3 } from 'three';
 import { Button, ButtonGroup, IconButton, Tooltip } from '@mui/material';
 import { Visibility } from '@mui/icons-material';
-import { useViewer } from '../hooks/use-viewer';
+import { useViewer } from '../../hooks/use-viewer';
 import { loadVisualSettings, saveVisualSettings, type CameraBookmark } from './visual-settings-store';
 
 const LONG_PRESS_MS = 500;
