@@ -17,6 +17,8 @@ import { SensorMonitorPlugin } from './plugins/sensor-monitor-plugin';
 import { TransportStatsPlugin } from './plugins/transport-stats-plugin';
 import { CameraEventsPlugin } from './plugins/camera-events-plugin';
 import { DriveOrderPlugin } from './plugins/drive-order-plugin';
+import { KpiDemoPlugin } from './plugins/kpi-demo-plugin';
+import { RapierPhysicsPlugin } from './plugins/rapier-physics-plugin';
 
 // --- localStorage keys ---
 const LS_KEY_MODEL = 'rv-webviewer-last-model';
@@ -54,12 +56,18 @@ async function init() {
   // Expose viewer globally for console debugging
   (window as unknown as { viewer: RVViewer }).viewer = viewer;
 
+  // --- Preload Rapier WASM (before registering plugin) ---
+  const rapierPlugin = new RapierPhysicsPlugin();
+  await rapierPlugin.preload();
+
   // --- Register Core Plugins ---
   viewer
+    .use(rapierPlugin)
     .use(new DriveOrderPlugin())
     .use(new SensorMonitorPlugin())
     .use(new TransportStatsPlugin())
-    .use(new CameraEventsPlugin());
+    .use(new CameraEventsPlugin())
+    .use(new KpiDemoPlugin());
 
   // --- Model discovery ---
   const modelFiles = import.meta.glob('/public/models/*.glb', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
