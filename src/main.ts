@@ -24,6 +24,9 @@ import { RapierPhysicsPlugin } from './core/engine/rapier-physics-plugin';
 // Demo HMI content (registers KPI cards, nav buttons, message tiles into HMI slots)
 import { DemoHMIPlugin } from './custom/demo-hmi-plugin';
 
+// TestAxes plugin (sequential rotary axis tester)
+import { TestAxesPlugin } from './plugins/test-axes-plugin';
+
 // --- localStorage keys ---
 const LS_KEY_MODEL = 'rv-webviewer-last-model';
 const LS_KEY_RENDERER = 'rv-webviewer-renderer';
@@ -35,11 +38,25 @@ const useWebGPU = (params.get('renderer') ?? localStorage.getItem(LS_KEY_RENDERE
 // --- Loading overlay ---
 const loadingOverlay = document.getElementById('loading-overlay')!;
 const loadingModelName = document.getElementById('loading-model-name')!;
+const loadingProgressBar = document.getElementById('loading-progress-bar')!;
+const loadingProgressPct = document.getElementById('loading-progress-pct')!;
 
 function showLoadingOverlay(modelName: string) {
   loadingModelName.textContent = modelName;
+  loadingProgressBar.classList.add('indeterminate');
+  loadingProgressBar.style.width = '';
+  loadingProgressPct.textContent = '';
   loadingOverlay.classList.remove('fade-out');
   loadingOverlay.classList.add('visible');
+}
+
+function setLoadingProgress(loaded: number, total: number) {
+  const pct = Math.round((loaded / total) * 100);
+  loadingProgressBar.classList.remove('indeterminate');
+  loadingProgressBar.style.width = `${pct}%`;
+  const loadedMB = (loaded / (1024 * 1024)).toFixed(1);
+  const totalMB = (total / (1024 * 1024)).toFixed(1);
+  loadingProgressPct.textContent = `${loadedMB} / ${totalMB} MB`;
 }
 
 function hideLoadingOverlay() {
@@ -72,7 +89,8 @@ async function init() {
     .use(new TransportStatsPlugin())
     .use(new CameraEventsPlugin())
     .use(new KpiDemoPlugin())
-    .use(new DemoHMIPlugin());
+    .use(new DemoHMIPlugin())
+    .use(new TestAxesPlugin());
 
   // --- Model discovery ---
   const modelFiles = import.meta.glob('/public/models/*.glb', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
@@ -80,6 +98,9 @@ async function init() {
     const filename = key.split('/').pop()!;
     return { filename, url: `./models/${filename}` };
   });
+
+  // Expose discovered models to the HMI model selector
+  viewer.availableModels = entries.map((e) => ({ url: e.url, label: e.filename.replace(/\.glb$/i, '') }));
 
   // --- Load model helper ---
   async function loadModel(url: string) {
@@ -89,13 +110,36 @@ async function init() {
 
     try {
       const loadStart = performance.now();
-      const headResp = await fetch(url, { method: 'HEAD' });
-      const contentLength = headResp.headers.get('content-length');
-      const sizeMB = contentLength ? (parseInt(contentLength) / (1024 * 1024)).toFixed(1) + ' MB' : '--';
 
-      const result = await viewer.loadModel(url);
+      // Fetch with streaming progress
+      const resp = await fetch(url);
+      const contentLength = resp.headers.get('content-length');
+      const totalBytes = contentLength ? parseInt(contentLength) : 0;
+      const sizeMB = totalBytes ? (totalBytes / (1024 * 1024)).toFixed(1) + ' MB' : '--';
+
+      let modelUrl = url;
+      if (totalBytes && resp.body) {
+        // Stream the response to track download progress
+        const reader = resp.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let loaded = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          loaded += value.byteLength;
+          setLoadingProgress(loaded, totalBytes);
+        }
+        const blob = new Blob(chunks as BlobPart[]);
+        modelUrl = URL.createObjectURL(blob);
+      }
+
+      const result = await viewer.loadModel(modelUrl);
+
+      // Clean up blob URL if we created one
+      if (modelUrl !== url) URL.revokeObjectURL(modelUrl);
+
       const loadTime = ((performance.now() - loadStart) / 1000).toFixed(1) + 's';
-
       viewer.lastLoadInfo = { glbSize: sizeMB, loadTime };
       console.log(`[main] Model loaded: ${sizeMB}, ${loadTime}, ${result.drives.length} drives`);
       hideLoadingOverlay();
@@ -118,14 +162,18 @@ async function init() {
     document.title = `${firebaseDemoName} - realvirtual Web Viewer`;
     loadModel(firebaseGlbUrl);
   } else {
-    // Local dev mode: restore from URL param > localStorage > auto-first
+    // Local dev mode: restore from URL param > localStorage > demo.glb > first model
     const savedModel = params.get('model') ?? localStorage.getItem(LS_KEY_MODEL);
     if (savedModel && entries.some((e) => e.url === savedModel)) {
       loadModel(savedModel);
-    } else if (entries.length === 1) {
-      loadModel(entries[0].url);
     } else {
-      hideLoadingOverlay();
+      // Default to demo.glb, then first available model
+      const defaultEntry = entries.find((e) => e.filename === 'demo.glb') ?? entries[0];
+      if (defaultEntry) {
+        loadModel(defaultEntry.url);
+      } else {
+        hideLoadingOverlay();
+      }
     }
   }
 

@@ -16,6 +16,7 @@ import { RVLogicEngine } from './rv-logic-engine';
 import { NodeRegistry, type ComponentRef } from './rv-node-registry';
 import { unityDirectionToGltf, unityPositionToGltf } from './rv-coordinate-utils';
 import { validateExtras, printParitySummary, resetParityValidator } from './rv-extras-validator';
+import { parseActiveOnly, type ActiveOnly } from './rv-active-only';
 import { debug } from './rv-debug';
 
 // Singleton loader instances
@@ -30,6 +31,7 @@ export interface RecorderSettings {
   replayStartFrame: number;
   replayEndFrame: number;
   loop: boolean;
+  activeOnly: ActiveOnly;
 }
 
 export interface LoadResult {
@@ -293,11 +295,16 @@ function parseScriptableObjectRecording(data: Record<string, unknown>): CompactR
   };
 }
 
+export interface LoadGLBOptions {
+  /** When true, apply WebGPU-specific geometry fixes (e.g., Uint16 index conversion). Default: false */
+  isWebGPU?: boolean;
+}
+
 /**
  * Load a GLB file and extract all realvirtual components.
  * Returns drives, transport manager, signal store, registry, playback, logic engine, and scene metrics.
  */
-export async function loadGLB(url: string, scene: Scene): Promise<LoadResult> {
+export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOptions): Promise<LoadResult> {
   console.log(`[loadGLB] Loading ${url}...`);
   resetParityValidator(); // Clear any previous load's parity data
   const gltf = await gltfLoader.loadAsync(url);
@@ -316,7 +323,7 @@ export async function loadGLB(url: string, scene: Scene): Promise<LoadResult> {
   let recorderSettings: RecorderSettings | null = null;
 
   // Collected ReplayRecording configs (parsed after playback is created)
-  const replayRecordingConfigs: { sequence: string; startOnSignal: ComponentRef | null; isReplayingSignal: ComponentRef | null }[] = [];
+  const replayRecordingConfigs: { sequence: string; startOnSignal: ComponentRef | null; isReplayingSignal: ComponentRef | null; activeOnly: ActiveOnly }[] = [];
 
   // Collected nodes for second-pass processing
   const transportNodes: { node: Object3D; data: Record<string, unknown>; rv: Record<string, unknown> }[] = [];
@@ -484,6 +491,7 @@ export async function loadGLB(url: string, scene: Scene): Promise<LoadResult> {
         replayStartFrame: (recorderData['ReplayStartFrame'] as number) ?? 0,
         replayEndFrame: (recorderData['ReplayEndFrame'] as number) ?? 0,
         loop: (recorderData['Loop'] as boolean) ?? false,
+        activeOnly: parseActiveOnly(recorderData),
       };
       debug('loader', `DrivesRecorder: PlayOnStart=${recorderSettings.playOnStart} (raw=${recorderData['PlayOnStart']}), ` +
         `Loop=${recorderSettings.loop}, ReplayFrames=[${recorderSettings.replayStartFrame}..${recorderSettings.replayEndFrame}]`);
@@ -503,7 +511,8 @@ export async function loadGLB(url: string, scene: Scene): Promise<LoadResult> {
         const sequence = (rrData['Sequence'] as string) ?? '';
         const startOnSignal = (rrData['StartOnSignal'] as ComponentRef) ?? null;
         const isReplayingSignal = (rrData['IsReplayingSignal'] as ComponentRef) ?? null;
-        replayRecordingConfigs.push({ sequence, startOnSignal, isReplayingSignal });
+        const rrActiveOnly = parseActiveOnly(rrData);
+        replayRecordingConfigs.push({ sequence, startOnSignal, isReplayingSignal, activeOnly: rrActiveOnly });
       }
     }
   });
@@ -732,6 +741,7 @@ export async function loadGLB(url: string, scene: Scene): Promise<LoadResult> {
   }
 
   // WebGPU compatibility fixes
+  const isWebGPU = options?.isWebGPU ?? false;
   let uvFixCount = 0;
   let indexFixCount = 0;
   root.traverse((node: Object3D) => {
@@ -746,11 +756,10 @@ export async function loadGLB(url: string, scene: Scene): Promise<LoadResult> {
       uvFixCount++;
     }
 
-    // Fix 2: Convert Uint16 index buffers to Uint32 (WebGPU requires Uint32)
-    // Also convert to non-indexed to avoid WebGPU buffer size validation issues
-    if (geo.index) {
+    // Fix 2: Convert Uint16 index buffers to non-indexed (WebGPU requires Uint32).
+    // Only applied when using WebGPU renderer — WebGL handles Uint16 indices natively.
+    if (isWebGPU && geo.index) {
       if (geo.index.array instanceof Uint16Array) {
-        // Convert indexed Uint16 → non-indexed (avoids all WebGPU index format issues)
         const nonIndexed = geo.toNonIndexed();
         (node as Mesh).geometry = nonIndexed;
         geo.dispose();
@@ -759,7 +768,7 @@ export async function loadGLB(url: string, scene: Scene): Promise<LoadResult> {
     }
   });
   if (uvFixCount > 0 || indexFixCount > 0) {
-    console.log(`WebGPU fixes: ${uvFixCount} missing UVs, ${indexFixCount} Uint16->Uint32 indices`);
+    console.log(`Geometry fixes: ${uvFixCount} missing UVs` + (indexFixCount > 0 ? `, ${indexFixCount} Uint16->non-indexed (WebGPU)` : ''));
   }
 
   // Compute bounding box
@@ -777,6 +786,8 @@ export async function loadGLB(url: string, scene: Scene): Promise<LoadResult> {
       playback = new RVDrivesPlayback(rec, registry, {
         loop: recSettings?.loop ?? false,
       });
+      // Set ActiveOnly from DrivesRecorder extras
+      playback.activeOnly = recSettings?.activeOnly ?? 'Always';
       console.log(
         `  DrivesPlayback: ${rec.numberFrames} frames, ${rec.driveCount} drives, ` +
         `dt=${rec.fixedDeltaTime}s loop=${recSettings?.loop ?? false}` +
@@ -794,6 +805,7 @@ export async function loadGLB(url: string, scene: Scene): Promise<LoadResult> {
       const startAddr = registry.resolve(cfg.startOnSignal).signalAddress ?? null;
       const replayAddr = registry.resolve(cfg.isReplayingSignal).signalAddress ?? null;
       const rr = new RVReplayRecording(cfg.sequence, startAddr, replayAddr, playback, signalStore);
+      rr.activeOnly = cfg.activeOnly;
       replayRecordings.push(rr);
       console.log(
         `  ReplayRecording: "${cfg.sequence}" startSignal=${startAddr ?? 'none'} replayingSignal=${replayAddr ?? 'none'}`

@@ -1,5 +1,6 @@
 import type { RVDrive } from './rv-drive';
 import type { NodeRegistry } from './rv-node-registry';
+import type { ActiveOnly } from './rv-active-only';
 import { debug, debugWarn } from './rv-debug';
 
 /**
@@ -33,6 +34,9 @@ export class RVDrivesPlayback {
   private _loop = true;
   private _startFrame = 0;
   private _endFrame = 0;
+
+  /** ActiveOnly mode parsed from DrivesRecorder GLB extras. */
+  activeOnly: ActiveOnly = 'Always';
 
   constructor(recording: CompactRecording, registry: NodeRegistry, options?: { startFrame?: number; endFrame?: number; loop?: boolean }) {
     this.validateRecording(recording);

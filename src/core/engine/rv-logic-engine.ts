@@ -1,6 +1,7 @@
 import type { Object3D } from 'three';
 import type { SignalStore } from './rv-signal-store';
 import { NodeRegistry, type ComponentRef } from './rv-node-registry';
+import type { ActiveOnly } from './rv-active-only';
 import {
   type RVLogicStep,
   RVSerialContainer,
@@ -27,6 +28,9 @@ import { debug } from './rv-debug';
 export class RVLogicEngine {
   /** All top-level containers that run independently */
   readonly roots: RVLogicStep[] = [];
+
+  /** ActiveOnly mode — defaults to 'Always' since LogicEngine has no single GLB node. */
+  activeOnly: ActiveOnly = 'Always';
 
   /** Build LogicStep tree from GLB scene graph */
   static build(

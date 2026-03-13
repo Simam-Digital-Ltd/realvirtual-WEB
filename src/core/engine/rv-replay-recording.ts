@@ -1,5 +1,6 @@
 import type { RVDrivesPlayback } from './rv-drives-playback';
 import type { SignalStore } from './rv-signal-store';
+import type { ActiveOnly } from './rv-active-only';
 
 /**
  * RVReplayRecording - Port of ReplayRecording.cs
@@ -12,6 +13,9 @@ export class RVReplayRecording {
   readonly sequenceName: string;
   readonly startOnSignalAddr: string | null;
   readonly isReplayingSignalAddr: string | null;
+
+  /** ActiveOnly mode parsed from ReplayRecording GLB extras. */
+  activeOnly: ActiveOnly = 'Always';
 
   private playback: RVDrivesPlayback;
   private signalStore: SignalStore;

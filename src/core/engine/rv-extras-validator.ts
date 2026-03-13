@@ -64,6 +64,7 @@ const CONSUMED: Record<string, string[]> = {
   DrivesRecorder: [
     'PlayOnStart', 'ReplayStartFrame', 'ReplayEndFrame', 'Loop',
     'DrivesRecording',  // ScriptableObject reference
+    'Active',           // ActiveOnly — controls playback in Connected/Disconnected mode
   ],
 
   // DrivesRecording_compact — parsed by parseCompactRecording()
@@ -74,20 +75,21 @@ const CONSUMED: Record<string, string[]> = {
   // ReplayRecording — parsed in the traverse loop
   ReplayRecording: [
     'Sequence', 'StartOnSignal', 'IsReplayingSignal',
+    'Active',  // ActiveOnly — controls replay in Connected/Disconnected mode
   ],
 
   // LogicStep types — parsed by RVLogicEngine.build()
-  LogicStep_SerialContainer: [],  // container, no extra fields
-  LogicStep_ParallelContainer: [],
-  LogicStep_SetSignalBool: ['Signal', 'SetToTrue'],
-  LogicStep_WaitForSensor: ['Sensor', 'WaitForOccupied'],
-  LogicStep_WaitForSignalBool: ['Signal', 'WaitForTrue'],
-  LogicStep_Delay: ['Duration'],
-  LogicStep_DriveToPosition: ['drive', 'Destination', 'Relative', 'Direction'],
-  LogicStep_DriveTo: ['drive', 'Destination', 'Relative', 'Direction'],
-  LogicStep_SetDriveSpeed: ['drive', 'Speed'],
-  LogicStep_Enable: ['Target', 'Enable'],
-  LogicStep_Pause: [],  // debugging breakpoint, no fields consumed
+  LogicStep_SerialContainer: ['Active'],  // container, Active parsed for top-level guard
+  LogicStep_ParallelContainer: ['Active'],
+  LogicStep_SetSignalBool: ['Signal', 'SetToTrue', 'Active'],
+  LogicStep_WaitForSensor: ['Sensor', 'WaitForOccupied', 'Active'],
+  LogicStep_WaitForSignalBool: ['Signal', 'WaitForTrue', 'Active'],
+  LogicStep_Delay: ['Duration', 'Active'],
+  LogicStep_DriveToPosition: ['drive', 'Destination', 'Relative', 'Direction', 'Active'],
+  LogicStep_DriveTo: ['drive', 'Destination', 'Relative', 'Direction', 'Active'],
+  LogicStep_SetDriveSpeed: ['drive', 'Speed', 'Active'],
+  LogicStep_Enable: ['Target', 'Enable', 'Active'],
+  LogicStep_Pause: ['Active'],  // debugging breakpoint, no other fields consumed
 };
 
 /**
@@ -185,7 +187,7 @@ const IGNORED: Record<string, string[]> = {
     'RecordAllDrivesWithinScene', 'Recording', 'Replaying',
     'RecordOnStart', 'CurrentFrame', 'NumberFrames',
     'CurrentSeconds', 'Duration', 'JumpToPositon',
-    'Name', 'Active',
+    'Name',  // Active moved to CONSUMED
   ],
 
   // Behavior extras — intentionally passed through raw
@@ -201,20 +203,20 @@ const IGNORED: Record<string, string[]> = {
   Drive_CAM: ['*'],       // Not yet consumed, pass-through
 
   // ReplayRecording
-  ReplayRecording: ['Name', 'Active'],
+  ReplayRecording: ['Name'],  // Active moved to CONSUMED
 
-  // LogicStep containers — generic fields
-  LogicStep_SerialContainer: ['Name', 'Active'],
-  LogicStep_ParallelContainer: ['Name', 'Active'],
-  LogicStep_SetSignalBool: ['Name', 'Active'],
-  LogicStep_WaitForSensor: ['Name', 'Active'],
-  LogicStep_WaitForSignalBool: ['Name', 'Active'],
-  LogicStep_Delay: ['Name', 'Active'],
-  LogicStep_DriveToPosition: ['Name', 'Active'],
-  LogicStep_SetDriveSpeed: ['Name', 'Active'],
-  LogicStep_Enable: ['Name', 'Active'],
-  LogicStep_Pause: ['Name', 'Active'],
-  LogicStep_DriveTo: ['Name', 'Active'],
+  // LogicStep containers — generic fields (Active moved to CONSUMED)
+  LogicStep_SerialContainer: ['Name'],
+  LogicStep_ParallelContainer: ['Name'],
+  LogicStep_SetSignalBool: ['Name'],
+  LogicStep_WaitForSensor: ['Name'],
+  LogicStep_WaitForSignalBool: ['Name'],
+  LogicStep_Delay: ['Name'],
+  LogicStep_DriveToPosition: ['Name'],
+  LogicStep_SetDriveSpeed: ['Name'],
+  LogicStep_Enable: ['Name'],
+  LogicStep_Pause: ['Name'],
+  LogicStep_DriveTo: ['Name'],
 };
 
 /** Summary of unhandled fields per component type (collected during load) */

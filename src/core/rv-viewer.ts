@@ -47,10 +47,13 @@ import type { SignalStore } from './engine/rv-signal-store';
 import type { RVDrivesPlayback } from './engine/rv-drives-playback';
 import type { RVReplayRecording } from './engine/rv-replay-recording';
 import type { RVLogicEngine } from './engine/rv-logic-engine';
-import type { NodeRegistry } from './engine/rv-node-registry';
+import type { NodeRegistry, NodeSearchResult } from './engine/rv-node-registry';
+import { registerFilterSubscriber, loadSearchSettings, isTypeEnabled } from './hmi/search-settings-store';
 import { DriveDataRecorder } from './engine/rv-drive-recorder';
+import { SensorDataRecorder } from './engine/rv-sensor-recorder';
 import type { RVViewerPlugin } from './rv-plugin';
 import { UIPluginRegistry } from './rv-ui-registry';
+import { isActiveForState } from './engine/rv-active-only';
 
 // ─── Public Types ───────────────────────────────────────────────────────
 
@@ -71,6 +74,11 @@ export interface ViewerEvents {
   'drive-focus': { drive: RVDrive | null; node: Object3D | null };
   'drive-chart-toggle': { open: boolean };
   'drive-filter': { filter: string; filteredDrives: RVDrive[] };
+  'node-filter': { filter: string; filteredNodes: NodeSearchResult[]; tooMany: boolean };
+  'sensor-chart-toggle': { open: boolean };
+
+  // ── Connection state ──
+  'connection-state-changed': { state: 'Connected' | 'Disconnected'; previous: 'Connected' | 'Disconnected' };
 
   // ── Simulation events (emitted by plugins) ──
   'sensor-changed': { sensorPath: string; occupied: boolean };
@@ -112,6 +120,33 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   // --- Highlight system (always available) ---
   readonly highlighter: RVHighlightManager;
 
+  // --- Connection State ---
+  /** Global connection state — controls which subsystems run based on their ActiveOnly mode. */
+  private _connectionState: 'Connected' | 'Disconnected' = 'Connected';
+
+  /** Current connection state ('Connected' or 'Disconnected'). */
+  get connectionState(): 'Connected' | 'Disconnected' { return this._connectionState; }
+
+  /**
+   * Set the global connection state. Notifies all plugins and emits
+   * 'connection-state-changed' event. Subsystems are guarded in fixedUpdate().
+   */
+  setConnectionState(state: 'Connected' | 'Disconnected'): void {
+    if (state === this._connectionState) return;
+    const previous = this._connectionState;
+    this._connectionState = state;
+
+    // Notify plugins
+    for (const p of this._plugins) {
+      if (p.onConnectionStateChanged) {
+        try { p.onConnectionStateChanged(state, this); }
+        catch (e) { console.error(`[RVViewer] Plugin '${p.id}' onConnectionStateChanged error:`, e); }
+      }
+    }
+
+    this.emit('connection-state-changed', { state, previous });
+  }
+
   // --- Simulation state (populated after loadModel) ---
   signalStore: SignalStore | null = null;
   registry: NodeRegistry | null = null;
@@ -123,6 +158,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
   /** Drive data recorder for chart overlay (ring buffer sampling). */
   readonly driveRecorder = new DriveDataRecorder(3000, 10);
+
+  /** Sensor data recorder for sensor chart overlay (ring buffer sampling). */
+  readonly sensorRecorder = new SensorDataRecorder(3000, 10);
 
   // --- Plugin System ---
 
@@ -140,6 +178,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _lastLoadResult: LoadResult | null = null;
   /** URL of the currently loaded model (for reloadModel). */
   private _currentModelUrl: string | null = null;
+
+  /** Available model entries for the model selector UI. */
+  availableModels: Array<{ url: string; label: string }> = [];
 
   /** UI plugin registry for React slot rendering. */
   readonly uiRegistry = new UIPluginRegistry();
@@ -199,14 +240,41 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       // Highlight filtered drives (or all if no filter)
       const drivesToHighlight = this._driveFilter ? this._filteredDrives : this.drives;
       const nodes = drivesToHighlight.map((d) => d.node);
-      if (nodes.length > 0) this.highlighter.highlightMultiple(nodes);
+      if (nodes.length > 0) {
+        this.highlighter.highlightMultiple(nodes);
+        this.fitToNodes(nodes);
+      }
     } else {
       this.highlighter.clear();
     }
     this.emit('drive-chart-toggle', { open: this._driveChartOpen });
   }
 
-  /** Current drive search filter string. */
+  /** Whether the sensor chart overlay is open. */
+  private _sensorChartOpen = false;
+  get sensorChartOpen(): boolean { return this._sensorChartOpen; }
+
+  /** Toggle the sensor chart overlay. Highlights all sensors when open. */
+  toggleSensorChart(forceOpen?: boolean): void {
+    this._sensorChartOpen = forceOpen ?? !this._sensorChartOpen;
+    if (this._sensorChartOpen) {
+      const sensors = this.transportManager?.sensors ?? [];
+      const nodes = sensors.map((s) => s.node);
+      if (nodes.length > 0) {
+        this.highlighter.highlightMultiple(nodes, { includeSensorViz: true });
+        this.fitToNodes(nodes);
+      }
+    } else {
+      this.highlighter.clear();
+    }
+    this.emit('sensor-chart-toggle', { open: this._sensorChartOpen });
+  }
+
+  // ─── Unified Node Filter ──────────────────────────────────────────
+
+  private static readonly MAX_HIGHLIGHT_RESULTS = 20;
+
+  /** Current drive search filter string (derived from node filter). */
   private _driveFilter = '';
   get driveFilter(): string { return this._driveFilter; }
 
@@ -214,28 +282,65 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _filteredDrives: RVDrive[] = [];
   get filteredDrives(): RVDrive[] { return this._filteredDrives.length > 0 || this._driveFilter ? this._filteredDrives : this.drives; }
 
-  /** Filter drives by full-text search. Highlights matching drives in 3D and updates chart. */
-  filterDrives(term: string): void {
+  /** Current node search filter string. */
+  private _nodeFilter = '';
+  get nodeFilter(): string { return this._nodeFilter; }
+
+  /** Nodes matching the current filter. */
+  private _filteredNodes: NodeSearchResult[] = [];
+  get filteredNodes(): NodeSearchResult[] { return this._filteredNodes; }
+
+  /** Unified search: filters ALL registered nodes. Subscribers extract their subset via events. */
+  filterNodes(term: string): void {
+    this._nodeFilter = term;
     this._driveFilter = term;
+
     if (!term.trim()) {
+      this._filteredNodes = [];
       this._filteredDrives = [];
-      // Restore full highlight if chart is open
+      // Restore chart-specific highlights if chart is open
       if (this._driveChartOpen) {
         const nodes = this.drives.map((d) => d.node);
         if (nodes.length > 0) this.highlighter.highlightMultiple(nodes);
-      }
-    } else {
-      const lower = term.toLowerCase();
-      this._filteredDrives = this.drives.filter((d) => d.name.toLowerCase().includes(lower));
-      // Highlight matching drives
-      const nodes = this._filteredDrives.map((d) => d.node);
-      if (nodes.length > 0) {
-        this.highlighter.highlightMultiple(nodes);
+      } else if (this._sensorChartOpen) {
+        const sensors = this.transportManager?.sensors ?? [];
+        const nodes = sensors.map((s) => s.node);
+        if (nodes.length > 0) this.highlighter.highlightMultiple(nodes, { includeSensorViz: true });
       } else {
         this.highlighter.clear();
       }
+      this.emit('node-filter', { filter: '', filteredNodes: [], tooMany: false });
+      this.emit('drive-filter', { filter: '', filteredDrives: [] });
+      return;
     }
+
+    const allResults = this.registry?.search(term) ?? [];
+    // Apply subscriber type filter from settings
+    const settings = loadSearchSettings();
+    const results = allResults.filter(r => isTypeEnabled(settings, r.types));
+    this._filteredNodes = results;
+    const tooMany = results.length >= RVViewer.MAX_HIGHLIGHT_RESULTS;
+
+    // Highlight matching nodes (only if below threshold and highlight enabled)
+    if (settings.highlightEnabled && !tooMany && results.length > 0) {
+      const nodes = results.map(r => r.node);
+      this.highlighter.highlightMultiple(nodes);
+    } else {
+      this.highlighter.clear();
+    }
+
+    // Derive drive-filter from node-filter (backwards compat)
+    this._filteredDrives = this.drives.filter((d) =>
+      results.some((r) => r.node === d.node)
+    );
+
+    this.emit('node-filter', { filter: term, filteredNodes: results, tooMany });
     this.emit('drive-filter', { filter: term, filteredDrives: this._filteredDrives });
+  }
+
+  /** Backwards-compatible wrapper. Delegates to filterNodes(). */
+  filterDrives(term: string): void {
+    this.filterNodes(term);
   }
 
   /** Drive pinned by a card click (shown in tooltip until cleared). */
@@ -444,6 +549,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         gpuRenderer.shadowMap.type = PCFSoftShadowMap;
         gpuRenderer.toneMapping = ACESFilmicToneMapping;
         gpuRenderer.toneMappingExposure = 1.2;
+        // Dispose the original WebGL renderer before swapping
+        viewer.renderer.dispose();
         // Swap renderers
         viewer.renderer.domElement.replaceWith(gpuRenderer.domElement);
         (viewer as { renderer: WebGLRenderer }).renderer = gpuRenderer as unknown as WebGLRenderer;
@@ -476,7 +583,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.clearModel();
     this._currentModelUrl = url;
 
-    const result = await loadGLB(url, this.scene);
+    const result = await loadGLB(url, this.scene, { isWebGPU: this.isWebGPU });
 
     this.currentModel = this.scene.children.find((c) => !this.sceneFixtures.has(c)) ?? null;
     this.drives = result.drives;
@@ -487,11 +594,20 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.logicEngine = result.logicEngine;
     this.registry = result.registry;
 
+    // Register filter subscribers for search settings
+    registerFilterSubscriber({ id: 'Drive', label: 'Drives', componentType: 'Drive' });
+    registerFilterSubscriber({ id: 'Sensor', label: 'Sensors', componentType: 'Sensor' });
+    registerFilterSubscriber({ id: 'TransportSurface', label: 'Conveyors', componentType: 'TransportSurface' });
+
     // Drive data recorder
     this.driveRecorder.setDrives(this.drives);
 
+    // Sensor data recorder
+    this.sensorRecorder.setSensors(this.transportManager?.sensors ?? []);
+
     // Drive hover highlighting (hover events emitted in render loop)
     this.driveHover = setupDriveHover(this.renderer, this.camera, this.scene, result.registry, this.highlighter);
+    this.driveHover.setDriveTargets(this.drives);
 
     // LogicEngine
     if (this.logicEngine) {
@@ -569,11 +685,25 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     if (this.currentModel) {
       this.scene.remove(this.currentModel);
       this.currentModel.traverse((node) => {
-        const mesh = node as { geometry?: { dispose(): void }; material?: { dispose(): void } | { dispose(): void }[] };
+        const mesh = node as {
+          geometry?: { dispose(): void };
+          material?: (MeshStandardMaterial & { dispose(): void }) | (MeshStandardMaterial & { dispose(): void })[];
+        };
         if (mesh.geometry) mesh.geometry.dispose();
         if (mesh.material) {
-          if (Array.isArray(mesh.material)) mesh.material.forEach((m) => m.dispose());
-          else mesh.material.dispose();
+          const disposeMat = (m: MeshStandardMaterial & { dispose(): void }) => {
+            m.map?.dispose();
+            m.normalMap?.dispose();
+            m.roughnessMap?.dispose();
+            m.aoMap?.dispose();
+            m.emissiveMap?.dispose();
+            m.metalnessMap?.dispose();
+            m.alphaMap?.dispose();
+            m.envMap?.dispose();
+            m.dispose();
+          };
+          if (Array.isArray(mesh.material)) mesh.material.forEach(disposeMat);
+          else disposeMat(mesh.material);
         }
       });
       this.currentModel = null;
@@ -690,6 +820,40 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     const dist = (maxDim / (2 * Math.tan(fov / 2))) * 2.5;
 
     // Keep current viewing direction — just move along it to frame the target
+    const dir = new Vector3().subVectors(this.camera.position, this.controls.target).normalize();
+    const endPos = center.clone().add(dir.multiplyScalar(dist));
+    this.animateCameraTo(endPos, center);
+  }
+
+  /** Smoothly animate camera to frame all given nodes. */
+  fitToNodes(nodes: Object3D[]): void {
+    if (nodes.length === 0) return;
+    const box = new Box3();
+    for (const node of nodes) {
+      node.updateWorldMatrix(true, true);
+      node.traverse((child) => {
+        const m = child as Mesh;
+        if (m.isMesh && m.geometry) {
+          m.geometry.computeBoundingBox();
+          if (m.geometry.boundingBox) {
+            const mb = m.geometry.boundingBox.clone();
+            mb.applyMatrix4(m.matrixWorld);
+            box.union(mb);
+          }
+        }
+      });
+    }
+    if (box.isEmpty()) return;
+
+    const center = new Vector3();
+    const size = new Vector3();
+    box.getCenter(center);
+    box.getSize(size);
+
+    const maxDim = Math.max(size.x, size.y, size.z, 0.1);
+    const fov = this.camera.fov * (Math.PI / 180);
+    const dist = (maxDim / (2 * Math.tan(fov / 2))) * 1.8;
+
     const dir = new Vector3().subVectors(this.camera.position, this.controls.target).normalize();
     const endPos = center.clone().add(dir.multiplyScalar(dist));
     this.animateCameraTo(endPos, center);
@@ -831,20 +995,23 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
   private fixedUpdate(dt: number): void {
     this.simTickCount++;
+    const isConnected = this._connectionState === 'Connected';
 
-    // Recording playback
-    if (this.playback?.isPlaying) {
+    // Recording playback — guarded by DrivesRecorder.Active
+    if (this.playback && this.playback.isPlaying && isActiveForState(this.playback.activeOnly, isConnected)) {
       this.playback.update(dt);
     }
 
-    // LogicStep engine
-    if (this.logicEngine) {
+    // LogicStep engine — guarded by Active
+    if (this.logicEngine && isActiveForState(this.logicEngine.activeOnly, isConnected)) {
       this.logicEngine.fixedUpdate(dt);
     }
 
-    // ReplayRecording signal-triggered sequences
+    // ReplayRecording signal-triggered sequences — each has its own Active
     for (const rr of this.replayRecordings) {
-      rr.fixedUpdate(dt);
+      if (isActiveForState(rr.activeOnly, isConnected)) {
+        rr.fixedUpdate(dt);
+      }
     }
 
     // ── Plugins Pre (interface signals, replay, CAM) ──
@@ -869,8 +1036,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       catch (e) { console.error(`[RVViewer] Plugin '${p.id}' onFixedUpdatePost error:`, e); }
     }
 
-    // Drive data sampling (for chart overlay — legacy, not yet migrated to plugin)
+    // Data sampling (for chart overlays — legacy, not yet migrated to plugin)
     this.driveRecorder.sample(dt);
+    this.sensorRecorder.sample(dt);
   }
 
   private render(): void {
@@ -900,12 +1068,16 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       catch (e) { console.error(`[RVViewer] Plugin '${p.id}' onRender error:`, e); }
     }
 
-    // Emit drive-hover events when hovered drive or pointer position changes
+    // Emit drive-hover events when hovered drive changes or pointer moves significantly
     if (this.driveHover) {
       const hovered = this.driveHover.hoveredDrive;
       const cx = this.driveHover.pointerClientX;
       const cy = this.driveHover.pointerClientY;
-      if (hovered !== this.lastHoveredDrive || cx !== this.lastHoverClientX || cy !== this.lastHoverClientY) {
+      const driveChanged = hovered !== this.lastHoveredDrive;
+      const dx = cx - this.lastHoverClientX;
+      const dy = cy - this.lastHoverClientY;
+      const movedEnough = dx * dx + dy * dy > 16; // 4px threshold squared
+      if (driveChanged || movedEnough) {
         this.lastHoveredDrive = hovered;
         this.lastHoverClientX = cx;
         this.lastHoverClientY = cy;

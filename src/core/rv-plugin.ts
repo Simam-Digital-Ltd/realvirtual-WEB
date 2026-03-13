@@ -38,6 +38,9 @@ export interface RVViewerPlugin {
   /** Called at the start of clearModel, BEFORE state reset. */
   onModelCleared?(viewer: RVViewer): void;
 
+  /** Called when the viewer's global connection state changes (Connected ↔ Disconnected). */
+  onConnectionStateChanged?(state: 'Connected' | 'Disconnected', viewer: RVViewer): void;
+
   /** 60Hz tick BEFORE drive physics (set drive targets: ErraticDriver, Replay, CAM). */
   onFixedUpdatePre?(dt: number): void;
 
