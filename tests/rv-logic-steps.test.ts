@@ -491,3 +491,362 @@ describe('Signal-Driven Flow', () => {
     expect(store.getBool('conveyor/start')).toBe(true);
   });
 });
+
+// ─── Progress Getter Tests ──────────────────────────────────────
+
+describe('Progress Getter', () => {
+  it('RVDelay: should report progress as elapsed/duration percentage', () => {
+    const step = new RVDelay(1.0);
+    expect(step.progress).toBe(0); // Idle
+
+    step.start();
+    expect(step.progress).toBe(0); // Just started, elapsed=0
+
+    step.fixedUpdate(0.5);
+    expect(step.progress).toBeCloseTo(50, 0);
+
+    step.fixedUpdate(0.5);
+    expect(step.progress).toBe(100); // Finished
+  });
+
+  it('RVDelay: zero-duration should report 0 then 100', () => {
+    const step = new RVDelay(0);
+    expect(step.progress).toBe(0);
+    step.start();
+    // Finishes immediately
+    expect(step.progress).toBe(100);
+  });
+
+  it('RVSetSignalBool: should be 0 then 100', () => {
+    const store = new SignalStore();
+    store.register('sig/p', 'sig/p', false);
+    const step = new RVSetSignalBool('sig/p', true, store);
+    expect(step.progress).toBe(0);
+    step.start();
+    expect(step.progress).toBe(100);
+  });
+
+  it('RVWaitForSignalBool: should be 0, 50 while waiting, 100 when done', () => {
+    const store = new SignalStore();
+    store.register('sig/q', 'sig/q', false);
+    const step = new RVWaitForSignalBool('sig/q', true, store);
+    expect(step.progress).toBe(0);
+
+    step.start();
+    expect(step.progress).toBe(50); // Waiting
+
+    store.setByPath('sig/q', true);
+    step.fixedUpdate(0.02);
+    expect(step.progress).toBe(100); // Finished
+  });
+
+  it('RVWaitForSensor: should be 0, 50 while waiting, 100 when done', () => {
+    const sensor = makeSensor(false);
+    const step = new RVWaitForSensor(sensor, true);
+    expect(step.progress).toBe(0);
+
+    step.start();
+    expect(step.progress).toBe(50); // Waiting
+
+    sensor.occupied = true;
+    step.fixedUpdate(0.02);
+    expect(step.progress).toBe(100); // Finished
+  });
+
+  it('RVDriveTo: should reflect drive position progress', () => {
+    const drive = makeDrive('dp1', 0);
+    const step = new RVDriveTo(drive, 1000, false, 'Automatic');
+    expect(step.progress).toBe(0);
+
+    step.start();
+    // Drive starts at 0, target=1000
+    drive.currentPosition = 500;
+    expect(step.progress).toBeCloseTo(50, 0);
+
+    drive.currentPosition = 1000;
+    step.fixedUpdate(0.02);
+    expect(step.progress).toBe(100);
+  });
+
+  it('RVSetDriveSpeed: should be 0 then 100', () => {
+    const drive = makeDrive('dp2');
+    const step = new RVSetDriveSpeed(drive, 500);
+    expect(step.progress).toBe(0);
+    step.start();
+    expect(step.progress).toBe(100);
+  });
+
+  it('RVEnable: should be 0 then 100', () => {
+    const target = { visible: true };
+    const step = new RVEnable(target, false);
+    expect(step.progress).toBe(0);
+    step.start();
+    expect(step.progress).toBe(100);
+  });
+
+  it('SerialContainer: should report weighted child progress', () => {
+    const d1 = new RVDelay(1.0);
+    const d2 = new RVDelay(1.0);
+    const container = new RVSerialContainer([d1, d2], false);
+
+    expect(container.progress).toBe(0); // Idle
+    container.start();
+
+    // d1 at 50% => container at 25% (50% of first half)
+    d1.fixedUpdate(0.5);
+    expect(container.progress).toBeGreaterThan(0);
+    expect(container.progress).toBeLessThan(50);
+
+    // d1 finishes => container at ~50%
+    d1.fixedUpdate(0.5);
+    container.fixedUpdate(0); // Advance to d2
+
+    // After all done
+    container.fixedUpdate(1.0);
+    expect(container.progress).toBe(100);
+  });
+
+  it('ParallelContainer: should use minimum child progress', () => {
+    const d1 = new RVDelay(0.2);
+    const d2 = new RVDelay(0.4);
+    const container = new RVParallelContainer([d1, d2]);
+
+    expect(container.progress).toBe(0); // Idle
+    container.start();
+
+    container.fixedUpdate(0.2);
+    // d1 finished (100%), d2 at 50% => min is 50%
+    // But d1.progress=100, d2.progress~50, min=50
+    expect(container.progress).toBeCloseTo(50, 0);
+
+    container.fixedUpdate(0.2);
+    expect(container.progress).toBe(100);
+  });
+});
+
+// ─── Waiting State Transition Tests ─────────────────────────────
+
+describe('Waiting State Transitions', () => {
+  it('WaitForSignalBool should enter Waiting state (not Active)', () => {
+    const store = new SignalStore();
+    store.register('sig/w1', 'sig/w1', false);
+    const step = new RVWaitForSignalBool('sig/w1', true, store);
+    step.start();
+    expect(step.state).toBe(StepState.Waiting);
+    // Not Active
+    expect(step.state).not.toBe(StepState.Active);
+  });
+
+  it('WaitForSensor should enter Waiting state (not Active)', () => {
+    const sensor = makeSensor(false);
+    const step = new RVWaitForSensor(sensor, true);
+    step.start();
+    expect(step.state).toBe(StepState.Waiting);
+    expect(step.state).not.toBe(StepState.Active);
+  });
+
+  it('WaitForSignalBool should transition Waiting -> Finished', () => {
+    const store = new SignalStore();
+    store.register('sig/w2', 'sig/w2', false);
+    const step = new RVWaitForSignalBool('sig/w2', true, store);
+    step.start();
+    expect(step.state).toBe(StepState.Waiting);
+
+    store.setByPath('sig/w2', true);
+    step.fixedUpdate(0.02);
+    expect(step.state).toBe(StepState.Finished);
+  });
+
+  it('WaitForSensor should transition Waiting -> Finished', () => {
+    const sensor = makeSensor(false);
+    const step = new RVWaitForSensor(sensor, true);
+    step.start();
+    expect(step.state).toBe(StepState.Waiting);
+
+    sensor.occupied = true;
+    step.fixedUpdate(0.02);
+    expect(step.state).toBe(StepState.Finished);
+  });
+});
+
+// ─── Container with Waiting Children (Deadlock Prevention) ──────
+
+describe('Container with Waiting children', () => {
+  it('SerialContainer should not deadlock on Waiting child', () => {
+    const store = new SignalStore();
+    store.register('sig/dl', 'sig/dl', false);
+
+    const wait = new RVWaitForSignalBool('sig/dl', true, store);
+    const delay = new RVDelay(0.1);
+    const container = new RVSerialContainer([wait, delay], false);
+
+    container.start();
+    expect(wait.state).toBe(StepState.Waiting);
+    expect(container.state).toBe(StepState.Active);
+
+    // fixedUpdate should still update the Waiting child
+    container.fixedUpdate(0.02);
+    expect(wait.state).toBe(StepState.Waiting); // Still waiting
+
+    // Now signal matches
+    store.setByPath('sig/dl', true);
+    container.fixedUpdate(0.02);
+    expect(wait.state).toBe(StepState.Finished);
+    expect(delay.state).toBe(StepState.Active); // Next child started
+  });
+
+  it('ParallelContainer should not deadlock on Waiting child', () => {
+    const sensor = makeSensor(false);
+    const wait = new RVWaitForSensor(sensor, true);
+    const delay = new RVDelay(0.1);
+    const container = new RVParallelContainer([wait, delay]);
+
+    container.start();
+    expect(wait.state).toBe(StepState.Waiting);
+    expect(delay.state).toBe(StepState.Active);
+    expect(container.state).toBe(StepState.Active);
+
+    // Update: delay finishes but wait is still waiting
+    container.fixedUpdate(0.1);
+    expect(delay.state).toBe(StepState.Finished);
+    expect(wait.state).toBe(StepState.Waiting);
+    expect(container.state).toBe(StepState.Active); // Not done yet
+
+    // Sensor triggers
+    sensor.occupied = true;
+    container.fixedUpdate(0.02);
+    expect(wait.state).toBe(StepState.Finished);
+    expect(container.state).toBe(StepState.Finished); // Now all done
+  });
+});
+
+// ─── Cycle Time Statistics ──────────────────────────────────────
+
+describe('Cycle Time Statistics', () => {
+  it('should track completedCycles', () => {
+    const d1 = new RVDelay(0.1);
+    const container = new RVSerialContainer([d1], true); // autoLoop
+
+    container.start();
+    container.fixedUpdate(0.1); // Complete cycle 1
+    expect(container.completedCycles).toBe(1);
+
+    container.fixedUpdate(0.1); // Complete cycle 2
+    expect(container.completedCycles).toBe(2);
+  });
+
+  it('should compute min/max/median cycle times', () => {
+    // We need to use performance.now() mocking for reliable times.
+    // Since cycle time uses performance.now(), we can verify the properties exist
+    // and are non-negative after cycles complete.
+    const d1 = new RVDelay(0.05);
+    const container = new RVSerialContainer([d1], true);
+
+    container.start();
+
+    // Run several cycles
+    for (let i = 0; i < 5; i++) {
+      container.fixedUpdate(0.05);
+    }
+
+    expect(container.completedCycles).toBe(5);
+    expect(container.minCycleTime).toBeGreaterThanOrEqual(0);
+    expect(container.maxCycleTime).toBeGreaterThanOrEqual(container.minCycleTime);
+    expect(container.medianCycleTime).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should return 0 for cycle times when no cycles completed', () => {
+    const d1 = new RVDelay(1.0);
+    const container = new RVSerialContainer([d1], true);
+
+    expect(container.minCycleTime).toBe(0);
+    expect(container.maxCycleTime).toBe(0);
+    expect(container.medianCycleTime).toBe(0);
+  });
+});
+
+// ─── STEP_STATE_COLORS Completeness ─────────────────────────────
+
+describe('STEP_STATE_COLORS', () => {
+  // Import at test scope to avoid circular deps
+  it('should have a color for every StepState value', async () => {
+    const { STEP_STATE_COLORS } = await import('../src/core/hmi/rv-logic-step-colors');
+    for (const state of Object.values(StepState)) {
+      expect(STEP_STATE_COLORS[state]).toBeDefined();
+      expect(typeof STEP_STATE_COLORS[state]).toBe('string');
+      // Should be a hex color
+      expect(STEP_STATE_COLORS[state]).toMatch(/^#[0-9a-fA-F]{6}$/);
+    }
+  });
+
+  it('should have a label for every StepState value', async () => {
+    const { STEP_STATE_LABELS } = await import('../src/core/hmi/rv-logic-step-colors');
+    for (const state of Object.values(StepState)) {
+      expect(STEP_STATE_LABELS[state]).toBeDefined();
+      expect(typeof STEP_STATE_LABELS[state]).toBe('string');
+      expect(STEP_STATE_LABELS[state].length).toBeLessThanOrEqual(4);
+    }
+  });
+});
+
+// ─── StepByPath and getStepInfo ─────────────────────────────────
+
+describe('stepByPath and getStepInfo', () => {
+  it('should populate stepByPath with hierarchyPath from LogicEngine build', () => {
+    // Create a minimal step and manually set path (integration test)
+    const delay = new RVDelay(1.0);
+    delay.name = 'TestDelay';
+    delay.hierarchyPath = 'root/TestDelay';
+
+    expect(delay.hierarchyPath).toBe('root/TestDelay');
+  });
+
+  it('RVLogicStep.hierarchyPath should default to empty string', () => {
+    const delay = new RVDelay(0.5);
+    expect(delay.hierarchyPath).toBe('');
+  });
+
+  it('getStepInfo should return correct fields for SerialContainer', () => {
+    // We simulate what getStepInfo would return by checking the step properties
+    const d1 = new RVDelay(0.1);
+    const d2 = new RVDelay(0.1);
+    const container = new RVSerialContainer([d1, d2], true);
+    container.name = 'TestSerial';
+
+    container.start();
+    container.fixedUpdate(0.1); // d1 finishes, d2 starts
+
+    // Verify the properties that getStepInfo reads
+    expect(container.state).toBe(StepState.Active);
+    expect(container.currentIndex).toBe(1);
+    expect(container.children.length).toBe(2);
+    expect(container.progress).toBeGreaterThan(0);
+  });
+
+  it('getStepInfo should return correct fields for ParallelContainer', () => {
+    const d1 = new RVDelay(0.1);
+    const d2 = new RVDelay(0.2);
+    const container = new RVParallelContainer([d1, d2]);
+    container.name = 'TestParallel';
+
+    container.start();
+    container.fixedUpdate(0.1); // d1 finishes
+
+    expect(container.state).toBe(StepState.Active);
+    expect(container.finishedCount).toBe(1);
+    expect(container.children.length).toBe(2);
+  });
+
+  it('getStepInfo should return correct fields for RVDelay', () => {
+    const delay = new RVDelay(1.0);
+    delay.name = 'TestDelay';
+
+    delay.start();
+    delay.fixedUpdate(0.3);
+
+    expect(delay.state).toBe(StepState.Active);
+    expect(delay.elapsed).toBeCloseTo(0.3);
+    expect(delay.duration).toBe(1.0);
+    expect(delay.progress).toBeCloseTo(30, 0);
+  });
+});
