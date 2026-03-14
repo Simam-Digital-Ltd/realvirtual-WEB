@@ -25,7 +25,6 @@ import {
   Collapse,
   InputAdornment,
   Chip,
-  useMediaQuery,
 } from '@mui/material';
 import {
   Close,
@@ -40,7 +39,7 @@ import type { SignalStore } from '../engine/rv-signal-store';
 import type { RVLogicEngine, StepStateInfo } from '../engine/rv-logic-engine';
 import { StepState } from '../engine/rv-logic-step';
 import { STEP_STATE_COLORS, STEP_STATE_LABELS } from './rv-logic-step-colors';
-import { MOBILE_BREAKPOINT } from '../../hooks/use-mobile-layout';
+import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { componentColor } from './rv-inspector-helpers';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
@@ -296,6 +295,8 @@ function BadgeChip({ color, label }: { color: string; label: string }) {
 // ─── Step Status Dot ─────────────────────────────────────────────────────
 
 function StepStateDot({ stepState }: { stepState: StepState }) {
+  // Only show dot for Active (pulsing green) and Waiting (pulsing amber). No dot for Idle/Finished.
+  if (stepState === StepState.Idle || stepState === StepState.Finished) return null;
   return (
     <Box
       sx={{
@@ -305,8 +306,7 @@ function StepStateDot({ stepState }: { stepState: StepState }) {
         bgcolor: STEP_STATE_COLORS[stepState],
         flexShrink: 0,
         mr: 0.5,
-        animation: stepState === StepState.Active
-          ? 'rv-pulse 1.5s ease-in-out infinite' : 'none',
+        animation: 'rv-pulse 1.5s ease-in-out infinite',
       }}
     />
   );
@@ -423,6 +423,8 @@ interface TreeNodeRowProps {
   onHover: (path: string | null) => void;
   signalStore: SignalStore | null;
   logicEngine: RVLogicEngine | null;
+  /** Incrementing tick to bust memo cache for live step/signal updates. */
+  liveTick: number;
 }
 
 const TreeNodeRow = memo(function TreeNodeRow({
@@ -436,6 +438,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
   onHover,
   signalStore,
   logicEngine,
+  liveTick,
 }: TreeNodeRowProps) {
   const expandKey = node.path ?? node.name;
   const isExpanded = expanded.has(expandKey);
@@ -543,6 +546,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
               onHover={onHover}
               signalStore={signalStore}
               logicEngine={logicEngine}
+              liveTick={liveTick}
             />
           ))}
         </Collapse>
@@ -563,11 +567,13 @@ interface FlatNodeRowProps {
   onHover: (path: string | null) => void;
   signalStore: SignalStore | null;
   logicEngine: RVLogicEngine | null;
+  /** Relative indentation depth (0 = top-level in filtered view). */
+  depth?: number;
   /** Absolute positioning style from virtualizer (when virtualized). */
   virtualStyle?: React.CSSProperties;
 }
 
-function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, signalStore, logicEngine, virtualStyle }: FlatNodeRowProps) {
+function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, signalStore, logicEngine, depth = 0, virtualStyle }: FlatNodeRowProps) {
   const name = info.path.split('/').pop() ?? info.path;
   const isSelected = info.path === selectedPath;
 
@@ -590,7 +596,7 @@ function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, sig
       sx={{
         display: 'flex',
         alignItems: 'center',
-        pl: 1,
+        pl: 1 + depth * 1.5,
         pr: 0.5,
         py: 0,
         cursor: 'pointer',
@@ -650,7 +656,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
   const logicEngine = viewer.logicEngine;
 
   // Consolidated live data polling at 200ms (for both signals and step states)
-  useSignalTick(signalStore, 200);
+  const liveTick = useSignalTick(signalStore, 200);
 
   // ── Lifted expand state (shared across all TreeNodeRows) ──
   const [expanded, setExpanded] = useState<Set<string>>(() => loadTreeExpanded());
@@ -674,6 +680,17 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     }
     return nodes;
   }, [state.editableNodes, typeFilter, searchTerm]);
+
+  // Compute relative depth for flat filtered nodes (for indentation in Logic view)
+  const flatDepths = useMemo(() => {
+    if (!flatFiltered || flatFiltered.length === 0) return new Map<string, number>();
+    const depths = new Map<string, number>();
+    const minSegments = Math.min(...flatFiltered.map(n => n.path.split('/').length));
+    for (const n of flatFiltered) {
+      depths.set(n.path, n.path.split('/').length - minSegments);
+    }
+    return depths;
+  }, [flatFiltered]);
 
   // Flat list virtualizer (only active when typeFilter !== 'all')
   const flatRowVirtualizer = useVirtualizer({
@@ -828,7 +845,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     document.addEventListener('pointerup', onUp);
   }, [plugin, state.panelWidth]);
 
-  const isMobile = useMediaQuery(`(max-width:${MOBILE_BREAKPOINT - 1}px)`);
+  const isMobile = useMobileLayout();
   const isFlat = flatFiltered !== null;
 
   return (
@@ -948,6 +965,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
                     onHover={handleHover}
                     signalStore={signalStore}
                     logicEngine={logicEngine}
+                    depth={flatDepths.get(info.path) ?? 0}
                     virtualStyle={{
                       position: 'absolute',
                       top: 0,
@@ -981,6 +999,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
                 onHover={handleHover}
                 signalStore={signalStore}
                 logicEngine={logicEngine}
+                liveTick={liveTick}
               />
             ))
           ) : (
