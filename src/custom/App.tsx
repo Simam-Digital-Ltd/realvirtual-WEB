@@ -11,6 +11,7 @@ import { ButtonPanel } from '../core/hmi/ButtonPanel';
 import { MessagePanel } from '../core/hmi/MessagePanel';
 import { BottomBar } from '../core/hmi/BottomBar';
 import { DriveTooltip } from '../core/hmi/DriveTooltip';
+import { WelcomeModal } from '../core/hmi/WelcomeModal';
 import { loadVisualSettings } from '../core/hmi/visual-settings-store';
 
 // Custom chart overlay (rendered at App level, toggled by button)
@@ -41,6 +42,7 @@ export function App() {
       </HMIShell>
       <DriveTooltip />
       <DriveChartOverlay />
+      <WelcomeModal />
     </ThemeProvider>
   );
 }

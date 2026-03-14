@@ -90,11 +90,14 @@ export class RVSource {
     if (!this.muTemplate || !this.spawnParent || !this.templateHalfSize) return null;
 
     const clone = this.muTemplate.clone();
+    // Ensure entire clone subtree is visible (template was hidden for cloning)
     clone.visible = true;
+    clone.traverse((child) => { child.visible = true; });
     clone.name = `${this.muTemplate.name}_${this.spawnCount++}`;
 
-    // Position at source location
+    // Position at source location (convert world → spawnParent local space)
     this.node.getWorldPosition(clone.position);
+    this.spawnParent.worldToLocal(clone.position);
 
     this.spawnParent.add(clone);
 

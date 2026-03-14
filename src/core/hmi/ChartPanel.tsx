@@ -15,7 +15,8 @@ import { BOTTOM_BAR_HEIGHT } from './BottomBar';
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
-const MIN_W = 400;
+const MIN_W_DESKTOP = 400;
+const MIN_W_MOBILE = 280;
 const MIN_H = 200;
 const BOTTOM_MARGIN = BOTTOM_BAR_HEIGHT + 12;
 
@@ -87,7 +88,7 @@ export function useResize(
   ref: React.RefObject<HTMLDivElement | null>,
   size: { w: number; h: number },
   setSize: (s: { w: number; h: number }) => void,
-  minW = MIN_W,
+  minW = MIN_W_DESKTOP,
   minH = MIN_H,
   active = true,
 ) {
@@ -163,29 +164,42 @@ export function ChartPanel({
   toolbar,
   children,
 }: ChartPanelProps) {
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const minW = isMobile ? MIN_W_MOBILE : MIN_W_DESKTOP;
   const expandedH = Math.round(window.innerHeight * 0.55);
+
+  const mobileWidth = Math.min(defaultWidth, window.innerWidth - 16);
 
   const [expanded, setExpanded] = useState(false);
   const [pos, setPos] = useState(
-    defaultPosition ?? { x: 64, y: window.innerHeight - defaultHeight - BOTTOM_MARGIN },
+    defaultPosition ?? {
+      x: isMobile ? 8 : 64,
+      y: window.innerHeight - defaultHeight - BOTTOM_MARGIN,
+    },
   );
-  const [size, setSize] = useState({ w: defaultWidth, h: defaultHeight });
+  const [size, setSize] = useState({ w: isMobile ? mobileWidth : defaultWidth, h: defaultHeight });
 
   const dragRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<HTMLDivElement>(null);
 
   useDrag(dragRef, pos, setPos, open);
-  useResize(resizeRef, size, setSize, MIN_W, MIN_H, open);
+  useResize(resizeRef, size, setSize, minW, MIN_H, open);
 
   // Snap to bottom-full-width when expanding
   useEffect(() => {
     if (expanded) {
-      setPos({ x: 64, y: window.innerHeight - expandedH - BOTTOM_MARGIN });
-      setSize({ w: window.innerWidth - 80, h: expandedH });
+      const expandX = isMobile ? 0 : 64;
+      const expandW = isMobile ? window.innerWidth : window.innerWidth - 80;
+      setPos({ x: expandX, y: window.innerHeight - expandedH - BOTTOM_MARGIN });
+      setSize({ w: expandW, h: expandedH });
     } else {
-      setSize({ w: defaultWidth, h: defaultHeight });
+      const resetW = isMobile ? mobileWidth : defaultWidth;
+      setSize({ w: resetW, h: defaultHeight });
       setPos(
-        defaultPosition ?? { x: 64, y: window.innerHeight - defaultHeight - BOTTOM_MARGIN },
+        defaultPosition ?? {
+          x: isMobile ? 8 : 64,
+          y: window.innerHeight - defaultHeight - BOTTOM_MARGIN,
+        },
       );
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

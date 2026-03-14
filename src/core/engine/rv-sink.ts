@@ -22,19 +22,15 @@ export class RVSink {
 
   /**
    * Mark MUs that overlap this sink for removal.
-   * Returns the marked MUs.
    */
-  markOverlapping(mus: RVMovingUnit[]): RVMovingUnit[] {
-    const marked: RVMovingUnit[] = [];
+  markOverlapping(mus: RVMovingUnit[]): void {
     for (const mu of mus) {
       if (mu.markedForRemoval) continue;
       if (this.aabb.overlaps(mu.aabb)) {
         mu.markedForRemoval = true;
-        marked.push(mu);
         this.onConsumed?.(mu, this);
       }
     }
-    return marked;
   }
 
   /** Update AABB world position */

@@ -19,9 +19,14 @@ import { NavButton } from '../core/hmi/NavButton';
 import { OeeChart } from './OeeChart';
 import { PartsChart } from './PartsChart';
 import { CycleTimeChart } from './CycleTimeChart';
+import { EnergyChart } from './EnergyChart';
+
+// Custom overlays
+import { SensorChartOverlay } from './SensorChartOverlay';
 
 // Hooks
 import { useDriveChartOpen } from '../hooks/use-drive-chart';
+import { useSensorChartOpen } from '../hooks/use-sensor-chart';
 import { useSensorState } from '../hooks/use-sensor-state';
 
 // ─── KPI Bar Entries ────────────────────────────────────────────────────
@@ -56,6 +61,16 @@ function CycleTimeKpi(_props: UISlotProps) {
   );
 }
 
+function PowerKpi(_props: UISlotProps) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <KpiCard label="Power" value="23.4" unit="kW" color="#ef5350" secondary="Avg: 18.7 kW" onClick={() => setOpen((o) => !o)} />
+      <EnergyChart open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
 // ─── Button Group Entries ───────────────────────────────────────────────
 
 function DrivesButton({ viewer }: UISlotProps) {
@@ -63,8 +78,14 @@ function DrivesButton({ viewer }: UISlotProps) {
   return <NavButton icon={<Speed />} label="Drives" active={open} onClick={() => viewer.toggleDriveChart()} />;
 }
 
-function SensorsButton(_props: UISlotProps) {
-  return <NavButton icon={<Sensors />} label="Sensors" />;
+function SensorsButton({ viewer }: UISlotProps) {
+  const open = useSensorChartOpen();
+  return (
+    <>
+      <NavButton icon={<Sensors />} label="Sensors" active={open} onClick={() => viewer.toggleSensorChart()} />
+      <SensorChartOverlay />
+    </>
+  );
 }
 
 function AlarmsButton(_props: UISlotProps) {
@@ -157,6 +178,7 @@ export class DemoHMIPlugin implements RVViewerPlugin {
     { slot: 'kpi-bar', component: OeeKpi, order: 10 },
     { slot: 'kpi-bar', component: PartsKpi, order: 20 },
     { slot: 'kpi-bar', component: CycleTimeKpi, order: 30 },
+    { slot: 'kpi-bar', component: PowerKpi, order: 40 },
 
     // Button group (left sidebar)
     { slot: 'button-group', component: DrivesButton, order: 10 },

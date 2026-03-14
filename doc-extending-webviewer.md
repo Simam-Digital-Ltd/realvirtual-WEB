@@ -65,6 +65,36 @@ interface RVViewerPlugin {
 
 Plugins are cached into per-phase arrays sorted by `order`. Each callback is wrapped in try/catch — a faulty plugin cannot crash the simulation.
 
+### RVBehavior Base Class (Recommended)
+
+For most plugins, extend `RVBehavior` instead of implementing `RVViewerPlugin` directly. It provides:
+
+- **Auto-managed viewer lifecycle** — `this.viewer` set on model load, cleared on dispose
+- **Convenience getters** — `this.drives`, `this.sensors`, `this.signals`, `this.playback`, `this.scene`
+- **Signal access** — `getSignalBool(name)`, `setSignal(name, value)`, `onSignalChanged(name, cb)` with auto-cleanup
+- **Component discovery** — `find<T>(type, path)`, `findAll<T>(type)`, `findInParent<T>()`, `findInChildren<T>()`
+- **Lifecycle hooks** — `onStart()`, `onDestroy()`, `onPreFixedUpdate(dt)`, `onLateFixedUpdate(dt)`, `onFrame(frameDt)`
+- **Cleanup registration** — `addCleanup(fn)` for automatic resource disposal
+
+```typescript
+import { RVBehavior } from '../core/rv-behavior';
+
+export class MyPlugin extends RVBehavior {
+  readonly id = 'my-plugin';
+
+  protected onStart(): void {
+    const drive = this.drives.find(d => d.name === 'Conveyor');
+    this.onSignalChanged('ConveyorStart', (value) => {
+      if (drive && value === true) drive.jogForward = true;
+    });
+  }
+
+  protected onLateFixedUpdate(dt: number): void {
+    // Read results after drive physics (60Hz)
+  }
+}
+```
+
 ### Example: Data-Only Plugin (No Lifecycle)
 
 The simplest plugin just holds data. No callbacks needed.
@@ -436,7 +466,7 @@ function CustomPanel() {
 | `useTransportStats(ms?)` | `{ spawned, consumed }` | Polled transport counters |
 | `useInterfaceStatus(id)` | `boolean` | Interface connection state |
 | `useDrives()` | drive list + hover state | All loaded drives |
-| `useSignal(path)` | signal value | Signal store subscription |
+| `useSignal(name)` | signal value | Signal store subscription (by name) |
 
 ### Writing Custom Hooks
 
@@ -694,8 +724,8 @@ class MockHost {
 ## 8. Checklist: Adding a New Feature
 
 1. **Create plugin** in `src/plugins/`:
-   - Implement `RVViewerPlugin`
-   - Add lifecycle callbacks (`onModelLoaded`, `onFixedUpdatePre/Post`, etc.) as needed
+   - Extend `RVBehavior` (recommended) or implement `RVViewerPlugin` directly
+   - Override lifecycle hooks (`onStart`, `onDestroy`, `onPreFixedUpdate`, etc.) as needed
    - Add `slots` array for UI components (KPI cards, buttons, messages, etc.)
    - Set `order` if execution timing matters
 
@@ -731,6 +761,7 @@ class MockHost {
 | `CameraEventsPlugin` | `camera-events` | onModelLoaded, onRender | Emits camera-animation-done |
 | `KpiDemoPlugin` | `kpi-demo` | (none) | Static OEE/Parts/CycleTime demo data with seeded PRNG |
 | `DemoHMIPlugin` | `demo-hmi` | (slots only) | Registers demo KPI cards, nav buttons, message tiles into HMI slots |
+| `TestAxesPlugin` | `test-axes` | onStart, onDestroy | Manual axis tester with slider UI (extends RVBehavior) |
 
 ### Plugin Locations
 
@@ -743,6 +774,7 @@ class MockHost {
 | `CameraEventsPlugin` | `src/plugins/camera-events-plugin.ts` |
 | `KpiDemoPlugin` | `src/plugins/kpi-demo-plugin.ts` |
 | `DemoHMIPlugin` | `src/custom/demo-hmi-plugin.tsx` |
+| `TestAxesPlugin` | `src/plugins/test-axes-plugin.tsx` |
 
 ### Data Access Patterns
 
@@ -770,3 +802,9 @@ When a physics engine (Rapier.js) replaces the kinematic transport, it sets `han
 
 **Why render chart overlays outside HMIShell?**
 `HMIShell` has `pointer-events: none` on its container so the 3D scene remains interactive. Chart panels need pointer events for drag/resize, so they render as siblings in `App.tsx`.
+
+**Why RVBehavior base class?**
+Mirrors Unity's MonoBehaviour pattern. Every plugin repeated the same boilerplate: store/null-check viewer, find drives, cleanup subscriptions. `RVBehavior` handles this automatically. Subclasses override named hooks (`onStart`, `onPreFixedUpdate`, etc.) instead of implementing raw interface methods.
+
+**Why two signal lookup tables (name + path)?**
+Signals need to be addressed by **name** for communication (plugin API, HMI, interfaces) and by **path** for GLB object references (ComponentRef). The name is the signal's identity (Signal.Name if set, otherwise node name); the path is its location in the scene hierarchy. Both resolve to the same underlying value.

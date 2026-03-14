@@ -3,6 +3,16 @@ import type { RVDrive } from './rv-drive';
 import type { RVSensor } from './rv-sensor';
 
 /**
+ * Search result from NodeRegistry.search().
+ */
+export interface NodeSearchResult {
+  path: string;
+  node: Object3D;
+  /** Registered component types at this path (e.g. ['Drive', 'TransportSurface']). Empty for plain nodes. */
+  types: string[];
+}
+
+/**
  * ComponentReference from GLB extras.
  * Written by GLBComponentSerializer for Signal/Drive/Sensor references.
  */
@@ -35,6 +45,8 @@ export class NodeRegistry {
   private components = new Map<string, Map<string, unknown>>();
   /** type → Set<path> (reverse index for getAll) */
   private typeIndex = new Map<string, Set<string>>();
+  /** last path segment → full paths (for O(1) suffix lookup in getNode fallback) */
+  private suffixMap = new Map<string, string[]>();
 
   // ─── Path Computation ───────────────────────────────────────────
 
@@ -60,6 +72,15 @@ export class NodeRegistry {
   registerNode(path: string, node: Object3D): void {
     this.nodes.set(path, node);
     this.nodePaths.set(node, path);
+
+    // Update suffix map for O(1) suffix lookups
+    const suffix = path.substring(path.lastIndexOf('/') + 1);
+    let arr = this.suffixMap.get(suffix);
+    if (!arr) {
+      arr = [];
+      this.suffixMap.set(suffix, arr);
+    }
+    arr.push(path);
   }
 
   /**
@@ -87,14 +108,30 @@ export class NodeRegistry {
 
   /** Get raw Object3D by full hierarchy path */
   getNode(path: string): Object3D | null {
-    // Direct lookup
+    // Direct lookup (most common case)
     const direct = this.nodes.get(path);
     if (direct) return direct;
 
-    // Path suffix match (e.g. "DemoCell/Turbine" matches "Root/DemoCell/Turbine")
-    for (const [registeredPath, node] of this.nodes) {
-      if (registeredPath.endsWith('/' + path) || registeredPath === path) {
-        return node;
+    // Normalize path: Three.js GLTF loader sanitizes names (spaces → underscores)
+    const normalized = path.replace(/ /g, '_');
+    if (normalized !== path) {
+      const normDirect = this.nodes.get(normalized);
+      if (normDirect) return normDirect;
+    }
+
+    // Suffix match using the suffix map for O(1) lookup
+    // Extract the last segment of the query path
+    const querySuffix = path.substring(path.lastIndexOf('/') + 1);
+    const candidates = this.suffixMap.get(querySuffix);
+    if (candidates) {
+      for (const registeredPath of candidates) {
+        if (registeredPath.endsWith('/' + path) || registeredPath === path) {
+          return this.nodes.get(registeredPath) ?? null;
+        }
+        // Also try with normalized path (spaces → underscores)
+        if (normalized !== path && (registeredPath.endsWith('/' + normalized) || registeredPath === normalized)) {
+          return this.nodes.get(registeredPath) ?? null;
+        }
       }
     }
     return null;
@@ -112,9 +149,16 @@ export class NodeRegistry {
       const instance = compMap.get(type);
       if (instance !== undefined) return instance as T;
     }
+    // Normalize path: Three.js GLTF loader sanitizes names (spaces → underscores)
+    const normalized = path.replace(/ /g, '_');
     // Path suffix match
     for (const [registeredPath, compMap2] of this.components) {
       if (registeredPath.endsWith('/' + path) || registeredPath === path) {
+        const instance = compMap2.get(type);
+        if (instance !== undefined) return instance as T;
+      }
+      // Also try with normalized path (spaces → underscores)
+      if (normalized !== path && (registeredPath.endsWith('/' + normalized) || registeredPath === normalized)) {
         const instance = compMap2.get(type);
         if (instance !== undefined) return instance as T;
       }
@@ -181,10 +225,11 @@ export class NodeRegistry {
       }
     }
 
-    // BFS through children
+    // BFS through children (index pointer avoids O(n) shift)
     const queue: Object3D[] = [...node.children];
-    while (queue.length > 0) {
-      const child = queue.shift()!;
+    let i = 0;
+    while (i < queue.length) {
+      const child = queue[i++];
       const childPath = this.nodePaths.get(child);
       if (childPath) {
         const compMap = this.components.get(childPath);
@@ -260,12 +305,47 @@ export class NodeRegistry {
     }
 
     // Signal reference (PLCOutputBool, PLCInputBool, etc.)
+    // Resolve the C# path to the actual registered Three.js path
+    // (handles root prefix mismatch and space→underscore sanitization)
     if (ct.includes('Signal') || ct.includes('PLC')) {
+      const node = this.getNode(ref.path);
+      if (node) {
+        const resolvedPath = this.nodePaths.get(node);
+        if (resolvedPath) return { signalAddress: resolvedPath };
+      }
+      // Fallback: return raw path (may still work if path happens to match)
       return { signalAddress: ref.path };
     }
 
     console.warn(`[NodeRegistry] Unknown componentType: "${ref.componentType}" at "${ref.path}"`);
     return {};
+  }
+
+  // ─── Search ────────────────────────────────────────────────────
+
+  /** Search all registered nodes by path substring (case-insensitive). */
+  search(term: string): NodeSearchResult[] {
+    if (!term) return [];
+    const lower = term.toLowerCase();
+    const results: NodeSearchResult[] = [];
+    for (const [path, node] of this.nodes) {
+      const name = path.substring(path.lastIndexOf('/') + 1);
+      if (name.toLowerCase().includes(lower)) {
+        const compMap = this.components.get(path);
+        const types = compMap ? [...compMap.keys()] : [];
+        results.push({ path, node, types });
+      }
+    }
+    return results;
+  }
+
+  // ─── Iteration ─────────────────────────────────────────────────
+
+  /** Iterate all registered nodes with their paths. */
+  forEachNode(callback: (path: string, node: Object3D) => void): void {
+    for (const [path, node] of this.nodes) {
+      callback(path, node);
+    }
   }
 
   // ─── Utility ────────────────────────────────────────────────────
@@ -276,6 +356,7 @@ export class NodeRegistry {
     this.nodePaths.clear();
     this.components.clear();
     this.typeIndex.clear();
+    this.suffixMap.clear();
   }
 
   /** Get registry stats */

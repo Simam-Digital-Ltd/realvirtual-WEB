@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Box, Typography, Paper } from '@mui/material';
 
 interface KpiCardProps {
@@ -53,9 +54,10 @@ const SPARKLINES: Record<string, number[]> = {
   OEE: [82, 84, 81, 86, 87, 85, 88, 87, 86, 87, 89, 87, 86, 88, 87],
   'Parts/h': [26, 28, 27, 29, 30, 28, 31, 28, 30, 28, 29, 28, 27, 29, 28],
   'Cycle Time': [4.5, 4.3, 4.4, 4.1, 4.2, 4.3, 4.1, 4.2, 4.3, 4.2, 4.1, 4.2, 4.3, 4.2, 4.2],
+  Power: [18.2, 19.5, 22.1, 24.3, 23.8, 21.4, 8.5, 22.7, 24.1, 23.5, 22.9, 19.8, 8.2, 23.6, 24.0],
 };
 
-export function KpiCard({ label, value, unit, secondary, color = '#4fc3f7', onClick }: KpiCardProps) {
+export const KpiCard = memo(function KpiCard({ label, value, unit, secondary, color = '#4fc3f7', onClick }: KpiCardProps) {
   const sparkData = SPARKLINES[label] || [];
 
   return (
@@ -65,8 +67,9 @@ export function KpiCard({ label, value, unit, secondary, color = '#4fc3f7', onCl
       sx={{
         position: 'relative',
         overflow: 'hidden',
-        minWidth: 130,
-        px: 1.5,
+        minWidth: { xs: 0, sm: 130 },
+        flexShrink: 1,
+        px: { xs: 1, sm: 1.5 },
         py: 1,
         borderRadius: 2,
         pointerEvents: 'auto',
@@ -95,7 +98,7 @@ export function KpiCard({ label, value, unit, secondary, color = '#4fc3f7', onCl
               fontWeight: 700,
               color,
               lineHeight: 1.1,
-              fontSize: '1.75rem',
+              fontSize: { xs: '1.35rem', sm: '1.75rem' },
               fontFamily: '"Inter", "Roboto", sans-serif',
             }}
           >
@@ -120,4 +123,4 @@ export function KpiCard({ label, value, unit, secondary, color = '#4fc3f7', onCl
       </Box>
     </Paper>
   );
-}
+});

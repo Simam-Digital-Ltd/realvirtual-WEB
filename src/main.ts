@@ -27,6 +27,17 @@ import { DemoHMIPlugin } from './custom/demo-hmi-plugin';
 // TestAxes plugin (sequential rotary axis tester)
 import { TestAxesPlugin } from './plugins/test-axes-plugin';
 
+// Extras editor plugin (hierarchy browser + property editor)
+import { RvExtrasEditorPlugin } from './core/hmi/rv-extras-editor';
+
+// Industrial interface plugins (WebSocket Realtime, ctrlX, etc.)
+import { InterfaceManager } from './interfaces/interface-manager';
+import { WebSocketRealtimeInterface } from './interfaces/websocket-realtime-interface';
+import { CtrlXInterface } from './interfaces/ctrlx-interface';
+
+// WebXR plugin (immersive VR on Quest 3 and other headsets)
+import { WebXRPlugin } from './plugins/webxr-plugin';
+
 // --- localStorage keys ---
 const LS_KEY_MODEL = 'rv-webviewer-last-model';
 const LS_KEY_RENDERER = 'rv-webviewer-renderer';
@@ -81,16 +92,24 @@ async function init() {
   const rapierPlugin = new RapierPhysicsPlugin();
   await rapierPlugin.preload();
 
+  // --- Register Industrial Interfaces ---
+  const ifaceManager = new InterfaceManager();
+  ifaceManager.register(new WebSocketRealtimeInterface());
+  ifaceManager.register(new CtrlXInterface());
+
   // --- Register Core Plugins ---
   viewer
+    .use(ifaceManager)
     .use(rapierPlugin)
+    .use(new WebXRPlugin())
     .use(new DriveOrderPlugin())
     .use(new SensorMonitorPlugin())
     .use(new TransportStatsPlugin())
     .use(new CameraEventsPlugin())
     .use(new KpiDemoPlugin())
     .use(new DemoHMIPlugin())
-    .use(new TestAxesPlugin());
+    .use(new TestAxesPlugin())
+    .use(new RvExtrasEditorPlugin());
 
   // --- Model discovery ---
   const modelFiles = import.meta.glob('/public/models/*.glb', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
@@ -180,9 +199,11 @@ async function init() {
   // --- Initialize HMI React Overlay ---
   initHMI(viewer);
 
-  // --- Dev-only: test runner ---
+  // --- Dev-only: test runner + debug endpoint ---
   if (import.meta.env.DEV) {
     initTestRunner();
+    const { DebugEndpointPlugin } = await import('./plugins/debug-endpoint-plugin');
+    viewer.use(new DebugEndpointPlugin());
   }
 }
 

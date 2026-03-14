@@ -23,6 +23,7 @@ import {
   Box3,
   Object3D,
   MOUSE,
+  TOUCH,
   PlaneGeometry,
   Mesh,
   MeshStandardMaterial,
@@ -49,13 +50,21 @@ import type { RVReplayRecording } from './engine/rv-replay-recording';
 import type { RVLogicEngine } from './engine/rv-logic-engine';
 import type { NodeRegistry, NodeSearchResult } from './engine/rv-node-registry';
 import { registerFilterSubscriber, loadSearchSettings, isTypeEnabled } from './hmi/search-settings-store';
-import { DriveDataRecorder } from './engine/rv-drive-recorder';
-import { SensorDataRecorder } from './engine/rv-sensor-recorder';
 import type { RVViewerPlugin } from './rv-plugin';
 import { UIPluginRegistry } from './rv-ui-registry';
 import { isActiveForState } from './engine/rv-active-only';
 
 // ─── Public Types ───────────────────────────────────────────────────────
+
+/** Pixel offsets for panels obscuring the 3D viewport. Used to shift
+ *  the camera orbit target so the focused object appears centered in
+ *  the *visible* viewport area rather than the full canvas. */
+export interface ViewportOffset {
+  left?: number;
+  right?: number;
+  top?: number;
+  bottom?: number;
+}
 
 export interface RVViewerOptions {
   /** Use WebGPU renderer (falls back to WebGL if unavailable). Default: false */
@@ -155,12 +164,6 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   transportManager: RVTransportManager | null = null;
   logicEngine: RVLogicEngine | null = null;
   playback: RVDrivesPlayback | null = null;
-
-  /** Drive data recorder for chart overlay (ring buffer sampling). */
-  readonly driveRecorder = new DriveDataRecorder(3000, 10);
-
-  /** Sensor data recorder for sensor chart overlay (ring buffer sampling). */
-  readonly sensorRecorder = new SensorDataRecorder(3000, 10);
 
   // --- Plugin System ---
 
@@ -364,6 +367,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private currentModel: Object3D | null = null;
   private sceneFixtures = new Set<Object3D>();
   private resizeHandler: (() => void) | null = null;
+  private resizeObserver: ResizeObserver | null = null;
   private simTickCount = 0;
   private fpsFrameCount = 0;
   private fpsAccumTime = 0;
@@ -394,9 +398,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     // --- Renderer ---
     // Note: WebGPU init is async — for now we always start with WebGL.
     // WebGPU support can be added via an async factory method later.
-    this.renderer = new WebGLRenderer({ antialias: true, alpha: true });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const isTouchDevice = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    const maxDpr = isTouchDevice ? 1.5 : 2;
+    this.renderer = new WebGLRenderer({ antialias: !isTouchDevice, alpha: true });
+    this.renderer.setSize(container.clientWidth || window.innerWidth, container.clientHeight || window.innerHeight);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxDpr));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = PCFSoftShadowMap;
     this.renderer.toneMapping = ACESFilmicToneMapping;
@@ -404,6 +410,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.renderer.xr.enabled = true;
     this.isWebGPU = false; // Sync constructor — WebGPU needs async init
 
+    this.renderer.domElement.style.touchAction = 'none';
     container.appendChild(this.renderer.domElement);
 
     // --- Controls ---
@@ -416,6 +423,10 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       MIDDLE: MOUSE.PAN,
       RIGHT: MOUSE.ROTATE,
     };
+    this.controls.touches = {
+      ONE: TOUCH.ROTATE,
+      TWO: TOUCH.DOLLY_PAN,
+    };
     this.controls.update();
 
     // --- XR session lifecycle ---
@@ -425,6 +436,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.renderer.shadowMap.enabled = false;
       this.controls.enabled = false;
       if (this.resizeHandler) window.removeEventListener('resize', this.resizeHandler);
+      if (this.resizeObserver) this.resizeObserver.disconnect();
       this.emit('xr-session-start', undefined as never);
     });
     this.renderer.xr.addEventListener('sessionend', () => {
@@ -436,6 +448,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         window.addEventListener('resize', this.resizeHandler);
         this.resizeHandler();
       }
+      if (this.resizeObserver) this.resizeObserver.observe(container);
       this.emit('xr-session-end', undefined as never);
     });
 
@@ -458,8 +471,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.dirLight = new DirectionalLight(0xffffff, 2.2);
     this.dirLight.position.set(-3, 10, 5);
     this.dirLight.castShadow = true;
-    this.dirLight.shadow.mapSize.width = 2048;
-    this.dirLight.shadow.mapSize.height = 2048;
+    const shadowRes = isTouchDevice ? 1024 : 2048;
+    this.dirLight.shadow.mapSize.width = shadowRes;
+    this.dirLight.shadow.mapSize.height = shadowRes;
     this.dirLight.shadow.camera.near = 0.1;
     this.dirLight.shadow.camera.far = 50;
     this.dirLight.shadow.camera.left = -15;
@@ -513,13 +527,22 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.loop.onRender = () => this.render();
     this.loop.start();
 
-    // --- Resize ---
+    // --- Resize (ResizeObserver on container — handles soft keyboard, orientation) ---
     if (autoResize) {
+      let resizeRafId = 0;
       this.resizeHandler = () => {
-        this.camera.aspect = window.innerWidth / window.innerHeight;
+        const w = container.clientWidth || window.innerWidth;
+        const h = container.clientHeight || window.innerHeight;
+        this.camera.aspect = w / h;
         this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setSize(w, h);
       };
+      this.resizeObserver = new ResizeObserver(() => {
+        cancelAnimationFrame(resizeRafId);
+        resizeRafId = requestAnimationFrame(() => this.resizeHandler!());
+      });
+      this.resizeObserver.observe(container);
+      // Fallback for browsers without ResizeObserver on window events
       window.addEventListener('resize', this.resizeHandler);
     }
 
@@ -598,12 +621,6 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     registerFilterSubscriber({ id: 'Drive', label: 'Drives', componentType: 'Drive' });
     registerFilterSubscriber({ id: 'Sensor', label: 'Sensors', componentType: 'Sensor' });
     registerFilterSubscriber({ id: 'TransportSurface', label: 'Conveyors', componentType: 'TransportSurface' });
-
-    // Drive data recorder
-    this.driveRecorder.setDrives(this.drives);
-
-    // Sensor data recorder
-    this.sensorRecorder.setSensors(this.transportManager?.sensors ?? []);
 
     // Drive hover highlighting (hover events emitted in render loop)
     this.driveHover = setupDriveHover(this.renderer, this.camera, this.scene, result.registry, this.highlighter);
@@ -757,6 +774,10 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     if (this.resizeHandler) {
       window.removeEventListener('resize', this.resizeHandler);
     }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
     this.controls.dispose();
     this.renderer.dispose();
     this.stats.dispose();
@@ -783,8 +804,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.highlighter.clear();
   }
 
-  /** Smoothly orbit camera to focus on a component by hierarchy path. Also pins the drive tooltip if the target is a drive. */
-  focusByPath(path: string): void {
+  /** Smoothly orbit camera to focus on a component by hierarchy path. Also pins the drive tooltip if the target is a drive.
+   *  @param offset  Optional pixel offsets for panels obscuring the viewport (shifts orbit target). */
+  focusByPath(path: string, offset?: ViewportOffset): void {
     const node = this.registry?.getNode(path);
     if (!node) return;
 
@@ -821,12 +843,14 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     // Keep current viewing direction — just move along it to frame the target
     const dir = new Vector3().subVectors(this.camera.position, this.controls.target).normalize();
-    const endPos = center.clone().add(dir.multiplyScalar(dist));
-    this.animateCameraTo(endPos, center);
+    const adjustedCenter = this.applyViewportOffset(center, dist, offset);
+    const endPos = adjustedCenter.clone().add(dir.multiplyScalar(dist));
+    this.animateCameraTo(endPos, adjustedCenter);
   }
 
-  /** Smoothly animate camera to frame all given nodes. */
-  fitToNodes(nodes: Object3D[]): void {
+  /** Smoothly animate camera to frame all given nodes.
+   *  @param offset  Optional pixel offsets for panels obscuring the viewport (shifts orbit target). */
+  fitToNodes(nodes: Object3D[], offset?: ViewportOffset): void {
     if (nodes.length === 0) return;
     const box = new Box3();
     for (const node of nodes) {
@@ -855,8 +879,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     const dist = (maxDim / (2 * Math.tan(fov / 2))) * 1.8;
 
     const dir = new Vector3().subVectors(this.camera.position, this.controls.target).normalize();
-    const endPos = center.clone().add(dir.multiplyScalar(dist));
-    this.animateCameraTo(endPos, center);
+    const adjustedCenter = this.applyViewportOffset(center, dist, offset);
+    const endPos = adjustedCenter.clone().add(dir.multiplyScalar(dist));
+    this.animateCameraTo(endPos, adjustedCenter);
   }
 
   /** Clear pinned drive focus (e.g., user clicked canvas). */
@@ -944,6 +969,58 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     const headroom = Math.round((1000 / avgFrameMs) / 60 * 100);
 
     return { uncappedFps, avgFrameMs: +avgFrameMs.toFixed(2), headroom };
+  }
+
+  // ─── Viewport Offset ─────────────────────────────────────────────
+
+  /**
+   * Shift a world-space target point so the focused object appears centered
+   * in the *visible* viewport area (accounting for panels covering the edges).
+   *
+   * The shift is computed in camera-right and camera-up directions using the
+   * fraction of the canvas covered by panels and the frustum half-width/height
+   * at the given distance.
+   *
+   * @param center   World-space center of the object bounding box.
+   * @param dist     Camera distance to the target (for frustum width computation).
+   * @param offset   Pixel offsets for panels (left, right, top, bottom).
+   * @returns        Adjusted center (new Vector3 — original is not mutated).
+   */
+  private applyViewportOffset(center: Vector3, dist: number, offset?: ViewportOffset): Vector3 {
+    if (!offset) return center;
+    const left = offset.left ?? 0;
+    const right = offset.right ?? 0;
+    const top = offset.top ?? 0;
+    const bottom = offset.bottom ?? 0;
+    if (left === 0 && right === 0 && top === 0 && bottom === 0) return center;
+
+    const canvas = this.renderer.domElement;
+    const canvasW = canvas.clientWidth || 1;
+    const canvasH = canvas.clientHeight || 1;
+
+    // Net panel coverage fraction (left panels shift target right, right panels shift left)
+    const horizontalFrac = (left - right) / canvasW;
+    const verticalFrac = (bottom - top) / canvasH;
+
+    if (Math.abs(horizontalFrac) < 0.001 && Math.abs(verticalFrac) < 0.001) return center;
+
+    // Frustum half-dimensions at the target distance
+    const fovRad = this.camera.fov * (Math.PI / 180);
+    const halfH = dist * Math.tan(fovRad / 2);
+    const halfW = halfH * this.camera.aspect;
+
+    // Camera basis vectors (world-space right and up)
+    const camRight = new Vector3();
+    const camUp = new Vector3();
+    this.camera.getWorldDirection(new Vector3()); // ensure matrix is up to date
+    camRight.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
+    camUp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
+
+    // Shift target so the object centers in the unobscured viewport region
+    const adjusted = center.clone();
+    adjusted.addScaledVector(camRight, horizontalFrac * halfW);
+    adjusted.addScaledVector(camUp, verticalFrac * halfH);
+    return adjusted;
   }
 
   // ─── Camera Animation ──────────────────────────────────────────────
@@ -1036,9 +1113,6 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       catch (e) { console.error(`[RVViewer] Plugin '${p.id}' onFixedUpdatePost error:`, e); }
     }
 
-    // Data sampling (for chart overlays — legacy, not yet migrated to plugin)
-    this.driveRecorder.sample(dt);
-    this.sensorRecorder.sample(dt);
   }
 
   private render(): void {

@@ -18,7 +18,7 @@ Drop `.glb` files into `public/models/` — they appear automatically in the mod
 npm run build        # Production build → dist/
 npm run preview      # Preview production build
 npm test             # Run all 226 tests (headless Chromium)
-npm run test:watch   # Watch mode
+npm run test:watch   # Watch mode (328 tests)
 ```
 
 ## Architecture
@@ -31,6 +31,7 @@ src/
 │   ├── rv-viewer.ts                     # RVViewer facade (scene, sim loop, plugins, events)
 │   ├── rv-plugin.ts                     # RVViewerPlugin interface (lifecycle + optional UI slots)
 │   ├── rv-events.ts                     # Typed EventEmitter<TEvents>
+│   ├── rv-behavior.ts                    # RVBehavior abstract base class (MonoBehaviour-like)
 │   ├── rv-ui-plugin.ts                  # UISlot types, UISlotEntry
 │   ├── rv-ui-registry.ts               # UIPluginRegistry (slot component lookup)
 │   ├── engine/                          # Simulation engine subsystems
@@ -77,7 +78,8 @@ src/
 │   ├── transport-stats-plugin.ts        # Transport statistics (10Hz RingBuffer)
 │   ├── camera-events-plugin.ts          # Camera animation done events
 │   ├── drive-order-plugin.ts            # Topological drive sorting for CAM/Gear
-│   └── kpi-demo-plugin.ts              # Static demo KPI data
+│   ├── kpi-demo-plugin.ts              # Static demo KPI data
+│   └── test-axes-plugin.tsx           # Manual axis tester (extends RVBehavior)
 ├── hooks/                               # React hooks
 │   ├── use-viewer.ts                    # RVViewer context access
 │   ├── use-plugin.ts                    # usePlugin<T>(id) for type-safe plugin access
@@ -137,9 +139,10 @@ Unity GLB Export (UnityGLTF + GLBComponentSerializer)
 
 ## Plugin System
 
-All extensions use the unified `RVViewerPlugin` interface:
+All extensions use the `RVViewerPlugin` interface. For convenience, extend `RVBehavior` — a MonoBehaviour-like abstract base class that manages viewer lifecycle, provides getters for drives/sensors/signals, and handles cleanup:
 
 ```typescript
+// Raw interface (for minimal plugins)
 interface RVViewerPlugin {
   readonly id: string;
   readonly order?: number;              // Execution order (lower = earlier)
@@ -151,6 +154,28 @@ interface RVViewerPlugin {
   onFixedUpdatePost?(dt): void;         // After drive physics + transport (60Hz)
   onRender?(frameDt): void;
   dispose?(): void;
+}
+
+// Base class (recommended for most plugins)
+abstract class RVBehavior implements RVViewerPlugin {
+  abstract readonly id: string;
+  protected viewer: RVViewer | null;    // Auto-managed
+  protected get drives(): RVDrive[];
+  protected get sensors(): RVSensor[];
+  protected get signals(): SignalStore | null;
+  // Signal access by name (primary)
+  protected getSignalBool(name: string): boolean;
+  protected setSignal(name: string, value: boolean | number): void;
+  protected onSignalChanged(name: string, cb): void;  // Auto-cleanup
+  // Generic component discovery (like GetComponent<T>)
+  protected find<T>(type, path): T | null;
+  protected findAll<T>(type): { path, instance: T }[];
+  // Lifecycle hooks
+  protected onStart?(result): void;     // Like MonoBehaviour.Start()
+  protected onDestroy?(): void;         // Like MonoBehaviour.OnDestroy()
+  protected onPreFixedUpdate?(dt): void;  // Before drive physics
+  protected onLateFixedUpdate?(dt): void; // After drive physics
+  protected onFrame?(frameDt): void;    // Per render frame
 }
 ```
 
@@ -180,7 +205,11 @@ Non-physics AABB-based transport (or Rapier.js physics when enabled). Sources sp
 Port of Unity's LogicStep sequencing: SerialContainer, ParallelContainer, SetSignalBool, WaitForSignalBool, WaitForSensor, Delay, DriveToPosition, SetDriveSpeed, Enable.
 
 ### Signal Store
-Central pub/sub for PLC signals (bool/int/float), addressed by hierarchy path. Change-only notification.
+Central pub/sub for PLC signals (bool/int/float) with two lookup tables:
+- **By name** (primary) — Signal.Name if set, otherwise node name (GameObject name). Used by plugins and HMI.
+- **By path** (secondary) — Full hierarchy path. Used by GLB object references (ComponentRef) and internal bindings.
+
+Change-only notification. Batch semantics for `setMany()`.
 
 ### Drive Physics
 Ported from Drive.cs — acceleration/deceleration, position limits, rotation and linear movement. CAM/Gear master-slave dependencies resolved via topological sort.
@@ -215,11 +244,12 @@ Enums as strings, component references as `{ type: "ComponentReference", path: "
 
 ## Testing
 
-**226 tests** running in real Chromium via Vitest v4 + Playwright:
+**328 tests** running in real Chromium via Vitest v4 + Playwright:
 
 ```bash
 npm test              # All tests, headless
 npm run test:watch    # Watch mode
+npx tsc --noEmit     # Type check only
 ```
 
 Test GLB: Export from Unity demo scene → `public/models/tests.glb`.
@@ -230,7 +260,7 @@ Test GLB: Export from Unity demo scene → `public/models/tests.glb`.
 | NodeRegistry | 34 | Path computation, type queries, hierarchy traversal |
 | Transport | 17 | Linear/radial movement, MU lifecycle, surface transfer |
 | LogicSteps | 33 | All step types, containers, looping, integration |
-| SignalStore | 15 | Pub/sub, change notification, bulk updates |
+| SignalStore | 23 | Pub/sub, name/path access, change notification, bulk updates |
 | DrivesPlayback | 10 | Frame advancement, looping, seeking |
 | KPI utils | 40 | Formatting, calculations, edge cases |
 | AABB | 7 | Overlap, position update, X-flip |

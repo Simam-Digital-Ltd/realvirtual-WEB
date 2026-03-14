@@ -25,7 +25,7 @@ import {
   Object3D,
   DoubleSide,
 } from 'three';
-import type { Scene } from 'three';
+import type { Scene, BufferGeometry } from 'three';
 
 // ─── Constants ────────────────────────────────────────────────────────
 
@@ -56,6 +56,9 @@ const edgeMat = new LineBasicMaterial({
   linewidth: 1,
 });
 
+/** WeakMap cache for EdgesGeometry — avoids recomputing edges for the same BufferGeometry */
+const edgeGeometryCache = new WeakMap<BufferGeometry, EdgesGeometry>();
+
 // ─── Overlay Pair (fill + edge linked to source mesh) ────────────────
 
 interface OverlayPair {
@@ -68,7 +71,6 @@ interface OverlayPair {
 
 export class RVHighlightManager {
   private pairs: OverlayPair[] = [];
-  private edgeGeometries: EdgesGeometry[] = [];
   /** When true, update() re-syncs overlay matrices from source meshes. */
   private tracked = false;
 
@@ -80,13 +82,14 @@ export class RVHighlightManager {
    *
    * @param root     The root Object3D to highlight.
    * @param track    If true, overlays follow mesh movement each frame (call update()).
-   * @param options  Extra options (includeSensorViz: include _sensorViz meshes).
+   * @param options  Extra options.
    */
-  highlight(root: Object3D, track = false, options?: { includeSensorViz?: boolean }): void {
+  highlight(root: Object3D, track = false, options?: { includeSensorViz?: boolean; includeChildDrives?: boolean }): void {
     this.clear();
     this.tracked = track;
     const includeSensorViz = options?.includeSensorViz ?? false;
-    const meshes = this.collectMeshes(root, includeSensorViz);
+    const includeChildDrives = options?.includeChildDrives ?? false;
+    const meshes = this.collectMeshes(root, includeSensorViz, includeChildDrives);
     const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
 
     for (const mesh of meshes) {
@@ -103,8 +106,12 @@ export class RVHighlightManager {
       overlay.matrixWorld.copy(mesh.matrixWorld);
       this.scene.add(overlay);
 
-      // Edge outline
-      const edgeGeo = new EdgesGeometry(mesh.geometry, thresholdRad);
+      // Edge outline (cached per source geometry)
+      let edgeGeo = edgeGeometryCache.get(mesh.geometry);
+      if (!edgeGeo) {
+        edgeGeo = new EdgesGeometry(mesh.geometry, thresholdRad);
+        edgeGeometryCache.set(mesh.geometry, edgeGeo);
+      }
       const edgeLines = new LineSegments(edgeGeo, edgeMat);
       edgeLines.name = `${mesh.name}_hlEdge`;
       edgeLines.userData._highlightOverlay = true;
@@ -115,7 +122,6 @@ export class RVHighlightManager {
       edgeLines.matrix.copy(mesh.matrixWorld);
       edgeLines.matrixWorld.copy(mesh.matrixWorld);
       this.scene.add(edgeLines);
-      this.edgeGeometries.push(edgeGeo);
 
       this.pairs.push({ source: mesh, fill: overlay, edge: edgeLines });
     }
@@ -161,7 +167,11 @@ export class RVHighlightManager {
         overlay.matrixWorld.copy(mesh.matrixWorld);
         this.scene.add(overlay);
 
-        const edgeGeo = new EdgesGeometry(mesh.geometry, thresholdRad);
+        let edgeGeo = edgeGeometryCache.get(mesh.geometry);
+        if (!edgeGeo) {
+          edgeGeo = new EdgesGeometry(mesh.geometry, thresholdRad);
+          edgeGeometryCache.set(mesh.geometry, edgeGeo);
+        }
         const edgeLines = new LineSegments(edgeGeo, edgeMat);
         edgeLines.name = `${mesh.name}_hlEdge`;
         edgeLines.userData._highlightOverlay = true;
@@ -172,7 +182,6 @@ export class RVHighlightManager {
         edgeLines.matrix.copy(mesh.matrixWorld);
         edgeLines.matrixWorld.copy(mesh.matrixWorld);
         this.scene.add(edgeLines);
-        this.edgeGeometries.push(edgeGeo);
 
         this.pairs.push({ source: mesh, fill: overlay, edge: edgeLines });
       }
@@ -185,11 +194,10 @@ export class RVHighlightManager {
       this.scene.remove(fill);
       this.scene.remove(edge);
     }
-    for (const geo of this.edgeGeometries) {
-      geo.dispose();
-    }
+    // Note: EdgesGeometry is cached in the module-level WeakMap and NOT
+    // disposed here — it will be garbage-collected when the source
+    // BufferGeometry is disposed (WeakMap key collected).
     this.pairs.length = 0;
-    this.edgeGeometries.length = 0;
     this.tracked = false;
   }
 
@@ -203,15 +211,16 @@ export class RVHighlightManager {
   }
 
   /**
-   * Collect all Meshes under root, stopping at child drive boundaries.
+   * Collect all Meshes under root, optionally stopping at child drive boundaries.
    * Skips existing overlay meshes.
    *
-   * @param includeSensorViz  If true, includes _sensorViz meshes (for sensor highlights).
+   * @param includeSensorViz    If true, includes _sensorViz meshes (for sensor highlights).
+   * @param includeChildDrives  If true, doesn't stop at child drive boundaries (highlight entire subtree).
    */
-  private collectMeshes(root: Object3D, includeSensorViz: boolean): Mesh[] {
+  private collectMeshes(root: Object3D, includeSensorViz: boolean, includeChildDrives = false): Mesh[] {
     const meshes: Mesh[] = [];
     const visit = (node: Object3D, isRoot: boolean) => {
-      if (!isRoot) {
+      if (!isRoot && !includeChildDrives) {
         const rv = node.userData?.realvirtual as Record<string, unknown> | undefined;
         if (rv?.['Drive']) return; // child drive boundary — don't highlight nested drives
       }

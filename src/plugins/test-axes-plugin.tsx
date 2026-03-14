@@ -1,216 +1,198 @@
 /**
- * TestAxesPlugin — Sequential axis tester (MonoBehaviour-style).
+ * TestAxesPlugin — Manual axis tester with slider window.
  *
- * - onModelLoaded = Start(): get drive references by name
- * - onFixedUpdatePre = FixedUpdate(): run test state machine
- * - slots: button on the left sidebar
+ * Button in left sidebar opens a floating panel with sliders for A1-A6.
+ * While the window is open, DrivesRecorder is deactivated (activeOnly='Never')
+ * and drives are locked via positionOverwrite. Closing restores everything.
  */
 
-import { useState, useEffect } from 'react';
-import { Science } from '@mui/icons-material';
-import type { RVViewerPlugin } from '../core/rv-plugin';
+import { useState, useEffect, useCallback } from 'react';
+import { Box, Paper, Typography, Slider, IconButton, Button } from '@mui/material';
+import { Science, Close } from '@mui/icons-material';
 import type { UISlotEntry, UISlotProps } from '../core/rv-ui-plugin';
-import type { LoadResult } from '../core/engine/rv-scene-loader';
-import type { RVViewer } from '../core/rv-viewer';
 import type { RVDrive } from '../core/engine/rv-drive';
+import type { ActiveOnly } from '../core/engine/rv-active-only';
+import { RVBehavior } from '../core/rv-behavior';
 import { NavButton } from '../core/hmi/NavButton';
 
-// ─── React Button ───────────────────────────────────────────────────────
+// ─── Slider Window ──────────────────────────────────────────────────────
 
-function TestAxesButton({ viewer }: UISlotProps) {
-  const [running, setRunning] = useState(false);
-  const plugin = viewer.getPlugin<TestAxesPlugin>('test-axes');
+function TestAxesWindow({ plugin, onClose }: { plugin: TestAxesPlugin; onClose: () => void }) {
+  const [positions, setPositions] = useState<number[]>(() => plugin.axes.map(d => d.currentPosition));
 
-  useEffect(() => {
-    if (plugin) plugin._setRunning = setRunning;
-    return () => { if (plugin) plugin._setRunning = null; };
+  const handleSlider = useCallback((index: number, value: number) => {
+    plugin.setAxisPosition(index, value);
+    setPositions(prev => { const next = [...prev]; next[index] = value; return next; });
   }, [plugin]);
 
   return (
-    <NavButton
-      icon={<Science />}
-      label="Test Axes"
-      active={running}
-      onClick={() => {
-        if (!plugin || running) return;
-        plugin.toggle();
+    <Paper
+      elevation={6}
+      sx={{
+        position: 'fixed',
+        left: 64,
+        top: '50%',
+        transform: 'translateY(-50%)',
+        width: 280,
+        p: 2,
+        borderRadius: 2,
+        zIndex: 1300,
+        pointerEvents: 'auto',
       }}
-    />
+    >
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Typography variant="subtitle2">Test Axes</Typography>
+        <IconButton size="small" onClick={onClose}><Close fontSize="small" /></IconButton>
+      </Box>
+      {plugin.axes.map((drive, i) => (
+        <Box key={drive.name} sx={{ mb: 1 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="caption" sx={{ fontWeight: 600 }}>{drive.name}</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>{positions[i]?.toFixed(1)}°</Typography>
+              <Button size="small" variant="text" sx={{ minWidth: 24, px: 0.5, fontSize: 10 }}
+                onClick={() => handleSlider(i, 0)}>0</Button>
+            </Box>
+          </Box>
+          <Slider
+            size="small"
+            min={-180}
+            max={180}
+            step={0.5}
+            value={positions[i] ?? 0}
+            onChange={(_, v) => handleSlider(i, v as number)}
+            sx={{ py: 0.5 }}
+          />
+        </Box>
+      ))}
+    </Paper>
+  );
+}
+
+// ─── Button ─────────────────────────────────────────────────────────────
+
+function TestAxesButton({ viewer }: UISlotProps) {
+  const plugin = viewer.getPlugin<TestAxesPlugin>('test-axes');
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (plugin) plugin._setOpen = setOpen;
+    return () => { if (plugin) plugin._setOpen = null; };
+  }, [plugin]);
+
+  const handleToggle = useCallback(() => {
+    if (!plugin) return;
+    if (open) plugin.close();
+    else plugin.open();
+  }, [plugin, open]);
+
+  return (
+    <>
+      <NavButton icon={<Science />} label="Test Axes" active={open} onClick={handleToggle} />
+      {open && plugin && <TestAxesWindow plugin={plugin} onClose={() => plugin.close()} />}
+    </>
   );
 }
 
 // ─── Plugin ─────────────────────────────────────────────────────────────
 
-const HOLD_TIME = 1.5;   // seconds to hold each axis at test angle
-const PAUSE_TIME = 0.3;  // seconds between axes (rest at 0)
-
-export class TestAxesPlugin implements RVViewerPlugin {
+export class TestAxesPlugin extends RVBehavior {
   readonly id = 'test-axes';
   readonly slots: UISlotEntry[] = [
     { slot: 'button-group', component: TestAxesButton, order: 60 },
   ];
 
-  // --- Drive references (set in onModelLoaded, like Start()) ---
-  private _viewer: RVViewer | null = null;
-  private _allDrives: RVDrive[] = [];
-  /** Hardcoded robot axes A1-A6. */
-  private _axes: RVDrive[] = [];
-
-  // --- Test state machine ---
-  private _testing = false;
-  private _axisIndex = 0;
-  private _timer = 0;
-  private _phase: 'rest' | 'hold' | 'pause' = 'rest';
-  private _angle = 10;
-
-  // --- Saved state for restore ---
-  private _savedPositions: number[] = [];
-  private _savedOverwrites: boolean[] = [];
-  private _playbackWasPlaying = false;
-  private _previousConnectionState: 'Connected' | 'Disconnected' = 'Connected';
-
-  /** React state bridge. */
-  _setRunning: ((v: boolean) => void) | null = null;
-
-  get running() { return this._testing; }
-
-  // ── Start() — get references ──
-
-  /** Axis names to test — hardcoded for the robot. */
   static readonly AXIS_NAMES = ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'];
 
-  onModelLoaded(_result: LoadResult, viewer: RVViewer): void {
-    this._viewer = viewer;
-    this._allDrives = viewer.drives;
-    // Get references by name — like GetComponent<Drive> in Unity
+  private _axes: RVDrive[] = [];
+  private _isOpen = false;
+
+  // Saved state
+  private _savedPositions: number[] = [];
+  private _savedOverwrites: boolean[] = [];
+  private _savedActiveOnly: ActiveOnly = 'Always';
+
+  /** React state bridge. */
+  _setOpen: ((v: boolean) => void) | null = null;
+
+  get axes(): RVDrive[] { return this._axes; }
+  get isOpen(): boolean { return this._isOpen; }
+
+  // ── Lifecycle ──
+
+  protected onStart(): void {
     this._axes = TestAxesPlugin.AXIS_NAMES
-      .map(name => viewer.drives.find(d => d.name === name))
+      .map(name => this.drives.find(d => d.name === name))
       .filter((d): d is RVDrive => d !== undefined);
   }
 
-  onModelCleared(): void {
-    if (this._testing) this._stop();
-    this._viewer = null;
-    this._allDrives = [];
+  protected onDestroy(): void {
+    if (this._isOpen) { this._restore(); this._isOpen = false; this._setOpen?.(false); }
     this._axes = [];
+    // Don't null _setOpen here — React useEffect manages its lifecycle.
+    // Nulling it breaks the bridge after model reload (onDestroy runs but
+    // useEffect doesn't re-run since the plugin reference is unchanged).
   }
 
-  dispose(): void {
-    if (this._testing) this._stop();
-    this._viewer = null;
-    this._setRunning = null;
-  }
+  // ── Public API ──
 
-  // ── Button click — toggle test ──
-
-  toggle(angle = 10): void {
-    if (this._testing) {
-      this._stop();
-    } else {
-      this._start(angle);
+  open(): void {
+    if (this._isOpen || !this.viewer || this._axes.length === 0) {
+      console.warn(`[TestAxes] open() rejected: isOpen=${this._isOpen}, viewer=${!!this.viewer}, axes=${this._axes.length}`);
+      return;
     }
+
+    // Save state
+    this._savedPositions = this.drives.map(d => d.currentPosition);
+    this._savedOverwrites = this.drives.map(d => d.positionOverwrite);
+
+    // Deactivate DrivesRecorder
+    if (this.playback) {
+      this._savedActiveOnly = this.playback.activeOnly;
+      this.playback.activeOnly = 'Never';
+    }
+
+    // Lock all drives
+    for (const d of this.drives) {
+      d.positionOverwrite = true;
+    }
+
+    this._isOpen = true;
+    this._setOpen?.(true);
+    console.log(`[TestAxes] Window opened — ${this._axes.length} axes, recorder deactivated`);
   }
 
-  // ── FixedUpdate() — state machine ──
+  close(): void {
+    if (!this._isOpen) return;
+    this._restore();
+    this._isOpen = false;
+    this._setOpen?.(false);
+    console.log('[TestAxes] Window closed — state restored');
+  }
 
-  onFixedUpdatePre(dt: number): void {
-    if (!this._testing) return;
-
-    this._timer += dt;
-
-    if (this._phase === 'rest') {
-      // Initial rest: show all axes at 0
-      if (this._timer >= HOLD_TIME) {
-        this._timer = 0;
-        this._phase = 'hold';
-        this._axisIndex = 0;
-        this._activateAxis(this._axisIndex);
-      }
-    } else if (this._phase === 'hold') {
-      // Holding current axis at test angle
-      if (this._timer >= HOLD_TIME) {
-        this._timer = 0;
-        this._axes[this._axisIndex].currentPosition = 0;
-        this._axisIndex++;
-        if (this._axisIndex >= this._axes.length) {
-          this._stop();
-          return;
-        }
-        this._phase = 'pause';
-      }
-    } else if (this._phase === 'pause') {
-      // Brief pause between axes
-      if (this._timer >= PAUSE_TIME) {
-        this._timer = 0;
-        this._phase = 'hold';
-        this._activateAxis(this._axisIndex);
-      }
+  /** Set a single axis position by index (called from slider). */
+  setAxisPosition(index: number, degrees: number): void {
+    if (index >= 0 && index < this._axes.length) {
+      this._axes[index].currentPosition = degrees;
     }
   }
 
   // ── Internal ──
 
-  private _start(angle: number): void {
-    if (!this._viewer || this._axes.length === 0) return;
-
-    this._angle = angle;
-
-    // Save state
-    this._previousConnectionState = this._viewer.connectionState;
-    this._savedPositions = this._allDrives.map(d => d.currentPosition);
-    this._savedOverwrites = this._allDrives.map(d => d.positionOverwrite);
-    this._playbackWasPlaying = this._viewer.playback?.isPlaying ?? false;
-
-    // Switch to Disconnected — pauses playback/logic
-    this._viewer.setConnectionState('Disconnected');
-
-    // Lock all drives, reset to 0
-    for (const d of this._allDrives) {
-      d.currentPosition = 0;
-      d.positionOverwrite = true;
-    }
-
-    // Start state machine
-    this._testing = true;
-    this._timer = 0;
-    this._phase = 'rest';
-    this._axisIndex = 0;
-    this._setRunning?.(true);
-
-    console.log(`[TestAxes] Testing ${this._axes.length} axes with +${angle}°`);
-    console.table(this._axes.map(d => ({
-      name: d.name,
-      direction: d.config.direction,
-      reverse: d.config.reverseDirection,
-    })));
-  }
-
-  private _stop(): void {
-    if (!this._viewer) { this._testing = false; return; }
+  private _restore(): void {
+    if (!this.viewer) return;
 
     // Restore positions + overwrite flags
-    for (let i = 0; i < this._allDrives.length; i++) {
-      if (i < this._savedPositions.length) this._allDrives[i].currentPosition = this._savedPositions[i];
-      if (i < this._savedOverwrites.length) this._allDrives[i].positionOverwrite = this._savedOverwrites[i];
+    const allDrives = this.drives;
+    for (let i = 0; i < allDrives.length; i++) {
+      if (i < this._savedPositions.length) allDrives[i].currentPosition = this._savedPositions[i];
+      if (i < this._savedOverwrites.length) allDrives[i].positionOverwrite = this._savedOverwrites[i];
     }
 
-    // Resume playback if it was playing
-    if (this._playbackWasPlaying) this._viewer.playback?.play();
+    // Restore DrivesRecorder Active property
+    if (this.playback) this.playback.activeOnly = this._savedActiveOnly;
 
-    // Restore connection state
-    this._viewer.setConnectionState(this._previousConnectionState);
-
-    this._testing = false;
-    this._setRunning?.(false);
     this._savedPositions = [];
     this._savedOverwrites = [];
-
-    console.log('[TestAxes] Done — state restored');
-  }
-
-  private _activateAxis(index: number): void {
-    const d = this._axes[index];
-    d.currentPosition = this._angle;
-    console.log(`[TestAxes] >>> ${d.name} = +${this._angle}° (${d.config.direction})`);
   }
 }

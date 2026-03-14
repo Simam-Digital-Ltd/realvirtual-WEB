@@ -1,28 +1,83 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { Vector3 } from 'three';
-import { Typography, Box, IconButton, Paper, Button, CircularProgress, Tabs, Tab, Switch, Slider, Tooltip } from '@mui/material';
-import { Settings, Close, PlayArrow, CheckCircle, Error as ErrorIcon } from '@mui/icons-material';
+import { Typography, Box, IconButton, Paper, Button, CircularProgress, Tabs, Tab, Switch, Slider, Tooltip, useMediaQuery, Select, MenuItem, TextField } from '@mui/material';
+import { Settings, Close, PlayArrow, CheckCircle, Error as ErrorIcon, RestartAlt, AccountTree } from '@mui/icons-material';
+import { MOBILE_BREAKPOINT } from '../../hooks/use-mobile-layout';
 import { useViewer } from '../../hooks/use-viewer';
 import { loadVisualSettings, saveVisualSettings, type VisualSettings, type CameraBookmark } from './visual-settings-store';
 import { loadPhysicsSettings, savePhysicsSettings, type PhysicsSettings } from './physics-settings-store';
+import { loadInterfaceSettings, saveInterfaceSettings, type InterfaceSettings, type InterfaceType, INTERFACE_DEFAULTS } from '../../interfaces/interface-settings-store';
+import { InterfaceManager } from '../../interfaces/interface-manager';
+import { ALL_RV_STORAGE_KEYS } from './rv-storage-keys';
+import { RvExtrasEditorPlugin, HIERARCHY_DEFAULT_WIDTH } from './rv-extras-editor';
+import { HierarchyBrowser } from './rv-hierarchy-browser';
+import { PropertyInspector } from './rv-property-inspector';
 
 export function TopBar() {
+  const viewer = useViewer();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState(0);
+  const [vrOpen, setVrOpen] = useState(false);
+
+  // Hierarchy panel state from plugin
+  const plugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
+  const pluginState = useSyncExternalStore(
+    plugin?.subscribe ?? (() => () => {}),
+    plugin?.getSnapshot ?? (() => ({ panelOpen: false, panelWidth: HIERARCHY_DEFAULT_WIDTH, overlay: null, editableNodes: [], selectedNodePath: null, revealPath: null })),
+  );
+  const hierarchyOpen = pluginState.panelOpen;
+
+  const toggleHierarchy = useCallback(() => {
+    if (!plugin) return;
+    plugin.togglePanel();
+    setSettingsOpen(false);
+    setVrOpen(false);
+  }, [plugin]);
+
+  const isMobile = useMediaQuery(`(max-width:${MOBILE_BREAKPOINT - 1}px)`);
 
   return (
     <>
-      {/* Settings button — fixed top-right */}
-      <Paper elevation={4} sx={{ position: 'fixed', top: 8, right: 8, borderRadius: 2, pointerEvents: 'auto', zIndex: 9001 }}>
+      {/* Hierarchy + VR + Settings buttons — fixed top-right */}
+      <Paper elevation={4} sx={{ position: 'fixed', top: 8, right: 8, borderRadius: 2, pointerEvents: 'auto', zIndex: 9001, display: 'flex', gap: 0.25, px: 0.25 }}>
+        {plugin && !isMobile && (
+          <IconButton
+            size="small"
+            color={hierarchyOpen ? 'primary' : 'inherit'}
+            sx={{ p: 0.75 }}
+            onClick={toggleHierarchy}
+          >
+            {hierarchyOpen ? <Close fontSize="small" /> : <AccountTree fontSize="small" />}
+          </IconButton>
+        )}
+        {!isMobile && (
+          <IconButton
+            size="small"
+            color={vrOpen ? 'primary' : 'inherit'}
+            sx={{ p: 0.75 }}
+            onClick={() => { setVrOpen(!vrOpen); setSettingsOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
+          >
+            {vrOpen ? <Close fontSize="small" /> : <Typography sx={{ fontSize: 11, fontWeight: 700, px: 0.25 }}>VR</Typography>}
+          </IconButton>
+        )}
         <IconButton
           size="small"
           color={settingsOpen ? 'primary' : 'inherit'}
           sx={{ p: 0.75 }}
-          onClick={() => setSettingsOpen(!settingsOpen)}
+          onClick={() => { setSettingsOpen(!settingsOpen); setVrOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
         >
           {settingsOpen ? <Close fontSize="small" /> : <Settings fontSize="small" />}
         </IconButton>
       </Paper>
+
+      {/* Hierarchy browser panel */}
+      {hierarchyOpen && <HierarchyBrowser viewer={viewer} />}
+
+      {/* Property inspector (shows when a node is selected in hierarchy) */}
+      {hierarchyOpen && pluginState.selectedNodePath && <PropertyInspector viewer={viewer} />}
+
+      {/* VR/AR modal */}
+      {vrOpen && <VRModal onClose={() => setVrOpen(false)} />}
 
       {/* Settings full-screen overlay */}
       {settingsOpen && (
@@ -44,9 +99,12 @@ export function TopBar() {
             sx={{
               borderRadius: 2,
               width: 560,
-              minHeight: 400,
+              maxWidth: '95vw',
+              minHeight: { xs: 0, sm: 400 },
+              maxHeight: '90dvh',
               display: 'flex',
               flexDirection: 'column',
+              overflow: 'auto',
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -56,22 +114,24 @@ export function TopBar() {
               sx={{
                 borderBottom: '1px solid rgba(255,255,255,0.08)',
                 minHeight: 40,
-                '& .MuiTab-root': { minHeight: 40, py: 1, textTransform: 'none', fontSize: 13 },
+                '& .MuiTab-root': { minHeight: 40, py: 1, textTransform: 'none', fontSize: 13, minWidth: 0, px: { xs: 1.5, sm: 2 } },
               }}
             >
               <Tab label="Model" />
               <Tab label="Visual" />
               <Tab label="Physics" />
+              <Tab label="Interfaces" />
               <Tab label="Dev Tools" />
               <Tab label="Tests" />
             </Tabs>
 
-            <Box sx={{ p: 3, flex: 1 }}>
+            <Box sx={{ p: { xs: 2, sm: 3 }, flex: 1 }}>
               {settingsTab === 0 && <ModelTab />}
               {settingsTab === 1 && <VisualTab />}
               {settingsTab === 2 && <PhysicsTab />}
-              {settingsTab === 3 && <DevToolsTab />}
-              {settingsTab === 4 && <TestsTab />}
+              {settingsTab === 3 && <InterfacesTab />}
+              {settingsTab === 4 && <DevToolsTab />}
+              {settingsTab === 5 && <TestsTab />}
             </Box>
           </Paper>
         </Box>
@@ -80,9 +140,145 @@ export function TopBar() {
   );
 }
 
+/* ─── VR/AR Modal ─── */
+
+function VRModal({ onClose }: { onClose: () => void }) {
+  const vrUrl = 'https://files.realvirtual.io/vr';
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&bgcolor=121212&color=ffffff&data=${encodeURIComponent(vrUrl)}`;
+
+  return (
+    <Box
+      sx={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        bgcolor: 'rgba(0,0,0,0.5)',
+        pointerEvents: 'auto',
+      }}
+      onClick={onClose}
+    >
+      <Paper
+        elevation={12}
+        sx={{ borderRadius: 2, width: 420, maxWidth: '95vw', p: { xs: 2.5, sm: 4 }, display: 'flex', flexDirection: 'column', gap: 2.5, alignItems: 'center', maxHeight: '90dvh', overflow: 'auto' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Typography variant="h6" sx={{ fontWeight: 700, color: '#4fc3f7' }}>
+          VR / AR
+        </Typography>
+
+        <Box
+          component="img"
+          src={qrUrl}
+          alt="QR Code"
+          sx={{ width: 200, height: 200, borderRadius: 1, border: '1px solid rgba(255,255,255,0.1)' }}
+        />
+
+        <Typography variant="body2" sx={{ color: 'text.secondary', textAlign: 'center', lineHeight: 1.7 }}>
+          Scan this QR code with your phone or enter the URL in your <strong style={{ color: '#fff' }}>Meta Quest</strong> browser.
+        </Typography>
+
+        <Box
+          sx={{
+            width: '100%',
+            bgcolor: 'rgba(0,0,0,0.3)',
+            borderRadius: 1,
+            p: 1.5,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            cursor: 'pointer',
+            '&:hover': { bgcolor: 'rgba(79,195,247,0.1)' },
+          }}
+          onClick={() => navigator.clipboard.writeText(vrUrl)}
+          title="Click to copy URL"
+        >
+          <Typography
+            variant="body2"
+            sx={{
+              color: '#4fc3f7',
+              fontFamily: 'monospace',
+              fontSize: '0.85rem',
+              flex: 1,
+              textAlign: 'center',
+              wordBreak: 'break-all',
+              userSelect: 'all',
+            }}
+          >
+            {vrUrl}
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', whiteSpace: 'nowrap' }}>
+            COPY
+          </Typography>
+        </Box>
+
+        <Box sx={{ width: '100%', borderTop: '1px solid rgba(255,255,255,0.08)', pt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+            How to start
+          </Typography>
+          <StepRow n={1} text="Put on your headset and open the browser" />
+          <StepRow n={2} text="Enter the URL above or scan the QR code with your phone" />
+          <StepRow n={3} text="Wait for the scene to load, then tap 'Enter VR'" />
+        </Box>
+
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.35)', textAlign: 'center' }}>
+          WebXR requires WebGL renderer. WebGPU does not support VR/AR sessions.
+        </Typography>
+      </Paper>
+    </Box>
+  );
+}
+
+function StepRow({ n, text }: { n: number; text: string }) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+      <Box sx={{
+        width: 22, height: 22, borderRadius: '50%', bgcolor: 'rgba(79,195,247,0.15)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+      }}>
+        <Typography variant="caption" sx={{ color: '#4fc3f7', fontWeight: 700, fontSize: 11 }}>{n}</Typography>
+      </Box>
+      <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: 13 }}>{text}</Typography>
+    </Box>
+  );
+}
+
 /* ─── Tab: Model ─── */
 
 function ModelTab() {
+  const viewer = useViewer();
+  const models = viewer.availableModels;
+  const currentUrl = viewer.currentModelUrl;
+  const currentRenderer = viewer.isWebGPU ? 'webgpu' : 'webgl';
+
+  const handleRendererChange = (value: string) => {
+    localStorage.setItem('rv-webviewer-renderer', value);
+    window.location.reload();
+  };
+
+  const handleModelChange = (url: string) => {
+    if (url) viewer.loadModel(url);
+  };
+
+  const selectStyle: React.CSSProperties = {
+    background: 'rgba(255,255,255,0.06)',
+    color: '#4fc3f7',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 6,
+    padding: '6px 10px',
+    fontSize: 12,
+    fontFamily: 'monospace',
+    cursor: 'pointer',
+    width: '100%',
+  };
+
+  const handleResetAll = () => {
+    ALL_RV_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+    window.location.reload();
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       <Box>
@@ -90,14 +286,10 @@ function ModelTab() {
           Renderer
         </Typography>
         <Box sx={{ mt: 0.5 }}>
-          <StyledSelect
-            settingsId="settings-renderer-select"
-            origId="renderer-select"
-            fallbackOptions={[
-              { value: 'webgl', label: 'WebGL' },
-              { value: 'webgpu', label: 'WebGPU' },
-            ]}
-          />
+          <select style={selectStyle} value={currentRenderer} onChange={(e) => handleRendererChange(e.target.value)}>
+            <option value="webgl">WebGL</option>
+            <option value="webgpu">WebGPU</option>
+          </select>
         </Box>
       </Box>
       <Box>
@@ -105,12 +297,30 @@ function ModelTab() {
           Model
         </Typography>
         <Box sx={{ mt: 0.5 }}>
-          <StyledSelect
-            settingsId="settings-model-select"
-            origId="model-select"
-            fallbackOptions={[{ value: '', label: '-- Select Model --' }]}
-          />
+          <select style={selectStyle} value={currentUrl ?? ''} onChange={(e) => handleModelChange(e.target.value)}>
+            <option value="">-- Select Model --</option>
+            {models.map((m) => (
+              <option key={m.url} value={m.url}>{m.label}</option>
+            ))}
+          </select>
         </Box>
+      </Box>
+
+      {/* Reset all settings */}
+      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 2 }}>
+        <Button
+          variant="outlined"
+          size="small"
+          color="warning"
+          startIcon={<RestartAlt sx={{ fontSize: 14 }} />}
+          onClick={handleResetAll}
+          sx={{ fontSize: 11, textTransform: 'none' }}
+        >
+          Reset All Settings to Defaults
+        </Button>
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontSize: 10 }}>
+          Clears all saved browser settings and reloads the page.
+        </Typography>
       </Box>
     </Box>
   );
@@ -361,6 +571,277 @@ function PhysicsTab() {
       {reloading && (
         <Typography variant="caption" sx={{ color: '#ffa726', fontStyle: 'italic' }}>
           Reloading model to apply physics settings...
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
+/* ─── Tab: Interfaces ─── */
+
+const INTERFACE_OPTIONS: { value: InterfaceType; label: string; available: boolean }[] = [
+  { value: 'none', label: 'None', available: true },
+  { value: 'websocket-realtime', label: 'WebSocket Realtime', available: true },
+  { value: 'ctrlx', label: 'ctrlX (Bosch Rexroth)', available: true },
+  { value: 'twincat-hmi', label: 'TwinCAT HMI', available: false },
+  { value: 'mqtt', label: 'MQTT', available: false },
+  { value: 'keba', label: 'KEBA', available: false },
+];
+
+/** Shared sx for compact MUI TextFields in settings tabs. */
+const tfSx = {
+  '& .MuiInputBase-root': { fontSize: 12, fontFamily: 'monospace', bgcolor: 'rgba(255,255,255,0.04)' },
+  '& .MuiInputBase-input': { py: 0.75, px: 1.25 },
+  '& .MuiInputLabel-root': { fontSize: 12 },
+} as const;
+
+function InterfacesTab() {
+  const viewer = useViewer();
+  const manager = viewer.getPlugin<InterfaceManager>('interface-manager');
+  const [settings, setSettings] = useState<InterfaceSettings>(loadInterfaceSettings);
+  const [connectionState, setConnectionState] = useState<string>(
+    manager?.getActive()?.connectionState ?? 'disconnected',
+  );
+  const [signalCount, setSignalCount] = useState(
+    manager?.getActive()?.discoveredSignals.length ?? 0,
+  );
+  const [connecting, setConnecting] = useState(false);
+
+  // Poll connection state
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const active = manager?.getActive();
+      setConnectionState(active?.connectionState ?? 'disconnected');
+      setSignalCount(active?.discoveredSignals.length ?? 0);
+    }, 500);
+    return () => clearInterval(interval);
+  }, [manager]);
+
+  const persist = (patch: Partial<InterfaceSettings>) => {
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    saveInterfaceSettings(next);
+  };
+
+  const isWsBased = settings.activeType === 'websocket-realtime'
+    || settings.activeType === 'ctrlx'
+    || settings.activeType === 'twincat-hmi'
+    || settings.activeType === 'keba';
+
+  const isMqtt = settings.activeType === 'mqtt';
+  const isConnected = connectionState === 'connected';
+  const showSettings = settings.activeType !== 'none';
+
+  const handleConnect = async () => {
+    if (!manager) return;
+    setConnecting(true);
+    try {
+      await manager.activate(settings.activeType, settings);
+    } catch {
+      // Error already handled via state
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = () => {
+    if (!manager) return;
+    manager.deactivate();
+    setConnectionState('disconnected');
+    setSignalCount(0);
+  };
+
+  const stateColor = connectionState === 'connected' ? '#66bb6a'
+    : connectionState === 'connecting' ? '#ffa726'
+    : connectionState === 'error' ? '#ef5350'
+    : 'rgba(255,255,255,0.5)';
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+      {/* Interface selector */}
+      <Box>
+        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+          Interface Protocol
+        </Typography>
+        <Select
+          size="small"
+          fullWidth
+          value={settings.activeType}
+          onChange={(e) => {
+            const type = e.target.value as InterfaceType;
+            if (isConnected) handleDisconnect();
+            persist({ activeType: type });
+          }}
+          sx={{ mt: 0.5, fontSize: 13, '& .MuiSelect-select': { py: 0.75 } }}
+        >
+          {INTERFACE_OPTIONS.map((opt) => (
+            <MenuItem key={opt.value} value={opt.value} disabled={!opt.available} sx={{ fontSize: 13 }}>
+              {opt.label}
+              {!opt.available && (
+                <Typography component="span" sx={{ ml: 1, fontSize: 10, color: 'text.disabled' }}>coming soon</Typography>
+              )}
+            </MenuItem>
+          ))}
+        </Select>
+      </Box>
+
+      {/* WebSocket-based settings */}
+      {showSettings && isWsBased && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Connection
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <TextField
+              label="Address"
+              size="small"
+              fullWidth
+              value={settings.wsAddress}
+              onChange={(e) => persist({ wsAddress: e.target.value })}
+              placeholder="localhost"
+              sx={tfSx}
+            />
+            <TextField
+              label="Port"
+              size="small"
+              type="number"
+              value={settings.wsPort}
+              onChange={(e) => persist({ wsPort: Number(e.target.value) || INTERFACE_DEFAULTS.wsPort })}
+              sx={{ ...tfSx, width: 90, flexShrink: 0 }}
+            />
+          </Box>
+          <TextField
+            label="Path"
+            size="small"
+            fullWidth
+            value={settings.wsPath}
+            onChange={(e) => persist({ wsPath: e.target.value })}
+            placeholder="/"
+            sx={tfSx}
+          />
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body2" sx={{ color: 'text.primary', fontSize: 13 }}>Use SSL (wss://)</Typography>
+            <Switch size="small" checked={settings.wsUseSSL} onChange={(_, v) => persist({ wsUseSSL: v })} />
+          </Box>
+          {(settings.wsUseSSL || settings.activeType === 'ctrlx') && (
+            <TextField
+              label="Auth Token"
+              size="small"
+              fullWidth
+              type="password"
+              value={settings.wsAuthToken}
+              onChange={(e) => persist({ wsAuthToken: e.target.value })}
+              placeholder="Bearer token (ctrlX SSL)"
+              sx={tfSx}
+            />
+          )}
+        </Box>
+      )}
+
+      {/* MQTT settings */}
+      {showSettings && isMqtt && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+            MQTT Broker
+          </Typography>
+          <TextField
+            label="Broker URL"
+            size="small"
+            fullWidth
+            value={settings.mqttBrokerUrl}
+            onChange={(e) => persist({ mqttBrokerUrl: e.target.value })}
+            placeholder="ws://localhost:8080/mqtt"
+            sx={tfSx}
+          />
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <TextField
+              label="Username"
+              size="small"
+              fullWidth
+              value={settings.mqttUsername}
+              onChange={(e) => persist({ mqttUsername: e.target.value })}
+              sx={tfSx}
+            />
+            <TextField
+              label="Password"
+              size="small"
+              fullWidth
+              type="password"
+              value={settings.mqttPassword}
+              onChange={(e) => persist({ mqttPassword: e.target.value })}
+              sx={tfSx}
+            />
+          </Box>
+          <TextField
+            label="Topic Prefix"
+            size="small"
+            fullWidth
+            value={settings.mqttTopicPrefix}
+            onChange={(e) => persist({ mqttTopicPrefix: e.target.value })}
+            placeholder="rv/"
+            sx={tfSx}
+          />
+        </Box>
+      )}
+
+      {/* Auto-connect toggle */}
+      {showSettings && (
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box>
+            <Typography variant="body2" sx={{ color: 'text.primary', fontSize: 13 }}>Auto-Connect</Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: 10 }}>
+              Connect automatically when a model is loaded
+            </Typography>
+          </Box>
+          <Switch size="small" checked={settings.autoConnect} onChange={(_, v) => persist({ autoConnect: v })} />
+        </Box>
+      )}
+
+      {/* Connect / Disconnect button */}
+      {showSettings && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          {isConnected ? (
+            <Button
+              variant="outlined"
+              size="small"
+              color="warning"
+              onClick={handleDisconnect}
+              sx={{ fontSize: 11, textTransform: 'none' }}
+            >
+              Disconnect
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              size="small"
+              onClick={handleConnect}
+              disabled={connecting || !manager}
+              startIcon={connecting ? <CircularProgress size={12} color="inherit" /> : undefined}
+              sx={{ fontSize: 11, textTransform: 'none' }}
+            >
+              {connecting ? 'Connecting...' : 'Connect'}
+            </Button>
+          )}
+        </Box>
+      )}
+
+      {/* Status */}
+      {showSettings && (
+        <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Status
+          </Typography>
+          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <StatRow label="State" value={connectionState} color={stateColor} />
+            <StatRow label="Signals" value={isConnected ? String(signalCount) : '--'} />
+            <StatRow label="Protocol" value={INTERFACE_OPTIONS.find(o => o.value === settings.activeType)?.label ?? '--'} />
+          </Box>
+        </Box>
+      )}
+
+      {!manager && (
+        <Typography variant="caption" sx={{ color: '#ef5350' }}>
+          InterfaceManager not registered. Add it to the viewer plugins in main.ts.
         </Typography>
       )}
     </Box>
@@ -649,52 +1130,6 @@ function TestsTab() {
 
 /* ─── Shared Components ─── */
 
-function StyledSelect({ settingsId, origId, fallbackOptions }: {
-  settingsId: string;
-  origId: string;
-  fallbackOptions: Array<{ value: string; label: string }>;
-}) {
-  const [options, setOptions] = useState(fallbackOptions);
-
-  // Sync options from the hidden original select
-  useEffect(() => {
-    const sync = () => {
-      const orig = document.getElementById(origId) as HTMLSelectElement | null;
-      if (orig && orig.options.length > 0) {
-        const opts = Array.from(orig.options).map((o) => ({ value: o.value, label: o.textContent || o.value }));
-        setOptions(opts);
-      }
-    };
-    sync();
-    const interval = setInterval(sync, 1000);
-    return () => clearInterval(interval);
-  }, [origId]);
-
-  return (
-    <select
-      id={settingsId}
-      style={{
-        background: 'rgba(255,255,255,0.06)',
-        color: '#4fc3f7',
-        border: '1px solid rgba(255,255,255,0.12)',
-        borderRadius: 6,
-        padding: '6px 10px',
-        fontSize: 12,
-        fontFamily: 'monospace',
-        cursor: 'pointer',
-        width: '100%',
-      }}
-      onChange={(e) => {
-        const orig = document.getElementById(origId) as HTMLSelectElement;
-        if (orig) { orig.value = e.target.value; orig.dispatchEvent(new Event('change')); }
-      }}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>{o.label}</option>
-      ))}
-    </select>
-  );
-}
 
 function StatRow({ label, value, color }: { label: string; value: string; color?: string }) {
   return (

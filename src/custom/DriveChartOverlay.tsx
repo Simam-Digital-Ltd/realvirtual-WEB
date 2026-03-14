@@ -16,6 +16,7 @@ import { useDrives } from '../hooks/use-drives';
 import { useDriveFilter } from '../hooks/use-drive-filter';
 import { BOTTOM_BAR_HEIGHT } from '../core/hmi/BottomBar';
 import { ChartPanel } from '../core/hmi/ChartPanel';
+import { DriveRecorderPlugin } from '../plugins/drive-recorder-plugin';
 
 const PALETTE = [
   '#4fc3f7', '#e94078', '#66bb6a', '#ffa726', '#ab47bc',
@@ -35,6 +36,15 @@ const REFRESH_INTERVAL = 200;
 const BOTTOM_MARGIN = BOTTOM_BAR_HEIGHT + 12;
 
 // ─── Component ───────────────────────────────────────────────────────────
+
+function ensureDriveRecorder(viewer: ReturnType<typeof useViewer>) {
+  let plugin = viewer.getPlugin<DriveRecorderPlugin>('drive-recorder');
+  if (!plugin) {
+    plugin = new DriveRecorderPlugin();
+    viewer.use(plugin);
+  }
+  return plugin;
+}
 
 export function DriveChartOverlay() {
   const viewer = useViewer();
@@ -128,7 +138,7 @@ export function DriveChartOverlay() {
     const update = () => {
       const chart = chartInstance.current;
       if (!chart) return;
-      const recorder = viewer.driveRecorder;
+      const recorder = ensureDriveRecorder(viewer).recorder;
       if (recorder.timeBuffer.count === 0) return;
 
       const samplesToShow = period * SAMPLE_RATE;

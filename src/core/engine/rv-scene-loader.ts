@@ -85,9 +85,11 @@ function parseDriveExtras(driveData: Record<string, unknown>): DriveConfig | nul
     return null;
   }
 
+  const reverseDirection = (driveData['ReverseDirection'] as boolean) ?? false;
+
   return {
     direction,
-    reverseDirection: (driveData['ReverseDirection'] as boolean) ?? false,
+    reverseDirection,
     offset: (driveData['Offset'] as number) ?? 0,
     startPosition: (driveData['StartPosition'] as number) ?? 0,
     targetSpeed: (driveData['TargetSpeed'] as number) ?? 100,
@@ -466,14 +468,16 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
         const sigData = rv[sigType] as Record<string, unknown>;
         validateExtras(sigType, sigData);
         const status = sigData['Status'] as { Value?: boolean | number } | undefined;
+        // Signal.Name (custom unique name) overrides node name as primary key
+        const signalName = (sigData['Name'] as string) || node.name;
         if (sigType.includes('Bool')) {
-          signalStore.register(path, status?.Value as boolean ?? false);
+          signalStore.register(signalName, path, status?.Value as boolean ?? false);
         } else if (sigType.includes('Float')) {
-          signalStore.register(path, status?.Value as number ?? 0);
+          signalStore.register(signalName, path, status?.Value as number ?? 0);
         } else if (sigType.includes('Int')) {
-          signalStore.register(path, status?.Value as number ?? 0);
+          signalStore.register(signalName, path, status?.Value as number ?? 0);
         }
-        registry.register(sigType, path, { address: path });
+        registry.register(sigType, path, { address: path, signalName });
       }
     }
 
@@ -557,9 +561,10 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     registry.register('Sensor', sensorPath, sensor);
 
     // Bind sensor to SignalStore: when occupied state changes, update the signal
-    signalStore.register(sensorPath, false);
+    const sensorName = node.name;
+    signalStore.register(sensorName, sensorPath, false);
     sensor.onChanged = (occupied) => {
-      signalStore.set(sensorPath, occupied);
+      signalStore.set(sensorName, occupied);
     };
 
     // Create sensor visualization
@@ -646,10 +651,10 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
       const resolved = registry.resolve(forwardRef);
       if (resolved.signalAddress) {
         const addr = resolved.signalAddress;
-        // Read initial signal value
-        drive.jogForward = signalStore.getBool(addr);
+        // Read initial signal value (addr is a resolved Three.js path)
+        drive.jogForward = signalStore.getBoolByPath(addr);
         // Subscribe to changes
-        signalStore.subscribe(addr, (value) => {
+        signalStore.subscribeByPath(addr, (value) => {
           drive.jogForward = value === true;
         });
         debug('loader', `  Drive_Simple "${drive.name}": Forward signal="${addr}" (initial=${drive.jogForward})`);
@@ -660,8 +665,8 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
       const resolved = registry.resolve(backwardRef);
       if (resolved.signalAddress) {
         const addr = resolved.signalAddress;
-        drive.jogBackward = signalStore.getBool(addr);
-        signalStore.subscribe(addr, (value) => {
+        drive.jogBackward = signalStore.getBoolByPath(addr);
+        signalStore.subscribeByPath(addr, (value) => {
           drive.jogBackward = value === true;
         });
         debug('loader', `  Drive_Simple "${drive.name}": Backward signal="${addr}" (initial=${drive.jogBackward})`);
@@ -696,7 +701,7 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
       const resolved = registry.resolve(outRef);
       if (resolved.signalAddress) {
         const addr = resolved.signalAddress;
-        signalStore.subscribe(addr, (value) => {
+        signalStore.subscribeByPath(addr, (value) => {
           let outVal = value === true;
           if (invertLogic) outVal = !outVal;
 
@@ -727,7 +732,7 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
       const resolved = registry.resolve(inRef);
       if (resolved.signalAddress) {
         const addr = resolved.signalAddress;
-        signalStore.subscribe(addr, (value) => {
+        signalStore.subscribeByPath(addr, (value) => {
           let inVal = value === true;
           if (invertLogic) inVal = !inVal;
           if (inVal) {

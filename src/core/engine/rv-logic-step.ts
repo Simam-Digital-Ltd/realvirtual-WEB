@@ -229,7 +229,7 @@ export class RVSetSignalBool extends RVLogicStep {
       this.state = StepState.Finished;
       return;
     }
-    this.signalStore.set(this.signalAddress, this.value);
+    this.signalStore.setByPath(this.signalAddress, this.value);
     debug('logic', `SetSignalBool "${this.name}": ${this.signalAddress} = ${this.value}`);
     this.state = StepState.Finished;
   }
@@ -258,14 +258,14 @@ export class RVWaitForSignalBool extends RVLogicStep {
     }
     this.state = StepState.Active;
     // Check immediately
-    if (this.signalStore.getBool(this.signalAddress) === this.waitForTrue) {
+    if (this.signalStore.getBoolByPath(this.signalAddress) === this.waitForTrue) {
       this.finish();
     }
   }
 
   fixedUpdate(): void {
     if (this.state !== StepState.Active || !this.signalAddress) return;
-    if (this.signalStore.getBool(this.signalAddress) === this.waitForTrue) {
+    if (this.signalStore.getBoolByPath(this.signalAddress) === this.waitForTrue) {
       debug('logic', `WaitForSignalBool "${this.name}": ${this.signalAddress} matched (${this.waitForTrue})`);
       this.finish();
     }

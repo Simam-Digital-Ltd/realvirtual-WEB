@@ -88,7 +88,8 @@ export class RVDrive {
     this.baseQuaternion.copy(node.quaternion);
 
     // Compute axis
-    this.axis.copy(directionToGltfAxis(config.direction));
+    const rawAxis = directionToGltfAxis(config.direction);
+    this.axis.copy(rawAxis);
     if (config.reverseDirection) {
       this.axis.negate();
     }

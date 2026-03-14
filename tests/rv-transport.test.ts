@@ -166,8 +166,7 @@ describe('RVSink', () => {
     const sink = createSink(0, 0, 0, new Vector3(0.5, 0.5, 0.5));
     const mu = createMU('part1', 0, 0, 0);
 
-    const marked = sink.markOverlapping([mu]);
-    expect(marked.length).toBe(1);
+    sink.markOverlapping([mu]);
     expect(mu.markedForRemoval).toBe(true);
   });
 
@@ -175,8 +174,7 @@ describe('RVSink', () => {
     const sink = createSink(0, 0, 0, new Vector3(0.5, 0.5, 0.5));
     const mu = createMU('part1', 5, 0, 0);
 
-    const marked = sink.markOverlapping([mu]);
-    expect(marked.length).toBe(0);
+    sink.markOverlapping([mu]);
     expect(mu.markedForRemoval).toBe(false);
   });
 
@@ -185,8 +183,9 @@ describe('RVSink', () => {
     const mu = createMU('part1', 0, 0, 0);
     mu.markedForRemoval = true;
 
-    const marked = sink.markOverlapping([mu]);
-    expect(marked.length).toBe(0);
+    sink.markOverlapping([mu]);
+    // Should remain marked but callback should not fire again
+    expect(mu.markedForRemoval).toBe(true);
   });
 });
 

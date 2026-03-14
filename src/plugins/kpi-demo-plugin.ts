@@ -161,6 +161,88 @@ function generateCycleTimeDummyData(): number[] {
   return cycles;
 }
 
+// ─── Energy Types ──────────────────────────────────────────────────────
+
+export interface EnergyTimeBucket {
+  /** Time label, e.g. "06:00" */
+  time: string;
+  /** Spindle motor power in kW */
+  spindle: number;
+  /** Coolant pump + chiller in kW */
+  coolant: number;
+  /** Hydraulic unit in kW */
+  hydraulics: number;
+  /** Robot arm in kW */
+  robot: number;
+  /** Entry conveyor in kW */
+  conveyorEntry: number;
+  /** Exit conveyor in kW */
+  conveyorExit: number;
+  /** Control cabinet, lighting, fans in kW */
+  auxiliary: number;
+}
+
+// ─── Energy Data Generator ────────────────────────────────────────────
+
+function generateEnergyDummyData(): EnergyTimeBucket[] {
+  const rand = seededRandom(314);
+  const buckets: EnergyTimeBucket[] = [];
+
+  for (let i = 0; i < 48; i++) {
+    const hour = Math.floor(i / 2);
+    const isHalf = i % 2 === 1;
+    const time = `${String(hour).padStart(2, '0')}:${isHalf ? '30' : '00'}`;
+
+    // Shift/state factors
+    const isHandover = (hour === 6 && !isHalf) || (hour === 14 && !isHalf) || (hour === 22 && !isHalf);
+    const isLunch = hour === 12 && !isHalf;
+    const isNight = hour >= 22 || hour < 6;
+    const isIdle = isHandover || isLunch;
+
+    // Spindle: 0 idle, 7-12 kW cutting (main power consumer)
+    const spindle = isIdle ? 0.3 + rand() * 0.5
+      : isNight ? 7 + rand() * 3
+      : 8 + rand() * 4;
+
+    // Coolant: always on during operation, reduced idle
+    const coolant = isIdle ? 0.8 + rand() * 0.3
+      : 2.5 + rand() * 1.0;
+
+    // Hydraulics: clamping, tool changer — pulsed average
+    const hydraulics = isIdle ? 0.2 + rand() * 0.2
+      : 1.5 + rand() * 1.0;
+
+    // Robot: pick & place cycle — moderate consumer
+    const robot = isIdle ? 0.3 + rand() * 0.2
+      : 1.8 + rand() * 1.2;
+
+    // Entry conveyor: low power, intermittent
+    const conveyorEntry = isIdle ? 0.05 + rand() * 0.05
+      : 0.3 + rand() * 0.2;
+
+    // Exit conveyor: similar to entry
+    const conveyorExit = isIdle ? 0.05 + rand() * 0.05
+      : 0.3 + rand() * 0.2;
+
+    // Auxiliary: control cabinet, fans, lighting — always-on base load
+    const auxiliary = 1.8 + rand() * 0.4;
+
+    const r = (v: number) => Math.round(v * 10) / 10;
+    buckets.push({
+      time,
+      spindle: r(spindle),
+      coolant: r(coolant),
+      hydraulics: r(hydraulics),
+      robot: r(robot),
+      conveyorEntry: r(conveyorEntry),
+      conveyorExit: r(conveyorExit),
+      auxiliary: r(auxiliary),
+    });
+  }
+
+  return buckets;
+}
+
 // ─── Plugin ─────────────────────────────────────────────────────────────
 
 export class KpiDemoPlugin implements RVViewerPlugin {
@@ -169,6 +251,7 @@ export class KpiDemoPlugin implements RVViewerPlugin {
   readonly oeeData: OeeTimeBucket[];
   readonly partsData: PartsHourBucket[];
   readonly cycleTimeData: number[];
+  readonly energyData: EnergyTimeBucket[];
 
   /** Target parts per hour for the Parts/H chart. */
   readonly partsTarget = 30;
@@ -179,5 +262,6 @@ export class KpiDemoPlugin implements RVViewerPlugin {
     this.oeeData = generateOeeDummyData();
     this.partsData = generatePartsDummyData();
     this.cycleTimeData = generateCycleTimeDummyData();
+    this.energyData = generateEnergyDummyData();
   }
 }

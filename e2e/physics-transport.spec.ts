@@ -171,10 +171,7 @@ test.describe('Physics & Transport E2E', () => {
     }
   });
 
-  // FIXME: Fails due to collider orientation mismatch (debug-004: mesh-child rotation vs node rotation)
-  // MUs stay on conveyors but aren't transported because friction direction is wrong.
-  // Will pass once the orientation fix is implemented.
-  test.fixme('MUs should be transported along conveyor direction', async ({ page }) => {
+  test('MUs should be transported along conveyor direction', async ({ page }) => {
     await waitForPhysicsReady(page);
 
     // Wait for MUs to spawn

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { IconButton, Tooltip, Badge } from '@mui/material';
 
 export interface NavButtonProps {
@@ -10,7 +10,7 @@ export interface NavButtonProps {
 }
 
 /** Reusable nav button for the left ButtonPanel. */
-export function NavButton({ icon, label, badge, active, onClick }: NavButtonProps) {
+export const NavButton = memo(function NavButton({ icon, label, badge, active, onClick }: NavButtonProps) {
   return (
     <Tooltip title={label} placement="right">
       <IconButton
@@ -31,4 +31,4 @@ export function NavButton({ icon, label, badge, active, onClick }: NavButtonProp
       </IconButton>
     </Tooltip>
   );
-}
+});

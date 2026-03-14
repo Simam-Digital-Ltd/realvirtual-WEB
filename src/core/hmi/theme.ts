@@ -18,7 +18,7 @@ export const rvDarkTheme = createTheme({
     fontSize: 13,
   },
   shape: {
-    borderRadius: 8,
+    borderRadius: 4,
   },
   components: {
     MuiCssBaseline: {
@@ -33,6 +33,30 @@ export const rvDarkTheme = createTheme({
           backdropFilter: 'blur(16px)',
           backgroundImage: 'none !important',
           backgroundColor: 'rgba(18, 18, 18, 0.65) !important',
+          // Reduce blur on touch devices for GPU performance
+          '@media (hover: none) and (pointer: coarse)': {
+            backdropFilter: 'blur(8px)',
+          },
+        },
+      },
+    },
+    MuiIconButton: {
+      styleOverrides: {
+        root: {
+          // Touch-friendly targets on coarse-pointer devices (Apple HIG: 44px)
+          '@media (pointer: coarse)': {
+            minWidth: 44,
+            minHeight: 44,
+          },
+        },
+      },
+    },
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          '@media (pointer: coarse)': {
+            minHeight: 44,
+          },
         },
       },
     },

@@ -73,11 +73,10 @@ export class AABB {
   update(): void {
     if (this.node) {
       this.node.getWorldPosition(this.center);
+      // localCenter is small for most BoxColliders — add directly (AABB is axis-aligned)
       this.center.add(this.localCenter);
     }
     this.min.copy(this.center).sub(this.halfSize);
-    this.max.copy(this.center).addScaledVector(this.halfSize, 1);
-    // Explicit: min = center - halfSize, max = center + halfSize
     this.max.copy(this.center).add(this.halfSize);
   }
 

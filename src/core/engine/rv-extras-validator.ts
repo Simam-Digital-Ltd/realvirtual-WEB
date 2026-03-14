@@ -52,13 +52,13 @@ const CONSUMED: Record<string, string[]> = {
   // BoxCollider — used by createAABBFromExtras()
   BoxCollider: ['center', 'size'],
 
-  // Signal types — used by signal registration loop
-  PLCOutputBool: ['Status'],
-  PLCInputBool: ['Status'],
-  PLCOutputFloat: ['Status'],
-  PLCInputFloat: ['Status'],
-  PLCOutputInt: ['Status'],
-  PLCInputInt: ['Status'],
+  // Signal types — connection-relevant fields editable, Status read-only (object)
+  PLCOutputBool: ['Comment', 'OriginDataType', 'Settings', 'Metadata', 'Active'],
+  PLCInputBool: ['Comment', 'OriginDataType', 'Settings', 'Metadata', 'Active'],
+  PLCOutputFloat: ['Comment', 'OriginDataType', 'Settings', 'Metadata', 'Active'],
+  PLCInputFloat: ['Comment', 'OriginDataType', 'Settings', 'Metadata', 'Active'],
+  PLCOutputInt: ['Comment', 'OriginDataType', 'Settings', 'Metadata', 'Active'],
+  PLCInputInt: ['Comment', 'OriginDataType', 'Settings', 'Metadata', 'Active'],
 
   // DrivesRecorder — recorder settings parsing
   DrivesRecorder: [
@@ -90,6 +90,9 @@ const CONSUMED: Record<string, string[]> = {
   LogicStep_SetDriveSpeed: ['drive', 'Speed', 'Active'],
   LogicStep_Enable: ['Target', 'Enable', 'Active'],
   LogicStep_Pause: ['Active'],  // debugging breakpoint, no other fields consumed
+
+  // ConnectSignal — C# source: ConnectSignal.cs (Packages/io.realvirtual.starter/Runtime/Components/ConnectSignal.cs)
+  ConnectSignal: ['ConnectedSignal'],
 };
 
 /**
@@ -190,6 +193,14 @@ const IGNORED: Record<string, string[]> = {
     'Name',  // Active moved to CONSUMED
   ],
 
+  // Signal types — runtime status (read-only structs)
+  PLCOutputBool: ['Status', 'Name'],
+  PLCInputBool: ['Status', 'Name'],
+  PLCOutputFloat: ['Status', 'Name'],
+  PLCInputFloat: ['Status', 'Name'],
+  PLCOutputInt: ['Status', 'Name'],
+  PLCInputInt: ['Status', 'Name'],
+
   // Behavior extras — intentionally passed through raw
   Drive_ErraticPosition: ['MinPos', 'MaxPos', 'Speed', 'IterateBetweenMaxAndMin', 'Name', 'Active'],
   Drive_Cylinder: ['Out', 'In', 'OneBitCylinder', 'InvertOutputLogic', 'MinPos', 'MaxPos', 'TimeOut', 'TimeIn',
@@ -217,6 +228,9 @@ const IGNORED: Record<string, string[]> = {
   LogicStep_Enable: ['Name'],
   LogicStep_Pause: ['Name'],
   LogicStep_DriveTo: ['Name'],
+
+  // ConnectSignal — internal state, Name/Active metadata
+  ConnectSignal: ['Name', 'Active'],
 };
 
 /** Summary of unhandled fields per component type (collected during load) */
@@ -276,6 +290,24 @@ export function printParitySummary(): void {
     `[Parity] ${totalFields} unhandled GLB extras field(s) — add to CONSUMED or IGNORED in rv-extras-validator.ts:\n` +
     lines.join('\n')
   );
+}
+
+/**
+ * Get editable field names for a component type. Used by property editor.
+ * Returns the CONSUMED fields list for the given type, or an empty array
+ * if the type is unknown.
+ */
+export function getConsumedFields(componentType: string): readonly string[] {
+  return CONSUMED[componentType] ?? [];
+}
+
+/**
+ * Get ignored field names for a component type. Used by property inspector.
+ * Returns the IGNORED fields list for the given type, or an empty array
+ * if the type is unknown. A wildcard entry ['*'] means all fields are ignored.
+ */
+export function getIgnoredFields(componentType: string): readonly string[] {
+  return IGNORED[componentType] ?? [];
 }
 
 /**

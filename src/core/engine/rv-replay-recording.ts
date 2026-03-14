@@ -39,7 +39,7 @@ export class RVReplayRecording {
   fixedUpdate(_dt: number): void {
     // Positive flank detection on StartOnSignal
     if (!this.isReplaying && this.startOnSignalAddr) {
-      const currentVal = this.signalStore.getBool(this.startOnSignalAddr);
+      const currentVal = this.signalStore.getBoolByPath(this.startOnSignalAddr);
       if (currentVal && !this.oldStartOnSignal) {
         this.playback.playSequence(this.sequenceName);
         this.isReplaying = true;
@@ -53,12 +53,12 @@ export class RVReplayRecording {
 
     // Write status to IsReplayingSignal
     if (this.isReplayingSignalAddr) {
-      this.signalStore.set(this.isReplayingSignalAddr, this.isReplaying);
+      this.signalStore.setByPath(this.isReplayingSignalAddr, this.isReplaying);
     }
 
     // Store for next frame flank detection
     if (this.startOnSignalAddr) {
-      this.oldStartOnSignal = this.signalStore.getBool(this.startOnSignalAddr);
+      this.oldStartOnSignal = this.signalStore.getBoolByPath(this.startOnSignalAddr);
     }
   }
 }

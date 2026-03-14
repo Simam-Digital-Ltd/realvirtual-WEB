@@ -52,6 +52,8 @@ const wireRed = new LineBasicMaterial({ color: RED, transparent: true, opacity: 
 /** Reusable temporaries to avoid per-frame allocation */
 const _origin = new Vector3();
 const _dir = new Vector3();
+const _forward = new Vector3(0, 0, 1);
+const _quat = new Quaternion();
 
 /**
  * Fast ray vs AABB intersection test (slab method).
@@ -235,9 +237,9 @@ export class RVSensor {
 
     // Orient tube to point along ray direction
     // The tube geometry points along +Z after our rotateX(PI/2)
-    const forward = new Vector3(0, 0, 1);
-    const quat = new Quaternion().setFromUnitVectors(forward, dir);
-    this.rayTube.quaternion.copy(quat);
+    _forward.set(0, 0, 1);
+    _quat.setFromUnitVectors(_forward, dir);
+    this.rayTube.quaternion.copy(_quat);
 
     // Color: yellow=idle, red=occupied
     this.rayTube.material = this.occupied ? RVSensor.rayMatRed : RVSensor.rayMatYellow;

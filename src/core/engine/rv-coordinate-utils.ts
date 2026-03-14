@@ -4,10 +4,16 @@ import { Vector3 } from 'three';
  * Unity LHS → glTF RHS Coordinate Conversion Utilities
  *
  * UnityGLTF applies these conversions to glTF node transforms at EXPORT time:
- *   - Positions:   (x, y, z) → (-x, y, z)     [negate X]
- *   - Quaternions:  (x, y, z, w) → (-x, -y, z, w)  [negate X and Y]
- *   - Scale:       unchanged
- *   - Mesh verts:  X negated, triangle winding reversed
+ *   - Positions:    (x, y, z) → (-x, y, z)        [negate X]
+ *   - Quaternions:  (x, y, z, w) → (x, -y, -z, w)  [negate Y and Z]
+ *   - Scale:        unchanged
+ *   - Mesh verts:   X negated, triangle winding reversed
+ *
+ * Quaternion conversion derivation (from UnityGLTF SchemaExtensions.cs):
+ *   axisOfRotation = (qx, qy, qz)
+ *   Step 1: Scale by CoordinateSpaceConversionScale (-1,1,1) → (-qx, qy, qz)
+ *   Step 2: Multiply by axisFlipScale (-1, for handedness flip) → (qx, -qy, -qz)
+ *   Result: (qx, -qy, -qz, qw)
  *
  * However, GLB extras (Drive direction, BoxCollider center, TransportDirection, etc.)
  * are written RAW in Unity's LHS coordinate system. The WebViewer must convert these
@@ -66,22 +72,22 @@ export enum DriveDirection {
  *   LinearZ  → ( 0, 0,+1)   [Z unchanged]
  *
  * ROTATION directions (quaternion-based):
- *   UnityGLTF negates quaternion X,Y: (x,y,z,w) → (-x,-y,z,w)
+ *   UnityGLTF converts quaternions: (x,y,z,w) → (x,-y,-z,w)
  *   A rotation "around axis A by angle θ" encoded as Euler(ax*θ, ay*θ, az*θ)
  *   needs the same sign flip as the quaternion components:
  *
- *   RotationX → (-1, 0, 0)  [X component negated in quaternion]
+ *   RotationX → (+1, 0, 0)  [X component unchanged in quaternion]
  *   RotationY → ( 0,-1, 0)  [Y component negated in quaternion]
- *   RotationZ → ( 0, 0,+1)  [Z component unchanged in quaternion]
+ *   RotationZ → ( 0, 0,-1)  [Z component negated in quaternion]
  */
 export function directionToGltfAxis(dir: DriveDirection): Vector3 {
   switch (dir) {
     case DriveDirection.LinearX:   return new Vector3(-1, 0, 0);
     case DriveDirection.LinearY:   return new Vector3(0, 1, 0);
     case DriveDirection.LinearZ:   return new Vector3(0, 0, 1);
-    case DriveDirection.RotationX: return new Vector3(-1, 0, 0);
+    case DriveDirection.RotationX: return new Vector3(1, 0, 0);
     case DriveDirection.RotationY: return new Vector3(0, -1, 0);
-    case DriveDirection.RotationZ: return new Vector3(0, 0, 1);
+    case DriveDirection.RotationZ: return new Vector3(0, 0, -1);
     case DriveDirection.Virtual:   return new Vector3(0, 0, 0);
   }
 }

@@ -79,7 +79,8 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
   async preload(): Promise<void> {
     try {
       const RAPIER = await import('@dimforge/rapier3d-compat');
-      await RAPIER.init();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- suppress deprecated param warning from WASM
+      await (RAPIER as any).init({});
       this._rapier = RAPIER;
       console.log('[RapierPhysicsPlugin] WASM loaded successfully');
     } catch (e) {
@@ -128,35 +129,45 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     const tm = viewer.transportManager;
     if (!tm) return;
 
+    type Vec3 = { x: number; y: number; z: number };
+    type Quat = { x: number; y: number; z: number; w: number };
+
     /**
-     * Compute world-space center of a BoxCollider using localToWorld().
-     * The AABB localCenter is in the node's local glTF space — localToWorld()
-     * applies the full matrixWorld transform (position + rotation + scale)
-     * without manual decomposition, avoiding edge cases.
+     * Compute collider shape (center, rotation, halfExtents) from BoxCollider
+     * AABB data + the node's own world quaternion.
+     *
+     * This mirrors how sensor visualizations work (rv-sensor.ts createVisualization):
+     * BoxCollider center/size are in the node's local space. The node's world
+     * quaternion gives the correct orientation. Scale is applied from worldScale.
+     *
+     * Previous attempts using mesh geometry failed because node.traverse() could
+     * pick the wrong mesh child (e.g. a roller rotated 90° relative to the belt).
      */
-    const computeWorldCenter = (node: Object3D, aabb: AABB) => {
+    const computeColliderFromAABB = (
+      node: Object3D,
+      aabb: AABB,
+    ): { center: Vec3; quat: Quat; halfExtents: Vec3 } => {
       node.updateWorldMatrix(true, false);
+
+      // Transform BoxCollider center from node-local to world space
       _localCenter.copy(aabb.localCenter);
       node.localToWorld(_localCenter);
-      return { x: _localCenter.x, y: _localCenter.y, z: _localCenter.z };
-    };
 
-    /**
-     * Get world-space half-extents: BoxCollider local halfSize × node world scale.
-     */
-    const getScaledHalfExtents = (node: Object3D, aabb: AABB) => {
-      node.getWorldScale(_worldScale);
-      return {
-        x: aabb.halfSize.x * Math.abs(_worldScale.x),
-        y: aabb.halfSize.y * Math.abs(_worldScale.y),
-        z: aabb.halfSize.z * Math.abs(_worldScale.z),
-      };
-    };
-
-    // Helper: get world quaternion from node
-    const getWorldQuat = (node: Object3D) => {
+      // Node's world rotation = collider orientation
       node.getWorldQuaternion(_worldQuat);
-      return { x: _worldQuat.x, y: _worldQuat.y, z: _worldQuat.z, w: _worldQuat.w };
+
+      // Scale halfExtents by world scale (BoxCollider size is in unscaled local space)
+      node.getWorldScale(_worldScale);
+
+      return {
+        center: { x: _localCenter.x, y: _localCenter.y, z: _localCenter.z },
+        quat: { x: _worldQuat.x, y: _worldQuat.y, z: _worldQuat.z, w: _worldQuat.w },
+        halfExtents: {
+          x: aabb.halfSize.x * Math.abs(_worldScale.x),
+          y: aabb.halfSize.y * Math.abs(_worldScale.y),
+          z: aabb.halfSize.z * Math.abs(_worldScale.z),
+        },
+      };
     };
 
     // Build conveyor surfaces as kinematic bodies
@@ -168,20 +179,18 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       surface.node.updateWorldMatrix(true, false);
       surface.updateAABB();
 
-      const halfExtents = getScaledHalfExtents(surface.node, surface.aabb);
+      // Compute collider from BoxCollider AABB + node quaternion
+      const collider = computeColliderFromAABB(surface.node, surface.aabb);
 
       // Speed in m/s (currentSpeed is in mm/s)
       const speedMs = surface.speed / 1000;
       const dir = surface.config.transportDirection.clone().normalize();
 
-      const center = computeWorldCenter(surface.node, surface.aabb);
-      const rotation = getWorldQuat(surface.node);
-
       this._physicsWorld.addConveyorSurface(
         surfaceId,
-        center,
-        rotation,
-        halfExtents,
+        collider.center,
+        collider.quat,
+        collider.halfExtents,
         { x: dir.x, y: dir.y, z: dir.z },
         speedMs,
         settings.friction,
@@ -189,8 +198,8 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
 
       debug('transport',
         `[Rapier] Surface "${surface.node.name}" → kinematic body` +
-        ` pos=(${center.x.toFixed(3)}, ${center.y.toFixed(3)}, ${center.z.toFixed(3)})` +
-        ` he=(${halfExtents.x.toFixed(3)}, ${halfExtents.y.toFixed(3)}, ${halfExtents.z.toFixed(3)})` +
+        ` pos=(${collider.center.x.toFixed(3)}, ${collider.center.y.toFixed(3)}, ${collider.center.z.toFixed(3)})` +
+        ` he=(${collider.halfExtents.x.toFixed(3)}, ${collider.halfExtents.y.toFixed(3)}, ${collider.halfExtents.z.toFixed(3)})` +
         ` speed=${speedMs.toFixed(3)} m/s`,
       );
     }
@@ -204,15 +213,13 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
 
         sensor.node.updateWorldMatrix(true, false);
         sensor.updateAABB();
-        const center = computeWorldCenter(sensor.node, sensor.aabb);
-        const rotation = getWorldQuat(sensor.node);
-        const sensorHe = getScaledHalfExtents(sensor.node, sensor.aabb);
+        const collider = computeColliderFromAABB(sensor.node, sensor.aabb);
 
         this._physicsWorld.addSensor(
           sensorId,
-          center,
-          rotation,
-          sensorHe,
+          collider.center,
+          collider.quat,
+          collider.halfExtents,
         );
 
         debug('sensor', `[Rapier] Sensor "${sensor.node.name}" → sensor collider`);
@@ -227,15 +234,13 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
 
       sink.node.updateWorldMatrix(true, false);
       sink.updateAABB();
-      const center = computeWorldCenter(sink.node, sink.aabb);
-      const rotation = getWorldQuat(sink.node);
-      const sinkHe = getScaledHalfExtents(sink.node, sink.aabb);
+      const collider = computeColliderFromAABB(sink.node, sink.aabb);
 
       this._physicsWorld.addSensor(
         sinkId,
-        center,
-        rotation,
-        sinkHe,
+        collider.center,
+        collider.quat,
+        collider.halfExtents,
       );
 
       debug('transport', `[Rapier] Sink "${sink.node.name}" → sensor collider`);
@@ -314,8 +319,18 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     // 3. Step physics
     this._physicsWorld.step(dt);
 
-    // 4. Sync physics → Three.js
+    // 4. Sync physics → Three.js (sync writes world positions to local position refs)
     this._physicsWorld.sync(this._nodeSyncMap);
+
+    // 4b. Convert synced world positions to parent-local space
+    // (sync() writes Rapier world-space positions directly; if the MU's parent
+    //  has a non-identity transform, we must convert to local space)
+    for (const mu of tm.mus) {
+      if (!mu.markedForRemoval && mu.node.parent) {
+        mu.node.parent.updateWorldMatrix(true, false);
+        mu.node.parent.worldToLocal(mu.node.position);
+      }
+    }
 
     // 5. Update MU AABBs (for any non-physics checks)
     for (const mu of tm.mus) {
@@ -527,9 +542,8 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
   }
 
   /**
-   * Diagnostic: compare each Rapier collider against the corresponding node.
-   * Checks position, rotation, AND mesh-child rotation to identify mismatches.
-   * Logs warnings for deviations to help debug collider alignment issues.
+   * Diagnostic: compare each Rapier collider against the mesh bounding box.
+   * Logs position, rotation, and size comparisons to help debug alignment issues.
    */
   private _validateColliderPositions(tm: RVTransportManager): void {
     if (!this._physicsWorld) return;
@@ -538,10 +552,9 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     const _box = new Box3();
     const _meshCenter = new Vector3();
     const _nodeQuat = new Quaternion();
-    const _meshQuat = new Quaternion();
+    const _mQuat = new Quaternion();
     const _boxSize = new Vector3();
     let maxPosDelta = 0;
-    let maxRotDelta = 0;
 
     const allNodes = new Map<string, Object3D>();
     for (const s of tm.surfaces) allNodes.set(`surface_${s.node.name}_${s.node.id}`, s.node);
@@ -555,7 +568,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
 
       node.updateWorldMatrix(true, false);
 
-      // === Position check (collider vs mesh bounding box center) ===
+      // Position check: collider center vs mesh world AABB center
       _box.setFromObject(node);
       _box.getCenter(_meshCenter);
       _box.getSize(_boxSize);
@@ -566,50 +579,43 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       const posDelta = Math.sqrt(dx * dx + dy * dy + dz * dz);
       maxPosDelta = Math.max(maxPosDelta, posDelta);
 
-      // === Rotation check (Rapier body vs node world quaternion) ===
+      // Rotation check: Rapier body vs node quaternion
       node.getWorldQuaternion(_nodeQuat);
       const bodyQuat = new Quaternion(b.rotation.x, b.rotation.y, b.rotation.z, b.rotation.w);
-      const rotAngle = _nodeQuat.angleTo(bodyQuat) * (180 / Math.PI);
-      maxRotDelta = Math.max(maxRotDelta, rotAngle);
+      const bodyVsNode = _nodeQuat.angleTo(bodyQuat) * (180 / Math.PI);
 
-      // === Mesh child rotation check ===
-      // Find the first Mesh child and compare its world rotation to the node's
-      let meshChild: Object3D | null = null;
-      let meshChildRotDiff = 0;
+      // Mesh info: find first mesh, check its rotation vs node
+      let meshInfo = '(no mesh)';
       node.traverse((child) => {
-        if (!meshChild && child !== node && (child as { isMesh?: boolean }).isMesh) {
-          meshChild = child;
+        if (meshInfo !== '(no mesh)') return;
+        if ((child as { isMesh?: boolean }).isMesh) {
+          (child as Object3D).getWorldQuaternion(_mQuat);
+          const meshVsNode = _nodeQuat.angleTo(_mQuat) * (180 / Math.PI);
+          const meshVsBody = bodyQuat.angleTo(_mQuat) * (180 / Math.PI);
+          const isSelf = child === node;
+          meshInfo = `mesh${isSelf ? '(=node)' : `="${child.name}"`} nodeΔ=${meshVsNode.toFixed(1)}° bodyΔ=${meshVsBody.toFixed(1)}°`;
         }
       });
-      if (meshChild) {
-        (meshChild as Object3D).getWorldQuaternion(_meshQuat);
-        meshChildRotDiff = _nodeQuat.angleTo(_meshQuat) * (180 / Math.PI);
-      }
 
-      // === Size check (Rapier halfExtents vs mesh bounding box) ===
+      // Size ratio: Rapier halfExtents vs mesh AABB
       const heRatioX = _boxSize.x > 0.001 ? (b.halfExtents.x * 2) / _boxSize.x : 1;
       const heRatioY = _boxSize.y > 0.001 ? (b.halfExtents.y * 2) / _boxSize.y : 1;
       const heRatioZ = _boxSize.z > 0.001 ? (b.halfExtents.z * 2) / _boxSize.z : 1;
 
-      // Log comprehensive diagnostic for every collider
-      const hasIssue = posDelta > 0.05 || rotAngle > 1 || meshChildRotDiff > 1;
+      const hasIssue = posDelta > 0.05 || bodyVsNode > 1;
       const logFn = hasIssue ? console.warn : console.log;
       logFn(
-        `[Rapier] ${hasIssue ? '⚠️' : '✓'} "${b.id}" (${b.type}):` +
-        `\n  pos: collider=(${b.position.x.toFixed(3)}, ${b.position.y.toFixed(3)}, ${b.position.z.toFixed(3)})` +
-        ` meshBox=(${_meshCenter.x.toFixed(3)}, ${_meshCenter.y.toFixed(3)}, ${_meshCenter.z.toFixed(3)})` +
-        ` delta=${(posDelta * 1000).toFixed(1)}mm` +
-        `\n  rot: body→node angle=${rotAngle.toFixed(1)}°` +
-        (meshChild ? ` node→meshChild angle=${meshChildRotDiff.toFixed(1)}°` : ' (no mesh child)') +
-        `\n  size: he=(${b.halfExtents.x.toFixed(3)}, ${b.halfExtents.y.toFixed(3)}, ${b.halfExtents.z.toFixed(3)})` +
-        ` meshBox=(${(_boxSize.x / 2).toFixed(3)}, ${(_boxSize.y / 2).toFixed(3)}, ${(_boxSize.z / 2).toFixed(3)})` +
+        `[Rapier] ${hasIssue ? '⚠' : '✓'} "${b.id}" (${b.type}):` +
+        `\n  pos: delta=${(posDelta * 1000).toFixed(1)}mm` +
+        `\n  rot: body→node=${bodyVsNode.toFixed(1)}° ${meshInfo}` +
+        `\n  he: (${b.halfExtents.x.toFixed(3)}, ${b.halfExtents.y.toFixed(3)}, ${b.halfExtents.z.toFixed(3)})` +
+        ` meshAABB/2=(${(_boxSize.x / 2).toFixed(3)}, ${(_boxSize.y / 2).toFixed(3)}, ${(_boxSize.z / 2).toFixed(3)})` +
         ` ratio=(${heRatioX.toFixed(2)}, ${heRatioY.toFixed(2)}, ${heRatioZ.toFixed(2)})`,
       );
     }
 
     console.log(
-      `[Rapier] Collider validation summary: max pos delta=${(maxPosDelta * 1000).toFixed(1)}mm, ` +
-      `max rot delta=${maxRotDelta.toFixed(1)}°`,
+      `[Rapier] Validation summary: ${bodies.length - Array.from(this._physicsWorld.getDebugBodies()).filter(b => b.type === 'mu').length} colliders, max pos delta=${(maxPosDelta * 1000).toFixed(1)}mm`,
     );
   }
 

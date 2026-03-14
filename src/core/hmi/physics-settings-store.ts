@@ -1,4 +1,7 @@
-/** Persists physics settings to localStorage. */
+/**
+ * Physics settings store.
+ * Settings are persisted to localStorage so they survive page reloads.
+ */
 
 const STORAGE_KEY = 'rv-physics-settings';
 
@@ -11,7 +14,7 @@ export interface PhysicsSettings {
 }
 
 const DEFAULTS: PhysicsSettings = {
-  enabled: true,
+  enabled: false,
   gravity: 9.81,
   friction: 1.5,
   substeps: 1,

@@ -27,6 +27,9 @@ export class RVDriveHover {
   /** Last XR controller ray direction (for ray visualization). */
   lastRayDirection: Vector3 | null = null;
 
+  /** Pre-filtered meshes that belong to drives — avoids full scene raycast. */
+  private driveTargets: Object3D[] = [];
+
   private readonly onPointerMove: (e: PointerEvent) => void;
 
   constructor(
@@ -38,6 +41,21 @@ export class RVDriveHover {
   ) {
     this.onPointerMove = this.handlePointerMove.bind(this);
     renderer.domElement.addEventListener('pointermove', this.onPointerMove);
+  }
+
+  /**
+   * Build the filtered raycast target list from all registered drives.
+   * Call after model is loaded (from setupDriveHover or viewer.loadModel).
+   */
+  setDriveTargets(drives: RVDrive[]): void {
+    this.driveTargets = [];
+    for (const drive of drives) {
+      drive.node.traverse((child) => {
+        if ((child as Mesh).isMesh && !child.userData?._highlightOverlay && !child.userData?._driveHoverOverlay) {
+          this.driveTargets.push(child);
+        }
+      });
+    }
   }
 
   private handlePointerMove(e: PointerEvent): void {
@@ -54,7 +72,11 @@ export class RVDriveHover {
     this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hits = this.raycaster.intersectObjects(this.scene.children, true);
+
+    // Use pre-filtered drive targets when available (no recursive scene traversal)
+    const targets = this.driveTargets.length > 0 ? this.driveTargets : this.scene.children;
+    const recursive = this.driveTargets.length === 0;
+    const hits = this.raycaster.intersectObjects(targets, recursive);
 
     const hit = hits.find(
       (h) => (h.object as Mesh).isMesh
@@ -99,7 +121,9 @@ export class RVDriveHover {
     this.lastRayDirection = direction.clone();
 
     this.raycaster.set(origin, direction);
-    const hits = this.raycaster.intersectObjects(this.scene.children, true);
+    const targets = this.driveTargets.length > 0 ? this.driveTargets : this.scene.children;
+    const recursive = this.driveTargets.length === 0;
+    const hits = this.raycaster.intersectObjects(targets, recursive);
 
     const hit = hits.find(
       (h) => (h.object as Mesh).isMesh

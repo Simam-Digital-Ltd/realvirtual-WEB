@@ -3,7 +3,7 @@
  * Subscribes to viewer 'drive-filter' events and returns current filter + filtered drives.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useViewer } from './use-viewer';
 import type { RVDrive } from '../core/engine/rv-drive';
 
@@ -32,5 +32,8 @@ export function useDriveFilter(): DriveFilterState & { setFilter: (term: string)
     [viewer],
   );
 
-  return { ...state, setFilter };
+  return useMemo(
+    () => ({ filter: state.filter, filteredDrives: state.filteredDrives, setFilter }),
+    [state.filter, state.filteredDrives, setFilter],
+  );
 }

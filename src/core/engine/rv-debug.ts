@@ -76,12 +76,14 @@ export function debug(category: DebugCategory, message: string, ...args: unknown
   console.log(`[${category}] ${message}`, ...args);
 }
 
-/** Structured debug warning — always prints (but tagged) */
+/** Structured debug warning — only prints if category is active */
 export function debugWarn(category: DebugCategory, message: string, ...args: unknown[]): void {
+  if (!activeCategories.has(category)) return;
   console.warn(`[${category}] ${message}`, ...args);
 }
 
-/** Structured debug error — always prints (but tagged) */
+/** Structured debug error — only prints if category is active */
 export function debugError(category: DebugCategory, message: string, ...args: unknown[]): void {
+  if (!activeCategories.has(category)) return;
   console.error(`[${category}] ${message}`, ...args);
 }

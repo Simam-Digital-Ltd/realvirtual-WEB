@@ -19,6 +19,7 @@
     "@mui/icons-material": "^7.3.9",
     "@mui/material": "^7.3.9",
     "@rollup/rollup-win32-x64-msvc": "^4.59.0",
+    "@tanstack/react-virtual": "^3.13.22",
     "echarts": "^6.0.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

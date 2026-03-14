@@ -12,15 +12,20 @@ export function KpiBar() {
     <Box
       sx={{
         position: 'fixed',
-        top: 8,
+        top: { xs: 44, sm: 8 },
         left: 0,
         right: 0,
         zIndex: 1200,
         display: 'flex',
         alignItems: 'flex-start',
         justifyContent: 'center',
-        gap: 1.5,
+        gap: { xs: 0.75, sm: 1.5 },
+        px: { xs: 0.5, sm: 0 },
+        flexWrap: 'nowrap',
         pointerEvents: 'none',
+        /* hide scrollbar but allow swipe */
+        scrollbarWidth: 'none',
+        '&::-webkit-scrollbar': { display: 'none' },
       }}
     >
       {entries.map((entry, i) => {

@@ -7,118 +7,134 @@ import type { RVDrive } from '../engine/rv-drive';
 
 const OFFSET_X = 16;
 const OFFSET_Y = -12;
-const REFRESH_MS = 50; // 20 fps for live values
+const REFRESH_MS = 100; // 10 fps — safe for Quest browser
 
 const SMOOTH_FACTOR = 0.15; // Exponential moving average weight (lower = smoother)
 
 /**
- * Compute effective speed: use drive.currentSpeed when available,
- * otherwise derive from position delta (for drive recordings where
- * positionOverwrite is true and currentSpeed stays 0).
- * Applies exponential smoothing to avoid jitter.
+ * Compute effective speed from refs (no React state, called from interval).
  */
-function useEffectiveSpeed(drive: RVDrive | null): number {
-  const prevPosRef = useRef(0);
-  const prevTimeRef = useRef(0);
-  const smoothSpeedRef = useRef(0);
-
-  if (!drive) return 0;
-
+function calcEffectiveSpeed(
+  drive: RVDrive,
+  prevPos: { current: number },
+  prevTime: { current: number },
+  smoothSpeed: { current: number },
+): number {
   const now = performance.now();
-  const dt = (now - prevTimeRef.current) / 1000; // seconds
-  const posDelta = Math.abs(drive.currentPosition - prevPosRef.current);
+  const dt = (now - prevTime.current) / 1000;
+  const posDelta = Math.abs(drive.currentPosition - prevPos.current);
 
-  // Only compute derived speed with reasonable dt (avoid spikes on first frame or pause)
   if (dt > 0.01 && dt < 0.5) {
     const rawSpeed = drive.currentSpeed > 0.1 ? drive.currentSpeed : posDelta / dt;
-    // Exponential moving average for smooth display
-    smoothSpeedRef.current += SMOOTH_FACTOR * (rawSpeed - smoothSpeedRef.current);
+    smoothSpeed.current += SMOOTH_FACTOR * (rawSpeed - smoothSpeed.current);
   }
 
-  prevPosRef.current = drive.currentPosition;
-  prevTimeRef.current = now;
-
-  return smoothSpeedRef.current;
+  prevPos.current = drive.currentPosition;
+  prevTime.current = now;
+  return smoothSpeed.current;
 }
 
-/** Project a 3D world position to screen coordinates. */
-function useProjectedPosition(node: Object3D | null): { x: number; y: number } | null {
-  const viewer = useViewer();
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+/** Project a 3D world position to screen coordinates (pure function, no React state). */
+function projectToScreen(
+  node: Object3D,
+  camera: { projectionMatrix: unknown; matrixWorldInverse: unknown },
+  out: Vector3,
+): { x: number; y: number } {
+  node.updateWorldMatrix(true, false);
+  node.getWorldPosition(out);
+  out.project(camera as import('three').Camera);
+  return {
+    x: (out.x * 0.5 + 0.5) * window.innerWidth,
+    y: (-out.y * 0.5 + 0.5) * window.innerHeight,
+  };
+}
 
-  useEffect(() => {
-    if (!node) { setPos(null); return; }
-    const v = new Vector3();
-    const update = () => {
-      node.updateWorldMatrix(true, false);
-      node.getWorldPosition(v);
-      v.project(viewer.camera);
-      setPos({
-        x: (v.x * 0.5 + 0.5) * window.innerWidth,
-        y: (-v.y * 0.5 + 0.5) * window.innerHeight,
-      });
-    };
-    update();
-    const id = setInterval(update, REFRESH_MS);
-    return () => clearInterval(id);
-  }, [node, viewer]);
-
-  return pos;
+interface TooltipData {
+  drive: RVDrive;
+  x: number;
+  y: number;
+  speed: number;
 }
 
 /**
  * Floating tooltip that shows drive info.
- * Appears when:
- *   - Hovering a drive in the 3D scene (follows cursor)
- *   - Clicking a notification card that references a drive (anchored to component screen pos)
+ * Uses a single setInterval for all updates to avoid cascading React state updates
+ * that cause "Maximum update depth exceeded" on low-end browsers (Quest).
  */
 export function DriveTooltip() {
+  const viewer = useViewer();
   const hover = useHoveredDrive();
   const focus = useFocusedDrive();
-  const [tick, setTick] = useState(0);
+
+  // All mutable data lives in refs — single setState per interval tick
+  const [data, setData] = useState<TooltipData | null>(null);
+  const prevPosRef = useRef(0);
+  const prevTimeRef = useRef(0);
+  const smoothSpeedRef = useRef(0);
+  const projVec = useRef(new Vector3());
 
   // Resolve: hover takes priority over focus
   const drive = hover.drive ?? focus.drive;
   const isHoverMode = !!hover.drive;
+  const focusNode = isHoverMode ? null : focus.node;
 
-  // Projected screen position for focused drive (when not hovering)
-  const projectedPos = useProjectedPosition(isHoverMode ? null : focus.node);
-
-  // Periodic re-render while a drive is active (reads mutable drive fields)
-  useEffect(() => {
-    if (!drive) return;
-    const id = setInterval(() => setTick((t) => t + 1), REFRESH_MS);
-    return () => clearInterval(id);
-  }, [drive]);
-
-  const effectiveSpeed = useEffectiveSpeed(drive);
-
-  if (!drive) return null;
-
-  // Compute tooltip position
-  let tooltipX: number;
-  let tooltipY: number;
-  if (isHoverMode) {
-    tooltipX = hover.clientX + OFFSET_X;
-    tooltipY = hover.clientY + OFFSET_Y;
-  } else if (projectedPos) {
-    tooltipX = projectedPos.x + OFFSET_X;
-    tooltipY = projectedPos.y + OFFSET_Y;
-  } else {
-    return null;
+  // Reset speed tracking when drive changes
+  const prevDriveRef = useRef<RVDrive | null>(null);
+  if (drive !== prevDriveRef.current) {
+    prevDriveRef.current = drive;
+    prevPosRef.current = 0;
+    prevTimeRef.current = 0;
+    smoothSpeedRef.current = 0;
   }
 
-  // Read mutable drive state (force read on every tick)
-  void tick;
-  const { config } = drive;
-  const unit = drive.isRotary ? '°' : 'mm';
+  useEffect(() => {
+    if (!drive) {
+      setData(null);
+      return;
+    }
+
+    // Compute tooltip state in one batch
+    const tick = () => {
+      const speed = calcEffectiveSpeed(drive, prevPosRef, prevTimeRef, smoothSpeedRef);
+
+      let x: number;
+      let y: number;
+      if (isHoverMode) {
+        x = hover.clientX + OFFSET_X;
+        y = hover.clientY + OFFSET_Y;
+      } else if (focusNode) {
+        const screen = projectToScreen(focusNode, viewer.camera, projVec.current);
+        x = screen.x + OFFSET_X;
+        y = screen.y + OFFSET_Y;
+      } else {
+        setData(null);
+        return;
+      }
+
+      // Clamp to viewport so tooltip doesn't overflow on small screens
+      const maxX = window.innerWidth - 180;
+      const clampedX = Math.min(x, maxX);
+      const clampedY = Math.max(y, 10);
+
+      setData({ drive, x: clampedX, y: clampedY, speed });
+    };
+
+    tick();
+    const id = setInterval(tick, REFRESH_MS);
+    return () => clearInterval(id);
+  }, [drive, isHoverMode, hover.clientX, hover.clientY, focusNode, viewer]);
+
+  if (!data) return null;
+
+  const { config } = data.drive;
+  const unit = data.drive.isRotary ? '°' : 'mm';
 
   return (
     <Box
       sx={{
         position: 'fixed',
-        left: tooltipX,
-        top: tooltipY,
+        left: data.x,
+        top: data.y,
         transform: 'translateY(-100%)',
         pointerEvents: 'none',
         zIndex: 2000,
@@ -138,7 +154,7 @@ export function DriveTooltip() {
         variant="subtitle2"
         sx={{ color: '#ffa040', fontWeight: 700, fontSize: 13, lineHeight: 1.2 }}
       >
-        {drive.name}
+        {data.drive.name}
       </Typography>
 
       {/* Direction */}
@@ -147,12 +163,12 @@ export function DriveTooltip() {
       </Typography>
 
       {/* Position & Speed */}
-      <Row label="Position" value={`${drive.currentPosition.toFixed(1)}${unit}`} />
-      <Row label="Speed" value={`${effectiveSpeed.toFixed(1)} ${unit}/s`} />
+      <Row label="Position" value={`${data.drive.currentPosition.toFixed(1)}${unit}`} />
+      <Row label="Speed" value={`${data.speed.toFixed(1)} ${unit}/s`} />
 
       {/* Target (if running) */}
-      {drive.isRunning && (
-        <Row label="Target" value={`${drive.targetPosition.toFixed(1)}${unit}`} />
+      {data.drive.isRunning && (
+        <Row label="Target" value={`${data.drive.targetPosition.toFixed(1)}${unit}`} />
       )}
 
       {/* Limits (if enabled) */}

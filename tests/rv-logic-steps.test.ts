@@ -81,13 +81,13 @@ describe('RVDelay', () => {
 describe('RVSetSignalBool', () => {
   it('should set signal and finish immediately', () => {
     const store = new SignalStore();
-    store.register('sig/a', false);
+    store.register('sig/a', 'sig/a', false);
 
     const step = new RVSetSignalBool('sig/a', true, store);
     step.start();
 
     expect(step.state).toBe(StepState.Finished);
-    expect(store.getBool('sig/a')).toBe(true);
+    expect(store.getBoolByPath('sig/a')).toBe(true);
   });
 
   it('should skip with null address', () => {
@@ -103,7 +103,7 @@ describe('RVSetSignalBool', () => {
 describe('RVWaitForSignalBool', () => {
   it('should wait until signal matches', () => {
     const store = new SignalStore();
-    store.register('sig/b', false);
+    store.register('sig/b', 'sig/b', false);
 
     const step = new RVWaitForSignalBool('sig/b', true, store);
     step.start();
@@ -112,14 +112,14 @@ describe('RVWaitForSignalBool', () => {
     step.fixedUpdate(0.02);
     expect(step.state).toBe(StepState.Active);
 
-    store.set('sig/b', true);
+    store.setByPath('sig/b', true);
     step.fixedUpdate(0.02);
     expect(step.state).toBe(StepState.Finished);
   });
 
   it('should finish immediately if signal already matches', () => {
     const store = new SignalStore();
-    store.register('sig/c', true);
+    store.register('sig/c', 'sig/c', true);
 
     const step = new RVWaitForSignalBool('sig/c', true, store);
     step.start();
@@ -306,7 +306,7 @@ describe('RVSerialContainer', () => {
 
   it('should auto-loop when enabled', () => {
     const store = new SignalStore();
-    store.register('sig/x', false);
+    store.register('sig/x', 'sig/x', false);
 
     const set1 = new RVSetSignalBool('sig/x', true, store);
     const set2 = new RVSetSignalBool('sig/x', false, store);
@@ -472,7 +472,7 @@ describe('Nested Containers', () => {
 describe('Signal-Driven Flow', () => {
   it('should coordinate set + wait signal steps', () => {
     const store = new SignalStore();
-    store.register('conveyor/start', false);
+    store.register('conveyor/start', 'conveyor/start', false);
 
     // Process 1: Set signal to true
     const setter = new RVSetSignalBool('conveyor/start', true, store);
