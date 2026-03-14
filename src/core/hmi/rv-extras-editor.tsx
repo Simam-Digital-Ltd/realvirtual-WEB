@@ -165,6 +165,9 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
     }
   }
 
+  /** Unsubscribe functions for viewer events. */
+  private _eventUnsubs: (() => void)[] = [];
+
   /** The RVViewer instance (available after onModelLoaded). */
   get viewer(): RVViewer | null { return this._viewer; }
 
@@ -388,10 +391,21 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
       // in this session, snapshotOriginal() captures them on first edit.)
     }
 
+    // Subscribe to viewer events for loose-coupled scene interaction
+    this._eventUnsubs.push(
+      viewer.on('object-clicked', ({ path }) => {
+        this.selectAndReveal(path);
+      }),
+    );
+
     this.notify();
   }
 
   onModelCleared(): void {
+    // Unsubscribe viewer events
+    for (const unsub of this._eventUnsubs) unsub();
+    this._eventUnsubs.length = 0;
+
     this._editableNodes = [];
     this._overlay = null;
     this._selectedNodePath = null;

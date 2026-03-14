@@ -81,6 +81,7 @@ function makeMockViewer(scene: any, registry: any) {
     currentModelUrl: './models/demo.glb',
     getPlugin: <T>(id: string): T | undefined => plugins.get(id) as T | undefined,
     _registerPlugin: (p: any) => plugins.set(p.id, p),
+    on: (_event: string, _handler: (...args: any[]) => void) => () => {},
   };
 }
 

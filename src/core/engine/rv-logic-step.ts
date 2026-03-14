@@ -8,6 +8,7 @@ import { debug } from './rv-debug';
 export enum StepState {
   Idle = 'Idle',
   Active = 'Active',
+  Waiting = 'Waiting',
   Finished = 'Finished',
 }
 
@@ -16,12 +17,17 @@ export enum StepState {
 export abstract class RVLogicStep {
   state: StepState = StepState.Idle;
   name = '';
+  /** Full hierarchy path (set by engine during build) */
+  hierarchyPath = '';
 
   /** Called by container when this step should begin executing */
   abstract start(): void;
 
-  /** Called every fixed timestep while state === Active */
+  /** Called every fixed timestep while state === Active or Waiting */
   abstract fixedUpdate(dt: number): void;
+
+  /** Progress percentage (0-100). Subclasses must implement. */
+  abstract get progress(): number;
 
   /** Call to mark step as finished. Container advances on next update. */
   protected finish(): void {
@@ -46,15 +52,46 @@ export class RVSerialContainer extends RVLogicStep {
   autoLoop: boolean;
   completedCycles = 0;
 
+  // Cycle time statistics
+  private cycleStartTime = 0;
+  private cycleTimes: number[] = [];
+
   constructor(children: RVLogicStep[], autoLoop = true) {
     super();
     this.children = children;
     this.autoLoop = autoLoop;
   }
 
+  get minCycleTime(): number {
+    return this.cycleTimes.length ? Math.min(...this.cycleTimes) : 0;
+  }
+
+  get maxCycleTime(): number {
+    return this.cycleTimes.length ? Math.max(...this.cycleTimes) : 0;
+  }
+
+  get medianCycleTime(): number {
+    if (!this.cycleTimes.length) return 0;
+    const sorted = [...this.cycleTimes].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  get progress(): number {
+    if (this.children.length === 0) return 0;
+    if (this.state === StepState.Finished) return 100;
+    if (this.state === StepState.Idle) return 0;
+    const width = 100 / this.children.length;
+    const childProgress = this.currentIndex < this.children.length
+      ? this.children[this.currentIndex].progress
+      : 0;
+    return this.currentIndex * width + childProgress / this.children.length;
+  }
+
   start(): void {
     this.state = StepState.Active;
     this.currentIndex = 0;
+    this.cycleStartTime = performance.now() / 1000;
     if (this.children.length === 0) {
       console.warn(`[LogicStep] SerialContainer "${this.name}" has 0 children — finishing immediately`);
       this.finish();
@@ -69,33 +106,36 @@ export class RVSerialContainer extends RVLogicStep {
 
     const child = this.children[this.currentIndex];
 
-    // Update active child
-    if (child.state === StepState.Active) {
+    // Update active or waiting child
+    if (child.state === StepState.Active || child.state === StepState.Waiting) {
       child.fixedUpdate(dt);
     }
 
-    // Check if child finished → advance
+    // Check if child finished -> advance
     if (child.state === StepState.Finished) {
       this.currentIndex++;
 
-      // Start next child (may finish immediately → keep advancing)
+      // Start next child (may finish immediately -> keep advancing)
       while (this.currentIndex < this.children.length) {
         this.startChild(this.currentIndex);
         const next = this.children[this.currentIndex];
         if (next.state === StepState.Finished) {
           this.currentIndex++;
         } else {
-          return; // Next child is Active, wait for it
+          return; // Next child is Active or Waiting, wait for it
         }
       }
 
-      // All children done
+      // All children done — record cycle time
+      const cycleTime = performance.now() / 1000 - this.cycleStartTime;
+      this.cycleTimes.push(cycleTime);
       this.completedCycles++;
-      debug('logic', `[${this.name}] cycle #${this.completedCycles} complete`);
+      debug('logic', `[${this.name}] cycle #${this.completedCycles} complete (${cycleTime.toFixed(3)}s)`);
       if (this.autoLoop) {
         // Reset all children and restart
         for (const c of this.children) c.reset();
         this.currentIndex = 0;
+        this.cycleStartTime = performance.now() / 1000;
         this.startChild(0);
       } else {
         this.finish();
@@ -107,7 +147,7 @@ export class RVSerialContainer extends RVLogicStep {
     const child = this.children[index];
     child.reset();
     child.start();
-    debug('logic', `[${this.name}] step ${index}/${this.children.length}: "${child.name}" → ${child.state}`);
+    debug('logic', `[${this.name}] step ${index}/${this.children.length}: "${child.name}" -> ${child.state}`);
   }
 
   reset(): void {
@@ -123,11 +163,18 @@ export class RVSerialContainer extends RVLogicStep {
  */
 export class RVParallelContainer extends RVLogicStep {
   children: RVLogicStep[];
-  private finishedCount = 0;
+  finishedCount = 0;
 
   constructor(children: RVLogicStep[]) {
     super();
     this.children = children;
+  }
+
+  get progress(): number {
+    if (this.children.length === 0) return 0;
+    if (this.state === StepState.Finished) return 100;
+    if (this.state === StepState.Idle) return 0;
+    return Math.min(...this.children.map(c => c.progress));
   }
 
   start(): void {
@@ -155,7 +202,7 @@ export class RVParallelContainer extends RVLogicStep {
     if (this.state !== StepState.Active) return;
 
     for (const child of this.children) {
-      if (child.state === StepState.Active) {
+      if (child.state === StepState.Active || child.state === StepState.Waiting) {
         child.fixedUpdate(dt);
         // Re-check state after fixedUpdate (step may have called finish())
         if ((child.state as StepState) === StepState.Finished) {
@@ -181,11 +228,17 @@ export class RVParallelContainer extends RVLogicStep {
 /** Delay - waits for a specified duration in seconds */
 export class RVDelay extends RVLogicStep {
   duration: number;
-  private elapsed = 0;
+  elapsed = 0;
 
   constructor(duration: number) {
     super();
     this.duration = duration;
+  }
+
+  get progress(): number {
+    if (this.state === StepState.Finished) return 100;
+    if (this.state === StepState.Idle) return 0;
+    return this.duration > 0 ? (this.elapsed / this.duration) * 100 : 0;
   }
 
   start(): void {
@@ -223,6 +276,10 @@ export class RVSetSignalBool extends RVLogicStep {
     this.signalStore = signalStore;
   }
 
+  get progress(): number {
+    return this.state === StepState.Finished ? 100 : 0;
+  }
+
   start(): void {
     if (!this.signalAddress) {
       console.warn(`[LogicStep] SetSignalBool "${this.name}": null signal address — skipping`);
@@ -250,13 +307,19 @@ export class RVWaitForSignalBool extends RVLogicStep {
     this.signalStore = signalStore;
   }
 
+  get progress(): number {
+    if (this.state === StepState.Finished) return 100;
+    if (this.state === StepState.Waiting) return 50;
+    return 0;
+  }
+
   start(): void {
     if (!this.signalAddress) {
       console.warn(`[LogicStep] WaitForSignalBool "${this.name}": null signal address — skipping`);
       this.state = StepState.Finished;
       return;
     }
-    this.state = StepState.Active;
+    this.state = StepState.Waiting;
     // Check immediately
     if (this.signalStore.getBoolByPath(this.signalAddress) === this.waitForTrue) {
       this.finish();
@@ -264,7 +327,7 @@ export class RVWaitForSignalBool extends RVLogicStep {
   }
 
   fixedUpdate(): void {
-    if (this.state !== StepState.Active || !this.signalAddress) return;
+    if (this.state !== StepState.Waiting || !this.signalAddress) return;
     if (this.signalStore.getBoolByPath(this.signalAddress) === this.waitForTrue) {
       debug('logic', `WaitForSignalBool "${this.name}": ${this.signalAddress} matched (${this.waitForTrue})`);
       this.finish();
@@ -283,20 +346,26 @@ export class RVWaitForSensor extends RVLogicStep {
     this.waitForOccupied = waitForOccupied;
   }
 
+  get progress(): number {
+    if (this.state === StepState.Finished) return 100;
+    if (this.state === StepState.Waiting) return 50;
+    return 0;
+  }
+
   start(): void {
     if (!this.sensor) {
       console.warn(`[LogicStep] WaitForSensor "${this.name}": null sensor — skipping`);
       this.state = StepState.Finished;
       return;
     }
-    this.state = StepState.Active;
+    this.state = StepState.Waiting;
     if (this.sensor.occupied === this.waitForOccupied) {
       this.finish();
     }
   }
 
   fixedUpdate(): void {
-    if (this.state !== StepState.Active || !this.sensor) return;
+    if (this.state !== StepState.Waiting || !this.sensor) return;
     if (this.sensor.occupied === this.waitForOccupied) {
       debug('logic', `WaitForSensor "${this.name}": sensor "${this.sensor.node.name}" ${this.waitForOccupied ? 'occupied' : 'cleared'}`);
       this.finish();
@@ -310,6 +379,8 @@ export class RVDriveTo extends RVLogicStep {
   destination: number;
   relative: boolean;
   direction: string;
+  private startPosition = 0;
+  private targetPosition = 0;
 
   constructor(drive: RVDrive | null, destination: number, relative: boolean, direction: string) {
     super();
@@ -319,12 +390,23 @@ export class RVDriveTo extends RVLogicStep {
     this.direction = direction;
   }
 
+  get progress(): number {
+    if (this.state === StepState.Finished) return 100;
+    if (this.state === StepState.Idle || !this.drive) return 0;
+    const totalDelta = Math.abs(this.targetPosition - this.startPosition);
+    if (totalDelta < 0.001) return 100;
+    const currentDelta = Math.abs(this.drive.currentPosition - this.startPosition);
+    return Math.min(100, (currentDelta / totalDelta) * 100);
+  }
+
   start(): void {
     if (!this.drive) {
       console.warn(`[LogicStep] DriveTo "${this.name}": null drive — skipping`);
       this.state = StepState.Finished;
       return;
     }
+
+    this.startPosition = this.drive.currentPosition;
 
     let dest = this.relative
       ? this.drive.currentPosition + this.destination
@@ -335,6 +417,7 @@ export class RVDriveTo extends RVLogicStep {
       dest = Math.max(this.drive.config.lowerLimit, Math.min(this.drive.config.upperLimit, dest));
     }
 
+    this.targetPosition = dest;
     this.drive.startMove(dest);
     this.state = StepState.Active;
 
@@ -363,6 +446,10 @@ export class RVSetDriveSpeed extends RVLogicStep {
     this.speed = speed;
   }
 
+  get progress(): number {
+    return this.state === StepState.Finished ? 100 : 0;
+  }
+
   start(): void {
     if (!this.drive) {
       console.warn(`[LogicStep] SetDriveSpeed "${this.name}": null drive — skipping`);
@@ -385,6 +472,10 @@ export class RVEnable extends RVLogicStep {
     super();
     this.target = target;
     this.enable = enable;
+  }
+
+  get progress(): number {
+    return this.state === StepState.Finished ? 100 : 0;
   }
 
   start(): void {

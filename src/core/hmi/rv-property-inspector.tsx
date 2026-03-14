@@ -6,6 +6,7 @@
  * - IGNORED / unknown fields: read-only, grayed out with "Not used" tooltip
  * - Override indicators: blue dot for fields that differ from GLB defaults
  * - Per-field and per-node reset to GLB defaults
+ * - LogicStep runtime status section (state, progress, cycle stats)
  *
  * Positioned to the right of the hierarchy panel when a node is selected.
  *
@@ -27,6 +28,7 @@ import {
   Tooltip,
   Button,
   Chip,
+  LinearProgress,
   useMediaQuery,
 } from '@mui/material';
 import {
@@ -48,6 +50,9 @@ import {
 } from './rv-inspector-helpers';
 import { navigateToRef } from './rv-reference-display';
 import { ComponentSection } from './rv-component-section';
+import { StepState } from '../engine/rv-logic-step';
+import type { StepStateInfo } from '../engine/rv-logic-engine';
+import { STEP_STATE_COLORS, STEP_STATE_LABELS } from './rv-logic-step-colors';
 
 // Re-export isHiddenComponentType for backward compatibility
 export { isHiddenComponentType } from './rv-inspector-helpers';
@@ -59,6 +64,127 @@ const LS_KEY_CONSUMED_ONLY = 'rv-inspector-consumed-only';
 function loadConsumedOnly(): boolean {
   try { return localStorage.getItem(LS_KEY_CONSUMED_ONLY) === 'true'; }
   catch { return false; }
+}
+
+// ── LogicStep Runtime Section ─────────────────────────────────────────────
+
+interface RuntimeFieldRowProps {
+  label: string;
+  value: string;
+  color?: string;
+}
+
+function RuntimeFieldRow({ label, value, color }: RuntimeFieldRowProps) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', px: 1, py: 0.15 }}>
+      <Typography sx={{ fontSize: 10, color: 'text.disabled', width: 100, flexShrink: 0 }}>
+        {label}
+      </Typography>
+      <Typography sx={{ fontSize: 10, color: color ?? 'text.primary', fontWeight: 500 }}>
+        {value}
+      </Typography>
+    </Box>
+  );
+}
+
+function LogicStepRuntimeSection({ info }: { info: StepStateInfo }) {
+  const stateColor = STEP_STATE_COLORS[info.state];
+  const stateLabel = STEP_STATE_LABELS[info.state];
+
+  return (
+    <Box sx={{ borderBottom: '1px solid rgba(255, 255, 255, 0.06)' }}>
+      {/* Section header */}
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          px: 1,
+          py: 0.5,
+          bgcolor: stateColor + '18',
+          borderBottom: `2px solid ${stateColor}44`,
+        }}
+      >
+        <Box
+          sx={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            bgcolor: stateColor,
+            mr: 0.75,
+            flexShrink: 0,
+          }}
+        />
+        <Typography sx={{ fontSize: 10, fontWeight: 700, color: stateColor, textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
+          Runtime Status
+        </Typography>
+        <Typography sx={{ fontSize: 9, color: stateColor, fontWeight: 600 }}>
+          {stateLabel}
+        </Typography>
+      </Box>
+
+      {/* Runtime fields */}
+      <Box sx={{ py: 0.5 }}>
+        <RuntimeFieldRow label="State" value={info.state} color={stateColor} />
+        <RuntimeFieldRow label="Type" value={info.type} />
+
+        {/* Progress bar */}
+        <Box sx={{ px: 1, py: 0.25 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography sx={{ fontSize: 10, color: 'text.disabled', width: 100, flexShrink: 0 }}>
+              Progress
+            </Typography>
+            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <LinearProgress
+                variant="determinate"
+                value={Math.min(100, info.progress)}
+                sx={{
+                  flex: 1,
+                  height: 4,
+                  borderRadius: 2,
+                  bgcolor: 'rgba(255,255,255,0.06)',
+                  '& .MuiLinearProgress-bar': { bgcolor: stateColor, borderRadius: 2 },
+                }}
+              />
+              <Typography sx={{ fontSize: 9, color: 'text.secondary', minWidth: 28, textAlign: 'right' }}>
+                {info.progress.toFixed(0)}%
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* SerialContainer-specific fields */}
+        {info.type === 'SerialContainer' && (
+          <>
+            {info.currentIndex !== undefined && info.childCount !== undefined && (
+              <RuntimeFieldRow label="Current Step" value={`${info.currentIndex + 1} / ${info.childCount}`} />
+            )}
+            {info.completedCycles !== undefined && (
+              <RuntimeFieldRow label="Completed Cycles" value={info.completedCycles.toString()} />
+            )}
+            {info.minCycleTime !== undefined && info.minCycleTime > 0 && (
+              <RuntimeFieldRow label="Min Cycle Time" value={`${info.minCycleTime.toFixed(3)}s`} />
+            )}
+            {info.maxCycleTime !== undefined && info.maxCycleTime > 0 && (
+              <RuntimeFieldRow label="Max Cycle Time" value={`${info.maxCycleTime.toFixed(3)}s`} />
+            )}
+            {info.medianCycleTime !== undefined && info.medianCycleTime > 0 && (
+              <RuntimeFieldRow label="Median Cycle Time" value={`${info.medianCycleTime.toFixed(3)}s`} />
+            )}
+          </>
+        )}
+
+        {/* ParallelContainer-specific fields */}
+        {info.type === 'ParallelContainer' && info.finishedCount !== undefined && info.childCount !== undefined && (
+          <RuntimeFieldRow label="Finished" value={`${info.finishedCount} / ${info.childCount}`} />
+        )}
+
+        {/* Delay-specific fields */}
+        {info.type === 'Delay' && info.elapsed !== undefined && info.duration !== undefined && (
+          <RuntimeFieldRow label="Elapsed" value={`${info.elapsed.toFixed(2)}s / ${info.duration.toFixed(2)}s`} />
+        )}
+      </Box>
+    </Box>
+  );
 }
 
 // ── Main Component ────────────────────────────────────────────────────────
@@ -95,6 +221,15 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
 
     return { components };
   }, [selectedPath, viewer.registry, state.overlay]);
+
+  // Check if the selected node has a LogicStep component
+  const hasLogicStep = nodeData?.components.some(c => c.type.startsWith('LogicStep_')) ?? false;
+
+  // Get logic step runtime info
+  const logicEngine = viewer.logicEngine;
+  const stepInfo = hasLogicStep && logicEngine && selectedPath
+    ? logicEngine.getStepInfo(selectedPath)
+    : null;
 
   // Find reverse references: who points to this node via ComponentReference?
   const referencedBy = useMemo<ReverseReference[]>(() => {
@@ -175,11 +310,14 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
 
   // Shared signal polling for live display in signal reference badges (consolidated via hook)
   const signalStore = viewer.signalStore;
-  useSignalTick(signalStore);
+  useSignalTick(signalStore, 200);
 
   if (!selectedPath || !nodeData) return null;
 
   const nodeName = selectedPath.split('/').pop() ?? selectedPath;
+
+  // Show runtime section only when step is not Idle (matching C# ShowIf pattern)
+  const showRuntimeSection = stepInfo && stepInfo.state !== StepState.Idle;
 
   return (
     <Paper
@@ -236,6 +374,9 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
           '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 3 },
         }}
       >
+        {/* LogicStep Runtime Status (above component sections, hidden when Idle) */}
+        {showRuntimeSection && <LogicStepRuntimeSection info={stepInfo} />}
+
         {nodeData.components.length === 0 ? (
           <Typography sx={{ fontSize: 12, color: 'text.disabled', textAlign: 'center', py: 4 }}>
             No component data

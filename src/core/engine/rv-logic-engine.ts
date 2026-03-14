@@ -18,6 +18,27 @@ import {
 import { validateExtras } from './rv-extras-validator';
 import { debug } from './rv-debug';
 
+// ─── Step State Info (for UI polling) ────────────────────────────
+
+export interface StepStateInfo {
+  state: StepState;
+  name: string;
+  type: string;
+  progress: number;
+  // Container-specific:
+  currentIndex?: number;
+  childCount?: number;
+  completedCycles?: number;
+  finishedCount?: number;
+  // Cycle time stats (SerialContainer only):
+  minCycleTime?: number;
+  maxCycleTime?: number;
+  medianCycleTime?: number;
+  // Leaf-specific:
+  elapsed?: number;
+  duration?: number;
+}
+
 /**
  * RVLogicEngine - Reconstructs LogicStep hierarchies from GLB node trees
  * and runs them in the simulation loop.
@@ -28,6 +49,9 @@ import { debug } from './rv-debug';
 export class RVLogicEngine {
   /** All top-level containers that run independently */
   readonly roots: RVLogicStep[] = [];
+
+  /** O(1) path-to-step lookup, populated during build() */
+  readonly stepByPath = new Map<string, RVLogicStep>();
 
   /** ActiveOnly mode — defaults to 'Always' since LogicEngine has no single GLB node. */
   activeOnly: ActiveOnly = 'Always';
@@ -58,7 +82,7 @@ export class RVLogicEngine {
 
     if (stepNodes.length === 0) return engine;
 
-    // Build a lookup: node → step info
+    // Build a lookup: node -> step info
     const nodeStepMap = new Map<Object3D, { rv: Record<string, unknown>; stepType: string }>();
     for (const sn of stepNodes) {
       nodeStepMap.set(sn.node, { rv: sn.rv, stepType: sn.stepType });
@@ -79,7 +103,35 @@ export class RVLogicEngine {
       }
     }
 
-    console.log(`[LogicEngine] Built ${engine.roots.length} root containers from ${stepNodes.length} step nodes`);
+    // Populate stepByPath using registry paths
+    const populateStepByPath = (step: RVLogicStep, node: Object3D) => {
+      const path = registry.getPathForNode(node);
+      if (path) {
+        step.hierarchyPath = path;
+        engine.stepByPath.set(path, step);
+      }
+      if (step instanceof RVSerialContainer || step instanceof RVParallelContainer) {
+        // Find child nodes from the GLB hierarchy
+        for (const child of step.children) {
+          // Match child step to a child node by name
+          for (const childNode of node.children) {
+            if (childNode.name === child.name && nodeStepMap.has(childNode)) {
+              populateStepByPath(child, childNode);
+              break;
+            }
+          }
+        }
+      }
+    };
+
+    for (const tl of topLevelNodes) {
+      const step = engine.roots.find(r => r.name === tl.node.name);
+      if (step) {
+        populateStepByPath(step, tl.node);
+      }
+    }
+
+    console.log(`[LogicEngine] Built ${engine.roots.length} root containers from ${stepNodes.length} step nodes (${engine.stepByPath.size} paths mapped)`);
     return engine;
   }
 
@@ -93,10 +145,10 @@ export class RVLogicEngine {
     }
   }
 
-  /** Update all active containers */
+  /** Update all active or waiting containers */
   fixedUpdate(dt: number): void {
     for (const root of this.roots) {
-      if (root.state === StepState.Active) {
+      if (root.state === StepState.Active || root.state === StepState.Waiting) {
         root.fixedUpdate(dt);
       }
     }
@@ -109,18 +161,50 @@ export class RVLogicEngine {
     }
   }
 
+  /** Get step info for a given hierarchy path (for UI display) */
+  getStepInfo(path: string): StepStateInfo | null {
+    const step = this.stepByPath.get(path);
+    if (!step) return null;
+
+    const info: StepStateInfo = {
+      state: step.state,
+      name: step.name,
+      type: step.constructor.name.replace('RV', ''),
+      progress: step.progress,
+    };
+
+    if (step instanceof RVSerialContainer) {
+      info.currentIndex = step.currentIndex;
+      info.childCount = step.children.length;
+      info.completedCycles = step.completedCycles;
+      info.minCycleTime = step.minCycleTime;
+      info.maxCycleTime = step.maxCycleTime;
+      info.medianCycleTime = step.medianCycleTime;
+    } else if (step instanceof RVParallelContainer) {
+      info.finishedCount = step.finishedCount;
+      info.childCount = step.children.length;
+    } else if (step instanceof RVDelay) {
+      info.elapsed = step.elapsed;
+      info.duration = step.duration;
+    }
+
+    return info;
+  }
+
   get stats() {
     let activeSteps = 0;
+    let waitingSteps = 0;
     let totalSteps = 0;
     const countSteps = (step: RVLogicStep) => {
       totalSteps++;
       if (step.state === StepState.Active) activeSteps++;
+      if (step.state === StepState.Waiting) waitingSteps++;
       if (step instanceof RVSerialContainer || step instanceof RVParallelContainer) {
         for (const child of step.children) countSteps(child);
       }
     };
     for (const root of this.roots) countSteps(root);
-    return { roots: this.roots.length, totalSteps, activeSteps };
+    return { roots: this.roots.length, totalSteps, activeSteps, waitingSteps };
   }
 }
 

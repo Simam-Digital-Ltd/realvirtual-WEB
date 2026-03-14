@@ -372,13 +372,13 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
       }
     }
 
+    // Register ALL nodes in registry (Phase 1) — enables hierarchy hover for containers
+    const path = NodeRegistry.computeNodePath(node);
+    registry.registerNode(path, node);
+
     // Check for realvirtual extras
     const rv = node.userData?.realvirtual as Record<string, unknown> | undefined;
     if (!rv) return;
-
-    // Register node in registry (Phase 1)
-    const path = NodeRegistry.computeNodePath(node);
-    registry.registerNode(path, node);
 
     // Parse Drive
     if (rv['Drive']) {

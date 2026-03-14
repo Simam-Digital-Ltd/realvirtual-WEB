@@ -3,8 +3,10 @@
  *
  * Features:
  * - Search filter (case-insensitive path substring)
- * - Type filter buttons (All, Drives, Sensors, Signals)
+ * - Type filter buttons (All, Drives, Sensors, Signals, Logic)
  * - Component type badges with live signal values
+ * - LogicStep status dots with ISA-101 colors and pulse animation
+ * - Container progress counters (3/7 for Serial, 2/4 done for Parallel)
  * - Click to select (updates plugin state)
  * - Resizable width (drag right edge)
  * - Node count footer
@@ -35,19 +37,46 @@ import type { RVViewer } from '../rv-viewer';
 import { RvExtrasEditorPlugin, type EditableNodeInfo } from './rv-extras-editor';
 import type { RVExtrasOverlay } from '../engine/rv-extras-overlay-store';
 import type { SignalStore } from '../engine/rv-signal-store';
+import type { RVLogicEngine, StepStateInfo } from '../engine/rv-logic-engine';
+import { StepState } from '../engine/rv-logic-step';
+import { STEP_STATE_COLORS, STEP_STATE_LABELS } from './rv-logic-step-colors';
 import { MOBILE_BREAKPOINT } from '../../hooks/use-mobile-layout';
 import { componentColor } from './rv-inspector-helpers';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
+// ─── CSS Pulse Animation ─────────────────────────────────────────────────
+
+const PULSE_STYLE_ID = 'rv-pulse-keyframes';
+
+function ensurePulseAnimation(): void {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById(PULSE_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = PULSE_STYLE_ID;
+  style.textContent = `
+    @keyframes rv-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.4; transform: scale(0.75); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      @keyframes rv-pulse {
+        0%, 100% { opacity: 0.7; }
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 // ─── Type Filter ─────────────────────────────────────────────────────────
 
-type TypeFilter = 'all' | 'drives' | 'sensors' | 'signals';
+type TypeFilter = 'all' | 'drives' | 'sensors' | 'signals' | 'logic';
 
 const TYPE_FILTERS: { key: TypeFilter; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'drives', label: 'Drives' },
   { key: 'sensors', label: 'Sensors' },
   { key: 'signals', label: 'Signals' },
+  { key: 'logic', label: 'Logic' },
 ];
 
 function matchesTypeFilter(types: string[], filter: TypeFilter): boolean {
@@ -55,6 +84,7 @@ function matchesTypeFilter(types: string[], filter: TypeFilter): boolean {
   if (filter === 'drives') return types.some(t => t === 'Drive' || t.startsWith('Drive_'));
   if (filter === 'sensors') return types.some(t => t === 'Sensor');
   if (filter === 'signals') return types.some(t => t.startsWith('PLCInput') || t.startsWith('PLCOutput'));
+  if (filter === 'logic') return types.some(t => t.startsWith('LogicStep_'));
   return true;
 }
 
@@ -82,11 +112,12 @@ function buildTree(
       const seg = segments[i];
       const isLast = i === segments.length - 1;
 
+      const fullPath = segments.slice(0, i + 1).join('/');
       let child = current.children.find((c) => c.name === seg);
       if (!child) {
         child = {
           name: seg,
-          path: isLast ? info.path : null,
+          path: fullPath,
           types: isLast ? info.types : [],
           hasOverrides: false,
           children: [],
@@ -173,7 +204,7 @@ function formatSignalValue(type: string, signalStore: SignalStore | null, path: 
   if (value === undefined) return '\u2014';
 
   if (isBoolSignal(type)) {
-    return value === true ? '\u25CF' : '\u25CB'; // ● or ○
+    return value === true ? '\u25CF' : '\u25CB'; // filled or hollow circle
   }
 
   if (typeof value === 'number') {
@@ -182,14 +213,50 @@ function formatSignalValue(type: string, signalStore: SignalStore | null, path: 
   return '\u2014';
 }
 
-// ─── Badge color (imported from shared helpers) ──────────────────────────
+// ─── LogicStep Helpers ───────────────────────────────────────────────────
 
-// componentColor() is re-used as badgeColor for consistency between
-// hierarchy browser badges and inspector component headers.
-// See rv-inspector-helpers.ts for the shared color map.
+function isLogicStepType(type: string): boolean {
+  return type.startsWith('LogicStep_');
+}
 
-function badgeLabel(type: string): string {
-  if (type.startsWith('LogicStep_')) return type.replace('LogicStep_', 'LS:');
+/** Get badge color for a component type — dynamic for LogicStep types. */
+function badgeColor(type: string, stepState?: StepState): string {
+  if (isLogicStepType(type) && stepState !== undefined) {
+    return STEP_STATE_COLORS[stepState];
+  }
+  return componentColor(type);
+}
+
+/** Get step info from the logic engine for a given hierarchy path. */
+function getStepInfoForPath(engine: RVLogicEngine | null, path: string | null): StepStateInfo | null {
+  if (!engine || !path) return null;
+  return engine.getStepInfo(path);
+}
+
+/** Format container progress text. */
+function formatContainerProgress(info: StepStateInfo): string | null {
+  if (info.type === 'SerialContainer' && info.currentIndex !== undefined && info.childCount !== undefined) {
+    return `${info.currentIndex + 1}/${info.childCount}`;
+  }
+  if (info.type === 'ParallelContainer' && info.finishedCount !== undefined && info.childCount !== undefined) {
+    return `${info.finishedCount}/${info.childCount} done`;
+  }
+  if (info.type === 'Delay' && info.elapsed !== undefined && info.duration !== undefined) {
+    return `${info.elapsed.toFixed(1)}s/${info.duration.toFixed(1)}s`;
+  }
+  return null;
+}
+
+// ─── Badge label ─────────────────────────────────────────────────────────
+
+function badgeLabel(type: string, stepState?: StepState): string {
+  if (isLogicStepType(type)) {
+    const shortType = type.replace('LogicStep_', 'LS:');
+    if (stepState !== undefined) {
+      return `${shortType} ${STEP_STATE_LABELS[stepState]}`;
+    }
+    return shortType;
+  }
   if (type === 'TransportSurface') return 'TS';
   if (type === 'DrivesRecorder') return 'Rec';
   if (type === 'ReplayRecording') return 'Replay';
@@ -226,19 +293,75 @@ function BadgeChip({ color, label }: { color: string; label: string }) {
   );
 }
 
+// ─── Step Status Dot ─────────────────────────────────────────────────────
+
+function StepStateDot({ stepState }: { stepState: StepState }) {
+  return (
+    <Box
+      sx={{
+        width: 8,
+        height: 8,
+        borderRadius: '50%',
+        bgcolor: STEP_STATE_COLORS[stepState],
+        flexShrink: 0,
+        mr: 0.5,
+        animation: stepState === StepState.Active
+          ? 'rv-pulse 1.5s ease-in-out infinite' : 'none',
+      }}
+    />
+  );
+}
+
+// ─── Container Progress Badge ─────────────────────────────────────────────
+
+function ContainerProgressBadge({ text }: { text: string }) {
+  return (
+    <Typography
+      component="span"
+      sx={{
+        fontSize: 8,
+        fontFamily: 'monospace',
+        color: 'text.secondary',
+        ml: 0.25,
+        flexShrink: 0,
+      }}
+    >
+      {text}
+    </Typography>
+  );
+}
+
 // ─── Badges Row ─────────────────────────────────────────────────────────
 
 /** Renders component badges + signal badges (signals always right-most with live values). */
-function NodeBadges({ types, signalStore, path }: { types: string[]; signalStore: SignalStore | null; path: string | null }) {
+function NodeBadges({
+  types,
+  signalStore,
+  path,
+  stepInfo,
+}: {
+  types: string[];
+  signalStore: SignalStore | null;
+  path: string | null;
+  stepInfo?: StepStateInfo | null;
+}) {
   const [nonSignalTypes, signalTypes] = useMemo(() => splitTypes(types), [types]);
 
   if (nonSignalTypes.length === 0 && signalTypes.length === 0) return null;
 
+  const stepState = stepInfo?.state;
+  const progressText = stepInfo ? formatContainerProgress(stepInfo) : null;
+
   return (
-    <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 0, ml: 'auto' }}>
+    <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 0, ml: 'auto', alignItems: 'center' }}>
       {nonSignalTypes.map((type) => (
-        <BadgeChip key={type} color={componentColor(type)} label={badgeLabel(type)} />
+        <BadgeChip
+          key={type}
+          color={badgeColor(type, isLogicStepType(type) ? stepState : undefined)}
+          label={badgeLabel(type, isLogicStepType(type) ? stepState : undefined)}
+        />
       ))}
+      {progressText && <ContainerProgressBadge text={progressText} />}
       {signalTypes.length > 0 && nonSignalTypes.length > 0 && (
         <Box sx={{ width: 2, flexShrink: 0 }} />
       )}
@@ -277,7 +400,7 @@ function persistTreeExpandedSet(expanded: Set<string>): void {
 // ─── Ancestor path computation ──────────────────────────────────────────
 
 /** Compute all ancestor path segments for a given path.
- *  E.g. "A/B/C/D" → ["A", "A/B", "A/B/C"] */
+ *  E.g. "A/B/C/D" -> ["A", "A/B", "A/B/C"] */
 export function computeAncestors(path: string): string[] {
   const segments = path.split('/');
   const ancestors: string[] = [];
@@ -299,27 +422,43 @@ interface TreeNodeRowProps {
   onDoubleClick: (path: string) => void;
   onHover: (path: string | null) => void;
   signalStore: SignalStore | null;
+  logicEngine: RVLogicEngine | null;
 }
 
-const TreeNodeRow = memo(function TreeNodeRow({ node, depth, selectedPath, expanded, onToggleExpand, onSelect, onDoubleClick, onHover, signalStore }: TreeNodeRowProps) {
+const TreeNodeRow = memo(function TreeNodeRow({
+  node,
+  depth,
+  selectedPath,
+  expanded,
+  onToggleExpand,
+  onSelect,
+  onDoubleClick,
+  onHover,
+  signalStore,
+  logicEngine,
+}: TreeNodeRowProps) {
   const expandKey = node.path ?? node.name;
   const isExpanded = expanded.has(expandKey);
   const hasChildren = node.children.length > 0;
-  const isLeaf = node.path !== null;
-  const isSelected = isLeaf && node.path === selectedPath;
+  const hasComponents = node.types.length > 0;
+  const isSelected = hasComponents && node.path === selectedPath;
+
+  // Check if this node has a LogicStep component
+  const hasLogicStep = node.types.some(isLogicStepType);
+  const stepInfo = hasLogicStep ? getStepInfoForPath(logicEngine, node.path) : null;
 
   const handleClick = useCallback(() => {
-    if (isLeaf && node.path) {
+    if (hasComponents && node.path) {
       onSelect(node.path);
     } else {
       onToggleExpand(expandKey);
     }
-  }, [isLeaf, node.path, onSelect, onToggleExpand, expandKey]);
+  }, [hasComponents, node.path, onSelect, onToggleExpand, expandKey]);
 
   const handleDblClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isLeaf && node.path) onDoubleClick(node.path);
-  }, [isLeaf, node.path, onDoubleClick]);
+    if (node.path) onDoubleClick(node.path);
+  }, [node.path, onDoubleClick]);
 
   const handleExpandClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -327,8 +466,8 @@ const TreeNodeRow = memo(function TreeNodeRow({ node, depth, selectedPath, expan
   }, [onToggleExpand, expandKey]);
 
   const handleMouseEnter = useCallback(() => {
-    if (isLeaf && node.path) onHover(node.path);
-  }, [isLeaf, node.path, onHover]);
+    if (node.path) onHover(node.path);
+  }, [node.path, onHover]);
 
   const handleMouseLeave = useCallback(() => {
     onHover(null);
@@ -365,12 +504,15 @@ const TreeNodeRow = memo(function TreeNodeRow({ node, depth, selectedPath, expan
           <Box sx={{ width: 16, flexShrink: 0 }} />
         )}
 
+        {/* Status dot for LogicStep nodes */}
+        {stepInfo && <StepStateDot stepState={stepInfo.state} />}
+
         <Typography
           sx={{
             fontSize: 12,
             lineHeight: 1.3,
-            fontWeight: isLeaf ? 400 : 500,
-            color: isSelected ? 'primary.main' : isLeaf ? 'text.primary' : 'text.secondary',
+            fontWeight: hasComponents ? 400 : 500,
+            color: isSelected ? 'primary.main' : hasComponents ? 'text.primary' : 'text.secondary',
             flex: 1,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -381,7 +523,9 @@ const TreeNodeRow = memo(function TreeNodeRow({ node, depth, selectedPath, expan
           {node.name}
         </Typography>
 
-        {isLeaf && <NodeBadges types={node.types} signalStore={signalStore} path={node.path} />}
+        {hasComponents && (
+          <NodeBadges types={node.types} signalStore={signalStore} path={node.path} stepInfo={stepInfo} />
+        )}
       </Box>
 
       {hasChildren && (
@@ -398,6 +542,7 @@ const TreeNodeRow = memo(function TreeNodeRow({ node, depth, selectedPath, expan
               onDoubleClick={onDoubleClick}
               onHover={onHover}
               signalStore={signalStore}
+              logicEngine={logicEngine}
             />
           ))}
         </Collapse>
@@ -417,13 +562,17 @@ interface FlatNodeRowProps {
   onDoubleClick: (path: string) => void;
   onHover: (path: string | null) => void;
   signalStore: SignalStore | null;
+  logicEngine: RVLogicEngine | null;
   /** Absolute positioning style from virtualizer (when virtualized). */
   virtualStyle?: React.CSSProperties;
 }
 
-function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, signalStore, virtualStyle }: FlatNodeRowProps) {
+function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, signalStore, logicEngine, virtualStyle }: FlatNodeRowProps) {
   const name = info.path.split('/').pop() ?? info.path;
   const isSelected = info.path === selectedPath;
+
+  const hasLogicStep = info.types.some(isLogicStepType);
+  const stepInfo = hasLogicStep ? getStepInfoForPath(logicEngine, info.path) : null;
 
   const handleDblClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -453,6 +602,9 @@ function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, sig
         height: FLAT_ROW_HEIGHT,
       }}
     >
+      {/* Status dot for LogicStep nodes */}
+      {stepInfo && <StepStateDot stepState={stepInfo.state} />}
+
       <Typography
         sx={{
           fontSize: 12,
@@ -468,7 +620,7 @@ function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, sig
         {name}
       </Typography>
 
-      <NodeBadges types={info.types} signalStore={signalStore} path={info.path} />
+      <NodeBadges types={info.types} signalStore={signalStore} path={info.path} stepInfo={stepInfo} />
     </Box>
   );
 }
@@ -483,6 +635,9 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
   const plugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
   if (!plugin) return null;
 
+  // Ensure pulse animation CSS is injected
+  useEffect(() => { ensurePulseAnimation(); }, []);
+
   const state = useSyncExternalStore(plugin.subscribe, plugin.getSnapshot);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
@@ -492,9 +647,10 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const signalStore = viewer.signalStore;
+  const logicEngine = viewer.logicEngine;
 
-  // Shared signal polling for live badge values (consolidated via hook)
-  useSignalTick(signalStore);
+  // Consolidated live data polling at 200ms (for both signals and step states)
+  useSignalTick(signalStore, 200);
 
   // ── Lifted expand state (shared across all TreeNodeRows) ──
   const [expanded, setExpanded] = useState<Set<string>>(() => loadTreeExpanded());
@@ -791,6 +947,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
                     onDoubleClick={handleDoubleClick}
                     onHover={handleHover}
                     signalStore={signalStore}
+                    logicEngine={logicEngine}
                     virtualStyle={{
                       position: 'absolute',
                       top: 0,
@@ -823,6 +980,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
                 onDoubleClick={handleDoubleClick}
                 onHover={handleHover}
                 signalStore={signalStore}
+                logicEngine={logicEngine}
               />
             ))
           ) : (

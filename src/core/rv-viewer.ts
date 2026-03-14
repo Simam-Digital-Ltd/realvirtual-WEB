@@ -20,6 +20,7 @@ import {
   HemisphereLight,
   Color,
   Vector3,
+  Vector2,
   Box3,
   Object3D,
   MOUSE,
@@ -33,6 +34,7 @@ import {
   RepeatWrapping,
   NearestFilter,
   SRGBColorSpace,
+  Raycaster,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import Stats from 'stats-gl';
@@ -104,6 +106,7 @@ export interface ViewerEvents {
   // ── UI events (emitted by UI plugins) ──
   'camera-animation-done': { targetPath?: string };
   'object-clicked': { path: string; node: Object3D };
+  'object-focus': { path: string; node: Object3D };
   'panel-opened': { panelId: string };
   'panel-closed': { panelId: string };
 
@@ -452,14 +455,41 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.emit('xr-session-end', undefined as never);
     });
 
-    // Canvas click: filter chart to hovered drive, or clear focus
+    // Canvas click: emit object-clicked for hovered/raycast node, or clear focus
     this.renderer.domElement.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       const hovered = this.driveHover?.hoveredDrive;
       if (hovered && this._driveChartOpen) {
         this.filterDrives(hovered.name);
+      } else if (hovered) {
+        const path = this.registry?.getPathForNode(hovered.node);
+        if (path) {
+          this.highlighter.highlight(hovered.node, true, { includeChildDrives: true });
+          this.emit('object-clicked', { path, node: hovered.node });
+        }
       } else {
-        this.clearFocus();
+        const hitPath = this._raycastForRVNode(e);
+        if (hitPath && this.registry) {
+          const node = this.registry.getNode(hitPath);
+          if (node) {
+            this.highlighter.highlight(node, true, { includeChildDrives: true });
+            this.emit('object-clicked', { path: hitPath, node });
+          }
+        } else {
+          this.clearFocus();
+        }
+      }
+    });
+
+    // Double-click: emit object-focus for camera zoom
+    this.renderer.domElement.addEventListener('dblclick', (e) => {
+      const hitPath = this._raycastForRVNode(e);
+      if (hitPath && this.registry) {
+        const node = this.registry.getNode(hitPath);
+        if (node) {
+          this.emit('object-focus', { path: hitPath, node });
+          this.fitToNodes([node]);
+        }
       }
     });
 
@@ -891,6 +921,41 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.focusedNode = null;
       this.emit('drive-focus', { drive: null, node: null });
     }
+  }
+
+  // ─── Scene Click → Hierarchy Selection ────────────────────────────────
+
+  private readonly _clickRaycaster = new Raycaster();
+  private readonly _clickPointer = new Vector2();
+
+  /**
+   * Raycast from a mouse/pointer event and find the nearest ancestor
+   * node that has realvirtual userData. Returns the registry path or null.
+   */
+  private _raycastForRVNode(e: MouseEvent): string | null {
+    if (!this.registry) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this._clickPointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    this._clickPointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    this._clickRaycaster.setFromCamera(this._clickPointer, this.camera);
+
+    const hits = this._clickRaycaster.intersectObjects(this.scene.children, true);
+    for (const hit of hits) {
+      if (hit.object.userData?._highlightOverlay) continue;
+      if (hit.object.userData?._driveHoverOverlay) continue;
+      if (hit.object.name.endsWith('_sensorViz')) continue;
+      // Walk up from hit mesh to find nearest node with realvirtual data
+      let current: Object3D | null = hit.object;
+      while (current) {
+        const rv = current.userData?.realvirtual;
+        if (rv && typeof rv === 'object') {
+          const path = this.registry!.getPathForNode(current);
+          if (path) return path;
+        }
+        current = current.parent;
+      }
+    }
+    return null;
   }
 
   // ─── Visual Settings ─────────────────────────────────────────────────

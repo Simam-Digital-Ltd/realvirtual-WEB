@@ -107,10 +107,10 @@ describe('RVWaitForSignalBool', () => {
 
     const step = new RVWaitForSignalBool('sig/b', true, store);
     step.start();
-    expect(step.state).toBe(StepState.Active);
+    expect(step.state).toBe(StepState.Waiting);
 
     step.fixedUpdate(0.02);
-    expect(step.state).toBe(StepState.Active);
+    expect(step.state).toBe(StepState.Waiting);
 
     store.setByPath('sig/b', true);
     step.fixedUpdate(0.02);
@@ -142,10 +142,10 @@ describe('RVWaitForSensor', () => {
 
     const step = new RVWaitForSensor(sensor, true);
     step.start();
-    expect(step.state).toBe(StepState.Active);
+    expect(step.state).toBe(StepState.Waiting);
 
     step.fixedUpdate(0.02);
-    expect(step.state).toBe(StepState.Active);
+    expect(step.state).toBe(StepState.Waiting);
 
     sensor.occupied = true;
     step.fixedUpdate(0.02);
@@ -163,7 +163,7 @@ describe('RVWaitForSensor', () => {
     const sensor = makeSensor(true);
     const step = new RVWaitForSensor(sensor, false);
     step.start();
-    expect(step.state).toBe(StepState.Active);
+    expect(step.state).toBe(StepState.Waiting);
 
     sensor.occupied = false;
     step.fixedUpdate(0.02);
