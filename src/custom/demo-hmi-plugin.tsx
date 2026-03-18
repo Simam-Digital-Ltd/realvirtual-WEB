@@ -27,7 +27,6 @@ import { SensorChartOverlay } from './SensorChartOverlay';
 // Hooks
 import { useDriveChartOpen } from '../hooks/use-drive-chart';
 import { useSensorChartOpen } from '../hooks/use-sensor-chart';
-import { useSensorState } from '../hooks/use-sensor-state';
 
 // ─── KPI Bar Entries ────────────────────────────────────────────────────
 
@@ -141,30 +140,16 @@ function DriveInfoMessage(_props: UISlotProps) {
   );
 }
 
-function EntrySensorMessage(_props: UISlotProps) {
-  const occupied = useSensorState('DemoCell/EntrySensor');
+function RobotMaintenanceMessage(_props: UISlotProps) {
   return (
     <TileCard
-      title="Sensor Entry"
-      subtitle={occupied ? 'Part detected' : 'Clear'}
-      severity={occupied ? 'success' : 'info'}
-      icon="sensors"
-      timestamp="Live"
-      componentPath="EntrySensor"
-    />
-  );
-}
-
-function ExitSensorMessage(_props: UISlotProps) {
-  const occupied = useSensorState('DemoCell/ExitSensor');
-  return (
-    <TileCard
-      title="Sensor Exit"
-      subtitle={occupied ? 'Part detected' : 'Clear'}
-      severity={occupied ? 'success' : 'info'}
-      icon="sensors"
-      timestamp="Live"
-      componentPath="ExitSensor"
+      title="Robot Maintenance"
+      subtitle="Motor J4 overheating — see manual p.105"
+      severity="warning"
+      icon="build"
+      timestamp="Today"
+      componentPath="FanucCRX-10iA_L"
+      docUrl="pdf/fanuc-crx-educational-cell-manual.pdf#page=105"
     />
   );
 }
@@ -191,7 +176,6 @@ export class DemoHMIPlugin implements RVViewerPlugin {
     { slot: 'messages', component: DriveOverloadMessage, order: 10 },
     { slot: 'messages', component: MaintenanceDueMessage, order: 20 },
     { slot: 'messages', component: DriveInfoMessage, order: 30 },
-    { slot: 'messages', component: EntrySensorMessage, order: 40 },
-    { slot: 'messages', component: ExitSensorMessage, order: 50 },
+    { slot: 'messages', component: RobotMaintenanceMessage, order: 40 },
   ];
 }

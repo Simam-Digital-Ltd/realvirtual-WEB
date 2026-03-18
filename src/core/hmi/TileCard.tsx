@@ -25,10 +25,12 @@ export interface TileCardProps {
   timestamp: string;
   /** Hierarchy path of the related scene component (enables hover highlight + click focus) */
   componentPath?: string;
+  /** URL to open in a new tab when clicking the OpenInNew button (overrides focusByPath) */
+  docUrl?: string;
   onDismiss?: () => void;
 }
 
-export function TileCard({ title, subtitle, severity, icon, timestamp, componentPath, onDismiss }: TileCardProps) {
+export function TileCard({ title, subtitle, severity, icon, timestamp, componentPath, docUrl, onDismiss }: TileCardProps) {
   const color = severityColors[severity];
   const viewer = useViewer();
 
@@ -82,7 +84,7 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
             {timestamp}
           </Typography>
           <Box sx={{ display: 'flex', gap: 0.25 }}>
-            <IconButton size="small" sx={{ p: 0.25 }} onClick={(e) => { e.stopPropagation(); if (componentPath) { viewer.focusByPath(componentPath); viewer.highlightByPath(componentPath, true); } }}>
+            <IconButton size="small" sx={{ p: 0.25 }} onClick={(e) => { e.stopPropagation(); if (docUrl) { window.open(docUrl, '_blank', 'noopener'); } else if (componentPath) { viewer.focusByPath(componentPath); viewer.highlightByPath(componentPath, true); } }}>
               <OpenInNew sx={{ fontSize: 14 }} />
             </IconButton>
             <IconButton size="small" sx={{ p: 0.25 }} onClick={(e) => { e.stopPropagation(); onDismiss?.(); }}>
