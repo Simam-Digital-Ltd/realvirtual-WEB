@@ -12,6 +12,7 @@
 import { RVViewer } from './core/rv-viewer';
 import { initHMI } from './custom/hmi-entry';
 import { initTestRunner } from './rv-test-runner';
+import { fetchAppConfig, setAppConfig } from './core/hmi/rv-app-config';
 
 // Core Plugins
 import { SensorMonitorPlugin } from './plugins/sensor-monitor-plugin';
@@ -81,6 +82,17 @@ function hideLoadingOverlay() {
 }
 
 async function init() {
+  // --- Load App Config (MUST complete before React mount — no flicker) ---
+  const appConfig = await fetchAppConfig();
+
+  // URL param override for lockSettings (highest priority)
+  if (params.has('lockSettings')) {
+    appConfig.lockSettings = params.get('lockSettings') !== 'false';
+  }
+
+  // Set singleton — from here all stores have access via getAppConfig()
+  setAppConfig(appConfig);
+
   const container = document.getElementById('app')!;
 
   // --- Create Viewer ---
@@ -187,10 +199,22 @@ async function init() {
     document.title = `${firebaseDemoName} - realvirtual Web Viewer`;
     loadModel(firebaseGlbUrl);
   } else {
-    // Local dev mode: restore from URL param > localStorage > demo.glb > first model
-    const savedModel = params.get('model') ?? localStorage.getItem(LS_KEY_MODEL);
-    if (savedModel && entries.some((e) => e.url === savedModel)) {
-      loadModel(savedModel);
+    // Local dev mode: URL param > settings.json defaultModel > localStorage > demo.glb > first model
+    const urlModel = params.get('model');
+    const configModel = appConfig.defaultModel;
+    const savedModel = localStorage.getItem(LS_KEY_MODEL);
+
+    // Resolve configModel: could be a full URL or just a filename like "customer-line.glb"
+    const resolvedConfigModel = configModel
+      ? entries.find((e) => e.url === configModel || e.filename === configModel)?.url ?? configModel
+      : null;
+
+    const modelToLoad = urlModel
+      ?? (resolvedConfigModel && entries.some((e) => e.url === resolvedConfigModel) ? resolvedConfigModel : null)
+      ?? (savedModel && entries.some((e) => e.url === savedModel) ? savedModel : null);
+
+    if (modelToLoad) {
+      loadModel(modelToLoad);
     } else {
       // Default to demo.glb, then first available model
       const defaultEntry = entries.find((e) => e.filename === 'demo.glb') ?? entries[0];

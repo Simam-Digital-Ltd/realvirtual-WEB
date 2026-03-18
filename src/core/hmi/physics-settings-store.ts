@@ -3,6 +3,8 @@
  * Settings are persisted to localStorage so they survive page reloads.
  */
 
+import { getAppConfig, isSettingsLocked } from './rv-app-config';
+
 const STORAGE_KEY = 'rv-physics-settings';
 
 export interface PhysicsSettings {
@@ -22,6 +24,22 @@ const DEFAULTS: PhysicsSettings = {
 };
 
 export function loadPhysicsSettings(): PhysicsSettings {
+  // Layer 1+2: DEFAULTS + localStorage
+  const fromStorage = loadFromLocalStorage();
+
+  // Layer 3: Config override (from singleton)
+  const override = getAppConfig().physics;
+  if (!override) return fromStorage;
+  return {
+    enabled: override.enabled ?? fromStorage.enabled,
+    gravity: override.gravity ?? fromStorage.gravity,
+    friction: override.friction ?? fromStorage.friction,
+    substeps: override.substeps ?? fromStorage.substeps,
+    debugWireframes: override.debugWireframes ?? fromStorage.debugWireframes,
+  };
+}
+
+function loadFromLocalStorage(): PhysicsSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS };
@@ -39,6 +57,7 @@ export function loadPhysicsSettings(): PhysicsSettings {
 }
 
 export function savePhysicsSettings(settings: PhysicsSettings): void {
+  if (isSettingsLocked()) return; // Lock guard
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   } catch { /* quota exceeded — silently ignore */ }

@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Box, Paper, Typography, Button } from '@mui/material';
 import { useViewer } from '../../hooks/use-viewer';
+import { getAppConfig } from './rv-app-config';
 
 const LS_KEY = 'rv-welcome-shown';
 
 export function WelcomeModal() {
   const viewer = useViewer();
-  const shouldShow = !localStorage.getItem(LS_KEY);
+  const shouldShow = !getAppConfig().hideWelcomeModal && !localStorage.getItem(LS_KEY);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {

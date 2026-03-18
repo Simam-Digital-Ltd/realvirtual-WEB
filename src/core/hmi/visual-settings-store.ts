@@ -1,5 +1,7 @@
 /** Persists visual settings and camera bookmarks to localStorage. */
 
+import { getAppConfig, isSettingsLocked } from './rv-app-config';
+
 const STORAGE_KEY = 'rv-visual-settings';
 
 export interface CameraBookmark {
@@ -22,6 +24,21 @@ const DEFAULTS: VisualSettings = {
 };
 
 export function loadVisualSettings(): VisualSettings {
+  // Layer 1+2: DEFAULTS + localStorage
+  const fromStorage = loadFromLocalStorage();
+
+  // Layer 3: Config override (from singleton)
+  const override = getAppConfig().visual;
+  if (!override) return fromStorage;
+  return {
+    shadows: override.shadows ?? fromStorage.shadows,
+    shadowStrength: override.shadowStrength ?? fromStorage.shadowStrength,
+    lightIntensity: override.lightIntensity ?? fromStorage.lightIntensity,
+    cameras: fromStorage.cameras, // cameras are never overridden from config
+  };
+}
+
+function loadFromLocalStorage(): VisualSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS, cameras: [...DEFAULTS.cameras] };
@@ -38,6 +55,7 @@ export function loadVisualSettings(): VisualSettings {
 }
 
 export function saveVisualSettings(settings: VisualSettings): void {
+  if (isSettingsLocked()) return; // Lock guard
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   } catch { /* quota exceeded — silently ignore */ }

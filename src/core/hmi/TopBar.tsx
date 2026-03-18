@@ -10,6 +10,7 @@ import { loadPhysicsSettings, savePhysicsSettings, type PhysicsSettings } from '
 import { loadInterfaceSettings, saveInterfaceSettings, type InterfaceSettings, type InterfaceType, INTERFACE_DEFAULTS } from '../../interfaces/interface-settings-store';
 import { InterfaceManager } from '../../interfaces/interface-manager';
 import { ALL_RV_STORAGE_KEYS } from './rv-storage-keys';
+import { isSettingsLocked, isTabLocked } from './rv-app-config';
 import { RvExtrasEditorPlugin, HIERARCHY_DEFAULT_WIDTH } from './rv-extras-editor';
 import { HierarchyBrowser } from './rv-hierarchy-browser';
 import { PropertyInspector } from './rv-property-inspector';
@@ -73,14 +74,16 @@ export function TopBar() {
             <ViewInAr />
           </IconButton>
         )}
-        <IconButton
-          size={isMobile ? 'medium' : 'small'}
-          color={settingsOpen ? 'primary' : 'inherit'}
-          sx={{ p: isMobile ? 1 : 0.75 }}
-          onClick={() => { setSettingsOpen(!settingsOpen); setVrOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
-        >
-          {settingsOpen ? <Close fontSize={isMobile ? 'medium' : 'small'} /> : <Settings fontSize={isMobile ? 'medium' : 'small'} />}
-        </IconButton>
+        {!isSettingsLocked() && (
+          <IconButton
+            size={isMobile ? 'medium' : 'small'}
+            color={settingsOpen ? 'primary' : 'inherit'}
+            sx={{ p: isMobile ? 1 : 0.75 }}
+            onClick={() => { setSettingsOpen(!settingsOpen); setVrOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
+          >
+            {settingsOpen ? <Close fontSize={isMobile ? 'medium' : 'small'} /> : <Settings fontSize={isMobile ? 'medium' : 'small'} />}
+          </IconButton>
+        )}
       </Paper>
 
       {/* Hierarchy browser panel (disabled on mobile) */}
@@ -130,21 +133,21 @@ export function TopBar() {
                 '& .MuiTab-root': { minHeight: 40, py: 1, textTransform: 'none', fontSize: 13, minWidth: 0, px: { xs: 1.5, sm: 2 } },
               }}
             >
-              <Tab label="Model" />
-              <Tab label="Visual" />
-              <Tab label="Physics" />
-              <Tab label="Interfaces" />
-              <Tab label="Dev Tools" />
-              <Tab label="Tests" />
+              {!isTabLocked('model') && <Tab label="Model" value={0} />}
+              {!isTabLocked('visual') && <Tab label="Visual" value={1} />}
+              {!isTabLocked('physics') && <Tab label="Physics" value={2} />}
+              {!isTabLocked('interfaces') && <Tab label="Interfaces" value={3} />}
+              {!isTabLocked('devtools') && <Tab label="Dev Tools" value={4} />}
+              {!isTabLocked('tests') && <Tab label="Tests" value={5} />}
             </Tabs>
 
             <Box sx={{ p: { xs: 2, sm: 3 }, flex: 1 }}>
-              {settingsTab === 0 && <ModelTab />}
-              {settingsTab === 1 && <VisualTab />}
-              {settingsTab === 2 && <PhysicsTab />}
-              {settingsTab === 3 && <InterfacesTab />}
-              {settingsTab === 4 && <DevToolsTab />}
-              {settingsTab === 5 && <TestsTab />}
+              {settingsTab === 0 && !isTabLocked('model') && <ModelTab />}
+              {settingsTab === 1 && !isTabLocked('visual') && <VisualTab />}
+              {settingsTab === 2 && !isTabLocked('physics') && <PhysicsTab />}
+              {settingsTab === 3 && !isTabLocked('interfaces') && <InterfacesTab />}
+              {settingsTab === 4 && !isTabLocked('devtools') && <DevToolsTab />}
+              {settingsTab === 5 && !isTabLocked('tests') && <TestsTab />}
             </Box>
           </Paper>
         </Box>
@@ -319,22 +322,24 @@ function ModelTab() {
         </Box>
       </Box>
 
-      {/* Reset all settings */}
-      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 2 }}>
-        <Button
-          variant="outlined"
-          size="small"
-          color="warning"
-          startIcon={<RestartAlt sx={{ fontSize: 14 }} />}
-          onClick={handleResetAll}
-          sx={{ fontSize: 11, textTransform: 'none' }}
-        >
-          Reset All Settings to Defaults
-        </Button>
-        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontSize: 10 }}>
-          Clears all saved browser settings and reloads the page.
-        </Typography>
-      </Box>
+      {/* Reset all settings (hidden when locked) */}
+      {!isSettingsLocked() && (
+        <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 2 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            color="warning"
+            startIcon={<RestartAlt sx={{ fontSize: 14 }} />}
+            onClick={handleResetAll}
+            sx={{ fontSize: 11, textTransform: 'none' }}
+          >
+            Reset All Settings to Defaults
+          </Button>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontSize: 10 }}>
+            Clears all saved browser settings and reloads the page.
+          </Typography>
+        </Box>
+      )}
     </Box>
   );
 }
