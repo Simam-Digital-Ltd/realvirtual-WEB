@@ -33,6 +33,7 @@ export function ButtonPanel() {
       {/* Logo + Status — always fixed at top-left */}
       <Paper
         elevation={4}
+        data-ui-panel
         sx={{
           position: 'fixed',
           left: 8,
@@ -90,6 +91,7 @@ export function ButtonPanel() {
         >
           <Paper
             elevation={4}
+            data-ui-panel
             sx={{
               display: 'flex',
               flexDirection: isMobile ? 'row' : 'column',

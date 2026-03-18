@@ -31,6 +31,7 @@ import {
 } from 'three';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
+import type { WebGLRenderer } from 'three';
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
@@ -66,6 +67,8 @@ export class WebXRPlugin implements RVViewerPlugin {
   private vrButton: HTMLElement | null = null;
   private arButton: HTMLElement | null = null;
   private viewer: RVViewer | null = null;
+  /** Cached WebGLRenderer cast — only set when XR is supported (not WebGPU). */
+  private glRenderer: WebGLRenderer | null = null;
   private initialized = false;
   private presenting = false;
   private sessionMode: SessionMode = 'none';
@@ -161,10 +164,12 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.arSupported = support.ar;
     this.vrSupported = support.vr;
 
-    if (!RVXRManager.isXRCapable(viewer.renderer)) {
+    if (viewer.isWebGPU || !RVXRManager.isXRCapable(viewer.renderer)) {
       console.warn('[WebXR] Renderer does not support WebXR');
       return;
     }
+    const glRenderer = viewer.renderer as unknown as WebGLRenderer;
+    this.glRenderer = glRenderer;
 
     // Create camera rig (dolly group for locomotion)
     this.dolly = new Group();
@@ -175,9 +180,9 @@ export class WebXRPlugin implements RVViewerPlugin {
     // Setup controllers inside the dolly
     const factory = new XRControllerModelFactory();
     for (let i = 0; i < 2; i++) {
-      const controller = viewer.renderer.xr.getController(i);
+      const controller = glRenderer.xr.getController(i);
       this.dolly.add(controller);
-      const grip = viewer.renderer.xr.getControllerGrip(i);
+      const grip = glRenderer.xr.getControllerGrip(i);
       grip.add(factory.createControllerModel(grip));
       this.dolly.add(grip);
 
@@ -187,8 +192,8 @@ export class WebXRPlugin implements RVViewerPlugin {
 
     this.createTeleportVisuals(viewer);
 
-    viewer.renderer.xr.addEventListener('sessionstart', () => this.onSessionStart());
-    viewer.renderer.xr.addEventListener('sessionend', () => this.onSessionEnd());
+    glRenderer.xr.addEventListener('sessionstart', () => this.onSessionStart());
+    glRenderer.xr.addEventListener('sessionend', () => this.onSessionEnd());
 
     // Only show overlay VR/AR buttons on actual headset browsers (Quest, Pico, etc.)
     // On mobile/desktop, entry is handled through the app menu instead.
@@ -210,7 +215,7 @@ export class WebXRPlugin implements RVViewerPlugin {
 
     // VR button
     if (support.vr) {
-      const button = VRButton.createButton(viewer.renderer);
+      const button = VRButton.createButton(glRenderer);
       Object.assign(button.style, {
         ...buttonStyle,
         left: support.ar ? 'calc(50% - 90px)' : '50%',
@@ -243,8 +248,8 @@ export class WebXRPlugin implements RVViewerPlugin {
 
   /** Start an AR passthrough session (can be called externally, e.g. from TopBar). */
   async startAR(): Promise<void> {
-    if (!this.viewer) return;
-    const renderer = this.viewer.renderer;
+    if (!this.viewer || !this.glRenderer) return;
+    const renderer = this.glRenderer;
     const isMobile = !WebXRPlugin.isHeadsetBrowser();
 
     try {
@@ -553,7 +558,7 @@ export class WebXRPlugin implements RVViewerPlugin {
   private updateInfoPanel(): void {
     if (!this.infoPanel || this.infoPanelDismissed || !this.viewer) return;
 
-    const xrCamera = this.viewer.renderer.xr.getCamera();
+    const xrCamera = this.glRenderer!.xr.getCamera();
     const camDir = new Vector3();
     xrCamera.getWorldDirection(camDir);
     const camPos = new Vector3();
@@ -571,7 +576,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     const awayFromCam = panelWorld.clone().multiplyScalar(2).sub(camPos);
     this.infoPanel.lookAt(awayFromCam);
 
-    const session = this.viewer.renderer.xr.getSession();
+    const session = this.glRenderer!.xr.getSession();
     if (!session) return;
 
     for (const source of session.inputSources) {
@@ -624,7 +629,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     if (!this.viewer || !this.dolly) return;
     if (this.infoPanel && !this.infoPanelDismissed) return;
 
-    const session = this.viewer.renderer.xr.getSession();
+    const session = this.glRenderer!.xr.getSession();
     if (!session) return;
 
     const prevRight = this.rightTriggerWasPressed;
@@ -700,7 +705,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     if (!this.viewer || !this.dolly) return;
     if (this.infoPanel && !this.infoPanelDismissed) return;
 
-    const session = this.viewer.renderer.xr.getSession();
+    const session = this.glRenderer!.xr.getSession();
     if (!session) return;
 
     for (const source of session.inputSources) {
@@ -713,7 +718,7 @@ export class WebXRPlugin implements RVViewerPlugin {
       const moveZ = Math.abs(axY) > DEAD_ZONE ? axY : 0;
       if (moveX === 0 && moveZ === 0) continue;
 
-      const xrCamera = this.viewer.renderer.xr.getCamera();
+      const xrCamera = this.glRenderer!.xr.getCamera();
       xrCamera.getWorldDirection(this._headDir);
       this._headDir.y = 0;
       this._headDir.normalize();
@@ -735,7 +740,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     if (!this.viewer || !this.dolly) return;
     if (this.infoPanel && !this.infoPanelDismissed) return;
 
-    const session = this.viewer.renderer.xr.getSession();
+    const session = this.glRenderer!.xr.getSession();
     if (!session) return;
 
     if (this.snapCooldown > 0) this.snapCooldown -= dt;
@@ -760,7 +765,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     if (!this.sceneContent || !this.viewer) return;
     if (this.infoPanel && !this.infoPanelDismissed) return;
 
-    const session = this.viewer.renderer.xr.getSession();
+    const session = this.glRenderer!.xr.getSession();
     if (!session) return;
 
     for (const source of session.inputSources) {
@@ -918,7 +923,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     if (this.instructionEl) this.instructionEl.style.display = '';
 
     // Re-start hit-test
-    const session = this.viewer.renderer.xr.getSession();
+    const session = this.glRenderer!.xr.getSession();
     if (session) {
       this.requestHitTest(session);
     }
@@ -1062,7 +1067,7 @@ export class WebXRPlugin implements RVViewerPlugin {
           const sdx = e.touches[0].clientX - this.touchState.lastX;
           const sdy = e.touches[0].clientY - this.touchState.lastY;
 
-          const cam = this.viewer.renderer.xr.getCamera();
+          const cam = this.glRenderer!.xr.getCamera();
           const camDir = new Vector3();
           cam.getWorldDirection(camDir);
           camDir.y = 0;
@@ -1171,8 +1176,8 @@ export class WebXRPlugin implements RVViewerPlugin {
    * If no drive is hit, clears the current selection.
    */
   private arTapSelect(clientX: number, clientY: number): void {
-    if (!this.viewer || !this.viewer.registry) return;
-    const renderer = this.viewer.renderer;
+    if (!this.viewer || !this.viewer.registry || !this.glRenderer) return;
+    const renderer = this.glRenderer;
     const xrCamera = renderer.xr.isPresenting
       ? renderer.xr.getCamera() as import('three').PerspectiveCamera
       : undefined;

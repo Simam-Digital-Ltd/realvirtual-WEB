@@ -5,7 +5,10 @@
  * Pre-allocates temp vectors for GC-free projection in hot paths.
  */
 
-import { Vector3, type Object3D, type Camera, type WebGLRenderer } from 'three';
+import { Vector3, type Object3D, type Camera } from 'three';
+
+/** Minimal renderer interface — only what tooltip projection needs. */
+interface HasDomElement { readonly domElement: HTMLCanvasElement; }
 
 // Pre-allocated temp vector for GC-free projection
 const _tempVec = new Vector3();
@@ -31,7 +34,7 @@ export interface ScreenProjection {
 export function projectToScreen(
   object: Object3D,
   camera: Camera,
-  renderer: WebGLRenderer,
+  renderer: HasDomElement,
 ): ScreenProjection {
   object.updateWorldMatrix(true, false);
   object.getWorldPosition(_tempVec);

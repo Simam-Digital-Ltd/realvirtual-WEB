@@ -761,19 +761,17 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
       uvFixCount++;
     }
 
-    // Fix 2: Convert Uint16 index buffers to non-indexed (WebGPU requires Uint32).
-    // Only applied when using WebGPU renderer — WebGL handles Uint16 indices natively.
+    // Fix 2: Remove ALL index buffers on WebGPU (r171 bug: GPU buffer allocation uses element
+    // count instead of byte count for BOTH Uint16 and Uint32 index buffers).
     if (isWebGPU && geo.index) {
-      if (geo.index.array instanceof Uint16Array) {
-        const nonIndexed = geo.toNonIndexed();
-        (node as Mesh).geometry = nonIndexed;
-        geo.dispose();
-        indexFixCount++;
-      }
+      const nonIndexed = geo.toNonIndexed();
+      (node as Mesh).geometry = nonIndexed;
+      geo.dispose();
+      indexFixCount++;
     }
   });
   if (uvFixCount > 0 || indexFixCount > 0) {
-    console.log(`Geometry fixes: ${uvFixCount} missing UVs` + (indexFixCount > 0 ? `, ${indexFixCount} Uint16->non-indexed (WebGPU)` : ''));
+    console.log(`Geometry fixes: ${uvFixCount} missing UVs` + (indexFixCount > 0 ? `, ${indexFixCount} indexed->non-indexed (WebGPU)` : ''));
   }
 
   // Compute bounding box

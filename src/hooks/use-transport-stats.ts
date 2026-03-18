@@ -18,10 +18,11 @@ export function useTransportStats(refreshMs = 200): { spawned: number; consumed:
   useEffect(() => {
     if (!plugin) return;
     const id = setInterval(() => {
-      setStats({
-        spawned: plugin.spawnedBuffer.last() ?? 0,
-        consumed: plugin.consumedBuffer.last() ?? 0,
-      });
+      const spawned = plugin.spawnedBuffer.last() ?? 0;
+      const consumed = plugin.consumedBuffer.last() ?? 0;
+      setStats(prev =>
+        prev.spawned === spawned && prev.consumed === consumed ? prev : { spawned, consumed },
+      );
     }, refreshMs);
     return () => clearInterval(id);
   }, [plugin, refreshMs]);

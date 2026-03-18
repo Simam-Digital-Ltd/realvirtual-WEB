@@ -24,6 +24,11 @@ export class SignalStore {
   private listeners = new Map<string, Set<(value: boolean | number) => void>>();
   /** Cache for resolved path lookups (avoids repeated suffix scans at runtime). */
   private resolveCache = new Map<string, string | null>();
+  /** Monotonic version counter — incremented on every actual value change. */
+  private _version = 0;
+
+  /** Current version — changes only when signal values actually change. */
+  get version(): number { return this._version; }
 
   // ── Name-based access (primary) ──
 
@@ -55,6 +60,7 @@ export class SignalStore {
     const old = this.byName.get(name);
     if (old === value) return;
     this.byName.set(name, value);
+    this._version++;
     debug('signal', `set "${name}" = ${value} (was ${old})`);
     const subs = this.listeners.get(name);
     if (subs) {
@@ -188,6 +194,7 @@ export class SignalStore {
       this.byName.set(name, value);
       changed.push({ name, value });
     }
+    if (changed.length > 0) this._version++;
     for (const { name, value } of changed) {
       const subs = this.listeners.get(name);
       if (subs) {

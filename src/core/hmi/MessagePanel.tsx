@@ -35,7 +35,7 @@ export function MessagePanel() {
       >
         {entries.map((entry, i) => {
           const Comp = entry.component;
-          return <Comp key={`msg-${i}`} viewer={viewer} />;
+          return <Box key={`msg-${i}`} data-ui-panel><Comp viewer={viewer} /></Box>;
         })}
       </Box>
     );

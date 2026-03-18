@@ -107,7 +107,7 @@ export function TooltipLayer() {
         left: pos.x,
         top: pos.y,
         transform: 'translateY(-100%)',
-        pointerEvents: 'none',
+        pointerEvents: 'none !important',
         zIndex: 1100,
         bgcolor: 'rgba(18, 18, 18, 0.88)',
         backdropFilter: 'blur(12px)',

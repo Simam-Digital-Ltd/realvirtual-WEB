@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback } from 'react';
 import { Vector3 } from 'three';
 import { Button, ButtonGroup, IconButton, Tooltip } from '@mui/material';
-import { Visibility } from '@mui/icons-material';
+import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
 import { loadVisualSettings, saveVisualSettings, type CameraBookmark } from './visual-settings-store';
+import { toggleHmiVisible, useHmiVisible } from './hmi-visibility-store';
 
 const LONG_PRESS_MS = 500;
 const FLASH_MS = 800;
@@ -14,6 +15,7 @@ const FLASH_MS = 800;
  */
 export function CameraBar() {
   const viewer = useViewer();
+  const hmiVisible = useHmiVisible();
   const [cameras, setCameras] = useState<(CameraBookmark | null)[]>(() => loadVisualSettings().cameras);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didLongPress = useRef(false);
@@ -96,8 +98,8 @@ export function CameraBar() {
           );
         })}
       </ButtonGroup>
-      <IconButton size="small" color="inherit" title="Toggle HMI (H)">
-        <Visibility fontSize="small" />
+      <IconButton size="small" color="inherit" title="Toggle HMI (H)" onClick={toggleHmiVisible}>
+        {hmiVisible ? <Visibility fontSize="small" /> : <VisibilityOff fontSize="small" sx={{ opacity: 0.5 }} />}
       </IconButton>
     </>
   );

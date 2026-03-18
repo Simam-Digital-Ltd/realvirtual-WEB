@@ -279,6 +279,7 @@ export function BottomBar() {
         {/* Search bar */}
         <Paper
           elevation={4}
+          data-ui-panel
           sx={{
             px: 1.5,
             py: 0.5,

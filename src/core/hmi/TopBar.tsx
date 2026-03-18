@@ -45,7 +45,7 @@ export function TopBar() {
   return (
     <>
       {/* Hierarchy + VR + Settings buttons — fixed top-right */}
-      <Paper elevation={4} sx={{ position: 'fixed', top: 8, right: 8, borderRadius: 2, pointerEvents: 'auto', zIndex: 9001, display: 'flex', gap: isMobile ? 0.5 : 0.25, px: isMobile ? 0.5 : 0.25 }}>
+      <Paper elevation={4} data-ui-panel sx={{ position: 'fixed', top: 8, right: 8, borderRadius: 2, pointerEvents: 'auto', zIndex: 9001, display: 'flex', gap: isMobile ? 0.5 : 0.25, px: isMobile ? 0.5 : 0.25 }}>
         {plugin && !isMobile && (
           <IconButton
             size="small"
@@ -268,6 +268,8 @@ function ModelTab() {
   const models = viewer.availableModels;
   const currentUrl = viewer.currentModelUrl;
   const currentRenderer = viewer.isWebGPU ? 'webgpu' : 'webgl';
+  // Clamp to known options so MUI Select doesn't warn about out-of-range values (e.g. blob: URLs)
+  const modelValue = models.some((m) => m.url === currentUrl) ? currentUrl! : '';
 
   const handleRendererChange = (value: string) => {
     localStorage.setItem('rv-webviewer-renderer', value);
@@ -276,18 +278,6 @@ function ModelTab() {
 
   const handleModelChange = (url: string) => {
     if (url) viewer.loadModel(url);
-  };
-
-  const selectStyle: React.CSSProperties = {
-    background: 'rgba(255,255,255,0.06)',
-    color: '#4fc3f7',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: 6,
-    padding: '6px 10px',
-    fontSize: 12,
-    fontFamily: 'monospace',
-    cursor: 'pointer',
-    width: '100%',
   };
 
   const handleResetAll = () => {
@@ -301,25 +291,39 @@ function ModelTab() {
         <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
           Renderer
         </Typography>
-        <Box sx={{ mt: 0.5 }}>
-          <select style={selectStyle} value={currentRenderer} onChange={(e) => handleRendererChange(e.target.value)}>
-            <option value="webgl">WebGL</option>
-            <option value="webgpu">WebGPU</option>
-          </select>
-        </Box>
+        <Select
+          size="small"
+          fullWidth
+          value={currentRenderer}
+          onChange={(e) => handleRendererChange(e.target.value as string)}
+          sx={{ mt: 0.5, fontSize: 13, '& .MuiSelect-select': { py: 0.75 } }}
+        >
+          <MenuItem value="webgl" sx={{ fontSize: 13 }}>WebGL</MenuItem>
+          <MenuItem value="webgpu" disabled={!navigator.gpu} sx={{ fontSize: 13 }}>
+            WebGPU (experimental)
+            {!navigator.gpu && (
+              <Typography component="span" sx={{ ml: 1, fontSize: 10, color: 'text.disabled' }}>not available</Typography>
+            )}
+          </MenuItem>
+        </Select>
       </Box>
       <Box>
         <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
           Model
         </Typography>
-        <Box sx={{ mt: 0.5 }}>
-          <select style={selectStyle} value={currentUrl ?? ''} onChange={(e) => handleModelChange(e.target.value)}>
-            <option value="">-- Select Model --</option>
-            {models.map((m) => (
-              <option key={m.url} value={m.url}>{m.label}</option>
-            ))}
-          </select>
-        </Box>
+        <Select
+          size="small"
+          fullWidth
+          value={modelValue}
+          onChange={(e) => handleModelChange(e.target.value as string)}
+          displayEmpty
+          sx={{ mt: 0.5, fontSize: 13, '& .MuiSelect-select': { py: 0.75 } }}
+        >
+          <MenuItem value="" sx={{ fontSize: 13, color: 'text.secondary' }}>-- Select Model --</MenuItem>
+          {models.map((m) => (
+            <MenuItem key={m.url} value={m.url} sx={{ fontSize: 13 }}>{m.label}</MenuItem>
+          ))}
+        </Select>
       </Box>
 
       {/* Reset all settings (hidden when locked) */}
@@ -629,9 +633,15 @@ function InterfacesTab() {
   useEffect(() => {
     const interval = setInterval(() => {
       const active = manager?.getActive();
-      setConnectionState(active?.connectionState ?? 'disconnected');
-      setSignalCount(active?.discoveredSignals.length ?? 0);
-    }, 500);
+      setConnectionState(prev => {
+        const next = active?.connectionState ?? 'disconnected';
+        return prev === next ? prev : next;
+      });
+      setSignalCount(prev => {
+        const next = active?.discoveredSignals.length ?? 0;
+        return prev === next ? prev : next;
+      });
+    }, 200);
     return () => clearInterval(interval);
   }, [manager]);
 
@@ -905,6 +915,7 @@ function DevToolsTab() {
   const [benchResult, setBenchResult] = useState<{ uncappedFps: number; avgFrameMs: number; headroom: number } | null>(null);
   const [showStats, setShowStats] = useState(viewer.showStats);
   const [infoLogging, setInfoLogging] = useState(viewer.rendererInfoLogging);
+  const prevStatsHashRef = useRef('');
 
   const runBenchmark = useCallback(async () => {
     setBenchRunning(true);
@@ -921,6 +932,9 @@ function DevToolsTab() {
       const info = viewer.getRendererInfo();
       const mem = (performance as unknown as { memory?: { usedJSHeapSize?: number } }).memory;
       const heapMB = mem?.usedJSHeapSize ? (mem.usedJSHeapSize / (1024 * 1024)).toFixed(0) : '--';
+      const hash = `${viewer.currentFps}|${info.triangles}|${info.drawCalls}|${heapMB}|${viewer.drives.length}`;
+      if (hash === prevStatsHashRef.current) return;
+      prevStatsHashRef.current = hash;
       setStats({
         fps: viewer.currentFps,
         frameTime: viewer.currentFrameTime,
@@ -935,7 +949,7 @@ function DevToolsTab() {
         glbSize: viewer.lastLoadInfo?.glbSize ?? '--',
         loadTime: viewer.lastLoadInfo?.loadTime ?? '--',
       });
-    }, 500);
+    }, 200);
     return () => clearInterval(interval);
   }, [viewer]);
 

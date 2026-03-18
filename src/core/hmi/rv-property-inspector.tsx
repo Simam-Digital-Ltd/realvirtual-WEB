@@ -321,6 +321,7 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
   return (
     <Paper
       elevation={4}
+      data-ui-panel
       sx={{
         position: 'fixed',
         left: isMobile ? 0 : state.panelWidth + 16,

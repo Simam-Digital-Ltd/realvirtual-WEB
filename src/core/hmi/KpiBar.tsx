@@ -30,7 +30,7 @@ export function KpiBar() {
     >
       {entries.map((entry, i) => {
         const Comp = entry.component;
-        return <Comp key={`kpi-${i}`} viewer={viewer} />;
+        return <Box key={`kpi-${i}`} data-ui-panel><Comp viewer={viewer} /></Box>;
       })}
     </Box>
   );

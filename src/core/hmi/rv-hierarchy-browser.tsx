@@ -892,6 +892,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
   return (
     <Paper
       elevation={4}
+      data-ui-panel
       sx={{
         position: 'fixed',
         left: isMobile ? 0 : 8,

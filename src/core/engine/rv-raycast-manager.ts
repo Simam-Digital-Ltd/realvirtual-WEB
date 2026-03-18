@@ -21,7 +21,7 @@ import {
   Object3D,
   Layers,
 } from 'three';
-import type { PerspectiveCamera, Scene, WebGLRenderer } from 'three';
+import type { PerspectiveCamera, Scene } from 'three';
 import { RaycastLayers, type RaycastLayerName } from './rv-raycast-layers';
 import type { NodeRegistry } from './rv-node-registry';
 import type { RVHighlightManager } from './rv-highlight-manager';
@@ -102,7 +102,7 @@ export class RaycastManager {
   private readonly _xrDir = new Vector3();
 
   constructor(
-    private readonly renderer: WebGLRenderer,
+    private readonly renderer: { readonly domElement: HTMLCanvasElement },
     private readonly camera: PerspectiveCamera,
     private readonly scene: Scene,
     private readonly registry: NodeRegistry,

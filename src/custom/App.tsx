@@ -12,6 +12,7 @@ import { MessagePanel } from '../core/hmi/MessagePanel';
 import { BottomBar } from '../core/hmi/BottomBar';
 import { WelcomeModal } from '../core/hmi/WelcomeModal';
 import { loadVisualSettings } from '../core/hmi/visual-settings-store';
+import { useHmiVisible } from '../core/hmi/hmi-visibility-store';
 
 // Generic tooltip system (replaces former DriveTooltip)
 import { TooltipLayer } from '../core/hmi/tooltip/TooltipLayer';
@@ -45,18 +46,19 @@ function useTooltipStoreConnection() {
 export function App() {
   useApplyPersistedSettings();
   useTooltipStoreConnection();
+  const hmiVisible = useHmiVisible();
 
   return (
     <ThemeProvider theme={rvDarkTheme}>
       <HMIShell>
-        <KpiBar />
-        <TopBar />
-        <ButtonPanel />
-        <MessagePanel />
+        <TooltipLayer />
+        {hmiVisible && <KpiBar />}
+        {hmiVisible && <TopBar />}
+        {hmiVisible && <ButtonPanel />}
+        {hmiVisible && <MessagePanel />}
         <BottomBar />
-        <SlotRenderer slot="views" />
+        {hmiVisible && <SlotRenderer slot="views" />}
       </HMIShell>
-      <TooltipLayer />
       <DriveTooltipController />
       <DriveChartOverlay />
       <WelcomeModal />

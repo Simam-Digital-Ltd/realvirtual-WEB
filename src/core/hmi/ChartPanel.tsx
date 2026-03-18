@@ -221,6 +221,7 @@ export function ChartPanel({
   return (
     <Paper
       elevation={8}
+      data-ui-panel
       sx={{
         position: 'fixed',
         left: pos.x,

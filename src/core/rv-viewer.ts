@@ -36,7 +36,9 @@ import {
   SRGBColorSpace,
   Raycaster,
   Spherical,
+  BufferGeometry,
 } from 'three';
+import type { Renderer } from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import Stats from 'stats-gl';
 
@@ -129,10 +131,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   // --- Three.js context (read-only for custom UIs) ---
   readonly scene: Scene;
   readonly camera: PerspectiveCamera;
-  readonly renderer: WebGLRenderer;
+  readonly renderer: Renderer;
   readonly controls: OrbitControls;
   readonly loop: SimulationLoop;
-  readonly stats: Stats;
+  private stats!: Stats;
+  private statsReady = false;
   readonly isWebGPU: boolean;
 
   // --- Highlight system (always available) ---
@@ -433,12 +436,19 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private dirLight!: DirectionalLight;
   private fillLight!: DirectionalLight;
 
-  constructor(container: HTMLElement, options?: RVViewerOptions) {
+  private constructor(
+    container: HTMLElement,
+    renderer: Renderer,
+    options: RVViewerOptions = {},
+  ) {
     super();
 
-    const useWebGPU = options?.useWebGPU ?? false;
-    const showGround = options?.ground ?? true;
-    const autoResize = options?.autoResize ?? true;
+    const showGround = options.ground ?? true;
+    const autoResize = options.autoResize ?? true;
+
+    // --- Renderer (already configured by create/_configureAndCreate) ---
+    this.renderer = renderer;
+    this.isWebGPU = this._detectWebGPU(renderer);
 
     // --- Scene ---
     this.scene = new Scene();
@@ -450,168 +460,15 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.camera.position.set(3, 2.5, 4);
     this.camera.lookAt(0, 0.5, 0);
 
-    // --- Renderer ---
-    // Note: WebGPU init is async — for now we always start with WebGL.
-    // WebGPU support can be added via an async factory method later.
-    const isTouchDevice = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-    const maxDpr = isTouchDevice ? 1.5 : 2;
-    this.renderer = new WebGLRenderer({ antialias: !isTouchDevice, alpha: true });
-    this.renderer.setSize(container.clientWidth || window.innerWidth, container.clientHeight || window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxDpr));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = PCFSoftShadowMap;
-    this.renderer.toneMapping = ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.2;
-    this.renderer.xr.enabled = true;
-    this.isWebGPU = false; // Sync constructor — WebGPU needs async init
-
-    this.renderer.domElement.style.touchAction = 'none';
-    container.appendChild(this.renderer.domElement);
-
-    // --- Controls ---
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
-    this.controls.target.set(0, 0.5, 0);
-    this.controls.mouseButtons = {
-      LEFT: -1 as MOUSE,
-      MIDDLE: MOUSE.PAN,
-      RIGHT: MOUSE.ROTATE,
-    };
-    this.controls.touches = {
-      ONE: TOUCH.ROTATE,
-      TWO: TOUCH.DOLLY_PAN,
-    };
-    this.controls.update();
-
-    // Track orbit/pan/pinch gesture state to suppress selection & hover highlighting
-    this.controls.addEventListener('start', () => {
-      this._isOrbiting = true;
-      if (this.raycastManager) this.raycastManager.setEnabled(false);
-    });
-    this.controls.addEventListener('end', () => {
-      this._isOrbiting = false;
-      if (this.raycastManager) this.raycastManager.setEnabled(true);
-    });
-
-    // Trackpad: two-finger drag rotates when no modifier, pinch (ctrl+wheel) zooms.
-    // Detect trackpad vs mouse-wheel: trackpad emits pixel-based deltas (deltaMode===0)
-    // with much smaller per-event values and often has non-zero deltaX.
-    this.renderer.domElement.addEventListener('wheel', (e) => {
-      // ctrlKey → pinch-to-zoom on trackpad: let OrbitControls handle it
-      if (e.ctrlKey) return;
-      // Only intercept pixel-mode events (trackpad), not line/page mode (mouse wheel)
-      if (e.deltaMode !== 0) return;
-      // Heuristic: mouse wheel typically produces deltaY multiples of ~100;
-      // trackpad produces smaller, smoother values. Also trackpad often has deltaX.
-      const absDY = Math.abs(e.deltaY);
-      if (absDY >= 50 && e.deltaX === 0) return; // likely mouse wheel — let OrbitControls zoom
-      e.preventDefault();
-      e.stopPropagation();
-      // Apply orbit rotation: deltaX → azimuthal, deltaY → polar
-      const azimuth = e.deltaX * 0.003;
-      const polar = e.deltaY * 0.003;
-      const spherical = new Spherical().setFromVector3(
-        this.camera.position.clone().sub(this.controls.target),
-      );
-      spherical.theta += azimuth;
-      spherical.phi = Math.max(0.01, Math.min(Math.PI - 0.01, spherical.phi + polar));
-      const offset = new Vector3().setFromSpherical(spherical);
-      this.camera.position.copy(this.controls.target).add(offset);
-      this.camera.lookAt(this.controls.target);
-      this.controls.update();
-    }, { passive: false });
-
-    // --- XR session lifecycle ---
-    this.renderer.xr.addEventListener('sessionstart', () => {
-      this._savedBackground = this.scene.background as Color | null;
-      this._savedShadowState = this.renderer.shadowMap.enabled;
-      this.renderer.shadowMap.enabled = false;
-      this.controls.enabled = false;
-      if (this.resizeHandler) window.removeEventListener('resize', this.resizeHandler);
-      if (this.resizeObserver) this.resizeObserver.disconnect();
-      this.emit('xr-session-start', undefined as never);
-    });
-    this.renderer.xr.addEventListener('sessionend', () => {
-      this.scene.background = this._savedBackground;
-      this.renderer.shadowMap.enabled = this._savedShadowState;
-      this.controls.reset();
-      this.controls.enabled = true;
-      if (this.resizeHandler) {
-        window.addEventListener('resize', this.resizeHandler);
-        this.resizeHandler();
-      }
-      if (this.resizeObserver) this.resizeObserver.observe(container);
-      this.emit('xr-session-end', undefined as never);
-    });
-
-    // Canvas click: record pointer start, then select on pointerup only if
-    // the pointer didn't move (drag threshold) — prevents selection during
-    // orbit/pinch gestures on touch devices.
-    const DRAG_THRESHOLD = 8; // px — movement beyond this suppresses selection
-    this.renderer.domElement.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
-      this._pointerDownPos = { x: e.clientX, y: e.clientY };
-    });
-    this.renderer.domElement.addEventListener('pointerup', (e) => {
-      if (e.button !== 0 || !this._pointerDownPos) return;
-      const dx = e.clientX - this._pointerDownPos.x;
-      const dy = e.clientY - this._pointerDownPos.y;
-      this._pointerDownPos = null;
-      // Suppress selection if pointer moved too far (user was dragging/orbiting)
-      if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) return;
-      // Suppress selection if orbit controls are still active
-      if (this._isOrbiting) return;
-
-      // Check if raycastManager has a hovered drive
-      const hoveredNode = this.raycastManager?.hoveredNode ?? null;
-      const hoveredType = this.raycastManager?.hoveredNodeType ?? null;
-      const hoveredDrive = (hoveredNode && hoveredType === 'Drive')
-        ? this.registry?.findInParent<RVDrive>(hoveredNode, 'Drive') ?? null
-        : null;
-
-      if (hoveredDrive && this._driveChartOpen) {
-        this.filterDrives(hoveredDrive.name);
-      } else if (hoveredDrive) {
-        const path = this.registry?.getPathForNode(hoveredDrive.node);
-        if (path) {
-          this.highlighter.highlight(hoveredDrive.node, true, { includeChildDrives: true });
-          this.emit('object-clicked', { path, node: hoveredDrive.node });
-        }
-      } else {
-        const hitPath = this.raycastManager?.raycastForRVNode(e) ?? this._raycastForRVNode(e);
-        if (hitPath && this.registry) {
-          const node = this.registry.getNode(hitPath);
-          if (node) {
-            this.highlighter.highlight(node, true, { includeChildDrives: true });
-            this.emit('object-clicked', { path: hitPath, node });
-          }
-        } else {
-          this.clearFocus();
-        }
-      }
-    });
-
-    // Double-click: emit object-focus for camera zoom
-    this.renderer.domElement.addEventListener('dblclick', (e) => {
-      const hitPath = this.raycastManager?.raycastForRVNode(e) ?? this._raycastForRVNode(e);
-      if (hitPath && this.registry) {
-        const node = this.registry.getNode(hitPath);
-        if (node) {
-          this.emit('object-focus', { path: hitPath, node });
-          this.fitToNodes([node]);
-        }
-      }
-    });
-
     // --- Lighting ---
+    const isTouchDevice = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
     this.hemiLight = new HemisphereLight(0xe8e8e8, 0x888888, 0.9);
     this.scene.add(this.hemiLight);
     this.sceneFixtures.add(this.hemiLight);
 
     this.dirLight = new DirectionalLight(0xffffff, 2.2);
     this.dirLight.position.set(-3, 10, 5);
-    this.dirLight.castShadow = true;
+    this.dirLight.castShadow = !this.isWebGPU;
     const shadowRes = isTouchDevice ? 1024 : 2048;
     this.dirLight.shadow.mapSize.width = shadowRes;
     this.dirLight.shadow.mapSize.height = shadowRes;
@@ -642,28 +499,47 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.sceneFixtures.add(ground);
     }
 
-    // --- Stats-gl (FPS + CPU + GPU profiler) ---
-    this.stats = new Stats({
-      trackGPU: true,
-      trackHz: true,
-      trackCPT: false,
-      logsPerSecond: 4,
-      graphsPerSecond: 30,
-      samplesLog: 40,
-      samplesGraph: 10,
-      precision: 2,
-      minimal: false,
-      horizontal: true,
+    // --- Renderer-dependent init ---
+    renderer.domElement.style.touchAction = 'none';
+    container.appendChild(renderer.domElement);
+
+    // --- Controls ---
+    this.controls = new OrbitControls(this.camera, renderer.domElement);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.08;
+    this.controls.target.set(0, 0.5, 0);
+    this.controls.mouseButtons = {
+      LEFT: -1 as MOUSE,
+      MIDDLE: MOUSE.PAN,
+      RIGHT: MOUSE.ROTATE,
+    };
+    this.controls.touches = {
+      ONE: TOUCH.ROTATE,
+      TWO: TOUCH.DOLLY_PAN,
+    };
+    this.controls.update();
+
+    // Track orbit/pan/pinch gesture state to suppress selection & hover highlighting
+    this.controls.addEventListener('start', () => {
+      this._isOrbiting = true;
+      if (this.raycastManager) this.raycastManager.setEnabled(false);
     });
-    this.stats.dom.style.position = 'absolute';
-    this.stats.dom.style.bottom = '12px';
-    this.stats.dom.style.left = '12px';
-    this.stats.dom.style.display = 'none';
-    document.body.appendChild(this.stats.dom);
-    this.stats.init(this.renderer);
+    this.controls.addEventListener('end', () => {
+      this._isOrbiting = false;
+      if (this.raycastManager) this.raycastManager.setEnabled(true);
+    });
+
+    // --- Canvas events ---
+    this._bindCanvasEvents(renderer.domElement);
+
+    // --- XR (only for WebGL backend) ---
+    this._setupXR(renderer, container);
+
+    // --- Stats-gl ---
+    this._setupStats(renderer);
 
     // --- Simulation Loop ---
-    this.loop = new SimulationLoop(this.renderer);
+    this.loop = new SimulationLoop(renderer);
     this.loop.onFixedUpdate = (dt: number) => this.fixedUpdate(dt);
     this.loop.onRender = () => this.render();
     this.loop.start();
@@ -687,57 +563,80 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       window.addEventListener('resize', this.resizeHandler);
     }
 
-    console.log('realvirtual Web Viewer — Ready');
+    console.log(`realvirtual Web Viewer — Ready (${this.isWebGPU ? 'WebGPU' : 'WebGL'})`);
   }
 
-  // ─── Static Factory for WebGPU ────────────────────────────────────────
+  // ─── Static Factory ──────────────────────────────────────────────────
 
   /**
-   * Create a viewer with WebGPU support (async init).
-   * Falls back to WebGL if WebGPU is unavailable.
+   * Create a viewer instance. Always use this instead of `new RVViewer()`.
+   * Uses WebGPURenderer with forceWebGL as the universal renderer.
+   * When `options.useWebGPU` is true and the browser supports it,
+   * the real WebGPU backend is used instead.
    */
   static async create(
     container: HTMLElement,
     options?: RVViewerOptions,
   ): Promise<RVViewer> {
-    if (options?.useWebGPU) {
-      try {
-        const { WebGPURenderer } = await import('three/webgpu');
-        const viewer = new RVViewer(container, { ...options, useWebGPU: false });
-        // Replace the WebGL renderer with WebGPU
-        const gpuRenderer = new WebGPURenderer({ antialias: true });
-        await gpuRenderer.init();
-        gpuRenderer.setSize(window.innerWidth, window.innerHeight);
-        gpuRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        gpuRenderer.shadowMap.enabled = true;
-        gpuRenderer.shadowMap.type = PCFSoftShadowMap;
-        gpuRenderer.toneMapping = ACESFilmicToneMapping;
-        gpuRenderer.toneMappingExposure = 1.2;
-        // Dispose the original WebGL renderer before swapping
-        viewer.renderer.dispose();
-        // Swap renderers
-        viewer.renderer.domElement.replaceWith(gpuRenderer.domElement);
-        (viewer as { renderer: WebGLRenderer }).renderer = gpuRenderer as unknown as WebGLRenderer;
-        (viewer as { isWebGPU: boolean }).isWebGPU = true;
-        // Re-attach controls to new canvas
-        viewer.controls.dispose();
-        const controls = new OrbitControls(viewer.camera, gpuRenderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.08;
-        controls.target.copy(viewer.controls.target);
-        controls.mouseButtons = {
-          LEFT: -1 as MOUSE,
-          MIDDLE: MOUSE.PAN,
-          RIGHT: MOUSE.ROTATE,
-        };
-        (viewer as { controls: OrbitControls }).controls = controls;
-        console.log('WebGPU renderer initialized');
-        return viewer;
-      } catch (e) {
-        console.warn('WebGPU not available, falling back to WebGL:', e);
-      }
+    const isTouchDevice = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    const maxDpr = isTouchDevice ? 1.5 : 2;
+
+    let useWebGPU = !!options?.useWebGPU;
+    if (useWebGPU && !navigator.gpu) {
+      console.warn('[RVViewer] WebGPU not available, falling back to WebGL');
+      useWebGPU = false;
     }
-    return new RVViewer(container, options);
+
+    let renderer: Renderer;
+
+    if (useWebGPU) {
+      // Real WebGPU: use WebGPURenderer with async init
+      const { WebGPURenderer } = await import('three/webgpu');
+      const gpuRenderer = new WebGPURenderer({ antialias: !isTouchDevice, alpha: true });
+      try {
+        await gpuRenderer.init();
+      } catch (err) {
+        console.warn('[RVViewer] WebGPU init() failed, falling back to WebGL:', err);
+        gpuRenderer.dispose();
+        useWebGPU = false;
+        // fall through to WebGL path below
+      }
+      if (useWebGPU) renderer = gpuRenderer;
+    }
+
+    if (!useWebGPU) {
+      // Standard WebGL: use the proven WebGLRenderer (no init needed)
+      renderer = new WebGLRenderer({ antialias: !isTouchDevice, alpha: true }) as unknown as Renderer;
+    }
+
+    return RVViewer._configureAndCreate(renderer!, container, isTouchDevice, maxDpr, useWebGPU, options);
+  }
+
+  /** Shared renderer config — called by create() and fallback path. */
+  private static _configureAndCreate(
+    renderer: Renderer,
+    container: HTMLElement,
+    isTouchDevice: boolean,
+    maxDpr: number,
+    isWebGPU: boolean,
+    options?: RVViewerOptions,
+  ): RVViewer {
+    renderer.setSize(
+      container.clientWidth || window.innerWidth,
+      container.clientHeight || window.innerHeight,
+    );
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxDpr));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = PCFSoftShadowMap;
+    // WebGPU shadow rendering crashes in Three.js r171 (setPipeline error in ShadowNode).
+    // Disable proactively — a reactive try/catch corrupts the GPU state.
+    if (isWebGPU) {
+      renderer.shadowMap.enabled = false;
+    }
+    renderer.toneMapping = ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+
+    return new RVViewer(container, renderer, options ?? {});
   }
 
   // ─── Model Management ─────────────────────────────────────────────────
@@ -748,6 +647,13 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this._currentModelUrl = url;
 
     const result = await loadGLB(url, this.scene, { isWebGPU: this.isWebGPU });
+
+    // Pre-compile shaders to avoid first-frame stutter (available on WebGPURenderer)
+    if ('compileAsync' in this.renderer) {
+      try {
+        await this.renderer.compileAsync(this.scene, this.camera, this.scene);
+      } catch { /* non-critical */ }
+    }
 
     this.currentModel = this.scene.children.find((c) => !this.sceneFixtures.has(c)) ?? null;
     this.drives = result.drives;
@@ -924,8 +830,10 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     }
     this.controls.dispose();
     this.renderer.dispose();
-    this.stats.dispose();
-    this.stats.dom.remove();
+    if (this.statsReady) {
+      this.stats.dispose();
+      this.stats.dom.remove();
+    }
     this.removeAllListeners();
   }
 
@@ -1076,8 +984,10 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
   get shadowsEnabled(): boolean { return this.renderer.shadowMap.enabled; }
   set shadowsEnabled(v: boolean) {
-    this.renderer.shadowMap.enabled = v;
-    this.dirLight.castShadow = v;
+    // Shadows not supported on WebGPU backend (Three.js r171 ShadowNode bug)
+    const effective = v && !this.isWebGPU;
+    this.renderer.shadowMap.enabled = effective;
+    this.dirLight.castShadow = effective;
     // Force material recompilation for shadow change
     this.scene.traverse((node) => {
       const mesh = node as { material?: { needsUpdate?: boolean } };
@@ -1099,8 +1009,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   // ─── Profiler Overlay ────────────────────────────────────────────────
 
   /** Show/hide the stats-gl FPS/CPU/GPU overlay. */
-  get showStats(): boolean { return this.stats.dom.style.display !== 'none'; }
-  set showStats(v: boolean) { this.stats.dom.style.display = v ? '' : 'none'; }
+  get showStats(): boolean { return this.statsReady && this.stats.dom.style.display !== 'none'; }
+  set showStats(v: boolean) { if (this.statsReady) this.stats.dom.style.display = v ? '' : 'none'; }
 
   /** Enable/disable periodic renderer.info console logging. */
   rendererInfoLogging = false;
@@ -1132,14 +1042,15 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   async runBenchmark(frames = 120): Promise<{ uncappedFps: number; avgFrameMs: number; headroom: number }> {
     // Force a GPU flush before starting
     this.renderer.render(this.scene, this.camera);
-    const gl = this.renderer.getContext();
-    gl.finish();
+    const ctx = this.renderer.getContext();
+    const isWebGL = 'finish' in ctx;
+    if (isWebGL) (ctx as WebGL2RenderingContext).finish();
 
     const start = performance.now();
     for (let i = 0; i < frames; i++) {
       this.renderer.render(this.scene, this.camera);
     }
-    gl.finish(); // Wait for GPU to complete all work
+    if (isWebGL) (ctx as WebGL2RenderingContext).finish();
     const elapsed = performance.now() - start;
 
     const avgFrameMs = elapsed / frames;
@@ -1217,7 +1128,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
    * @param duration  Animation duration in seconds (default 0.6).
    */
   animateCameraTo(position: Vector3, target: Vector3, duration = 0.6): void {
-    if (this.renderer.xr.isPresenting) return;
+    const xr = (this.renderer as unknown as Record<string, unknown>).xr as Record<string, unknown> | undefined;
+    if (xr?.isPresenting) return;
     this.cameraAnim = {
       startPos: this.camera.position.clone(),
       endPos: position.clone(),
@@ -1298,7 +1210,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   }
 
   private render(): void {
-    this.stats.begin();
+    if (this.statsReady) this.stats.begin();
     const now = performance.now() / 1000;
     const frameDt = this.lastRenderTime > 0 ? Math.min(now - this.lastRenderTime, 0.1) : 0.016;
     this.lastRenderTime = now;
@@ -1365,8 +1277,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       }
     }
 
-    this.stats.end();
-    this.stats.update();
+    if (this.statsReady) { this.stats.end(); this.stats.update(); }
 
     // --- Renderer.info periodic logging (every 5s at 60fps) ---
     if (this.rendererInfoLogging) {
@@ -1376,20 +1287,167 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         const info = this.renderer.info;
         const mem = info.memory;
         const rnd = info.render;
+        if (!mem || !rnd) return;
         console.log(
-          `[Perf] Draw calls: ${rnd.calls} | Tris: ${rnd.triangles} | ` +
-          `Geo: ${mem.geometries} | Tex: ${mem.textures}`
+          `[Perf] Draw calls: ${rnd.calls ?? 0} | Tris: ${rnd.triangles ?? 0} | ` +
+          `Geo: ${mem.geometries ?? 0} | Tex: ${mem.textures ?? 0}`
         );
-        // Leak warning: geometry/texture count should be stable
-        if (this._lastGeoCount > 0 && mem.geometries > this._lastGeoCount + 10) {
+        if (this._lastGeoCount > 0 && (mem.geometries ?? 0) > this._lastGeoCount + 10) {
           console.warn(`[Perf] Geometry count growing: ${this._lastGeoCount} → ${mem.geometries}`);
         }
-        if (this._lastTexCount > 0 && mem.textures > this._lastTexCount + 5) {
+        if (this._lastTexCount > 0 && (mem.textures ?? 0) > this._lastTexCount + 5) {
           console.warn(`[Perf] Texture count growing: ${this._lastTexCount} → ${mem.textures}`);
         }
-        this._lastGeoCount = mem.geometries;
-        this._lastTexCount = mem.textures;
+        this._lastGeoCount = mem.geometries ?? 0;
+        this._lastTexCount = mem.textures ?? 0;
       }
+    }
+  }
+
+  // ─── Extracted Helper Methods ────────────────────────────────────────
+
+  /** Detect whether the real WebGPU backend is active (not forceWebGL). */
+  private _detectWebGPU(renderer: Renderer): boolean {
+    if (!('isWebGPURenderer' in renderer)) return false;
+    const backend = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend;
+    return !!backend?.isWebGPUBackend;
+  }
+
+  /** Bind all canvas event listeners. Called ONCE in the constructor. */
+  private _bindCanvasEvents(canvas: HTMLCanvasElement): void {
+    // Trackpad: two-finger drag rotates when no modifier, pinch (ctrl+wheel) zooms.
+    canvas.addEventListener('wheel', (e) => {
+      if (e.ctrlKey) return;
+      if (e.deltaMode !== 0) return;
+      const absDY = Math.abs(e.deltaY);
+      if (absDY >= 50 && e.deltaX === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const azimuth = e.deltaX * 0.003;
+      const polar = e.deltaY * 0.003;
+      const spherical = new Spherical().setFromVector3(
+        this.camera.position.clone().sub(this.controls.target),
+      );
+      spherical.theta += azimuth;
+      spherical.phi = Math.max(0.01, Math.min(Math.PI - 0.01, spherical.phi + polar));
+      const offset = new Vector3().setFromSpherical(spherical);
+      this.camera.position.copy(this.controls.target).add(offset);
+      this.camera.lookAt(this.controls.target);
+      this.controls.update();
+    }, { passive: false });
+
+    // Canvas click: record pointer start, then select on pointerup only if
+    // the pointer didn't move (drag threshold).
+    const DRAG_THRESHOLD = 8;
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      this._pointerDownPos = { x: e.clientX, y: e.clientY };
+    });
+    canvas.addEventListener('pointerup', (e) => {
+      if (e.button !== 0 || !this._pointerDownPos) return;
+      const dx = e.clientX - this._pointerDownPos.x;
+      const dy = e.clientY - this._pointerDownPos.y;
+      this._pointerDownPos = null;
+      if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) return;
+      if (this._isOrbiting) return;
+
+      const hoveredNode = this.raycastManager?.hoveredNode ?? null;
+      const hoveredType = this.raycastManager?.hoveredNodeType ?? null;
+      const hoveredDrive = (hoveredNode && hoveredType === 'Drive')
+        ? this.registry?.findInParent<RVDrive>(hoveredNode, 'Drive') ?? null
+        : null;
+
+      if (hoveredDrive && this._driveChartOpen) {
+        this.filterDrives(hoveredDrive.name);
+      } else if (hoveredDrive) {
+        const path = this.registry?.getPathForNode(hoveredDrive.node);
+        if (path) {
+          this.highlighter.highlight(hoveredDrive.node, true, { includeChildDrives: true });
+          this.emit('object-clicked', { path, node: hoveredDrive.node });
+        }
+      } else {
+        const hitPath = this.raycastManager?.raycastForRVNode(e) ?? this._raycastForRVNode(e);
+        if (hitPath && this.registry) {
+          const node = this.registry.getNode(hitPath);
+          if (node) {
+            this.highlighter.highlight(node, true, { includeChildDrives: true });
+            this.emit('object-clicked', { path: hitPath, node });
+          }
+        } else {
+          this.clearFocus();
+        }
+      }
+    });
+
+    // Double-click: emit object-focus for camera zoom
+    canvas.addEventListener('dblclick', (e) => {
+      const hitPath = this.raycastManager?.raycastForRVNode(e) ?? this._raycastForRVNode(e);
+      if (hitPath && this.registry) {
+        const node = this.registry.getNode(hitPath);
+        if (node) {
+          this.emit('object-focus', { path: hitPath, node });
+          this.fitToNodes([node]);
+        }
+      }
+    });
+  }
+
+  /** Set up XR if available (WebGPU real backend has no XR support). */
+  private _setupXR(renderer: Renderer, container: HTMLElement): void {
+    if (this.isWebGPU) return;
+    const xr = (renderer as unknown as Record<string, unknown>).xr as Record<string, unknown> | undefined;
+    if (!xr || typeof xr.addEventListener !== 'function') return;
+    const glRenderer = renderer as unknown as WebGLRenderer;
+    glRenderer.xr.enabled = true;
+
+    glRenderer.xr.addEventListener('sessionstart', () => {
+      this._savedBackground = this.scene.background as Color | null;
+      this._savedShadowState = this.renderer.shadowMap.enabled;
+      this.renderer.shadowMap.enabled = false;
+      this.controls.enabled = false;
+      if (this.resizeHandler) window.removeEventListener('resize', this.resizeHandler);
+      if (this.resizeObserver) this.resizeObserver.disconnect();
+      this.emit('xr-session-start', undefined as never);
+    });
+    glRenderer.xr.addEventListener('sessionend', () => {
+      this.scene.background = this._savedBackground;
+      this.renderer.shadowMap.enabled = this._savedShadowState;
+      this.controls.reset();
+      this.controls.enabled = true;
+      if (this.resizeHandler) {
+        window.addEventListener('resize', this.resizeHandler);
+        this.resizeHandler();
+      }
+      if (this.resizeObserver) this.resizeObserver.observe(container);
+      this.emit('xr-session-end', undefined as never);
+    });
+  }
+
+  /** Initialize stats-gl with fallback for WebGPU incompatibility. */
+  private _setupStats(renderer: Renderer): void {
+    this.stats = new Stats({
+      trackGPU: true,
+      trackHz: true,
+      trackCPT: false,
+      logsPerSecond: 4,
+      graphsPerSecond: 30,
+      samplesLog: 40,
+      samplesGraph: 10,
+      precision: 2,
+      minimal: false,
+      horizontal: true,
+    });
+    this.stats.dom.style.position = 'absolute';
+    this.stats.dom.style.bottom = '12px';
+    this.stats.dom.style.left = '12px';
+    this.stats.dom.style.display = 'none';
+    document.body.appendChild(this.stats.dom);
+    try {
+      this.stats.init(renderer as unknown as WebGLRenderer);
+      this.statsReady = true;
+    } catch {
+      console.warn('[RVViewer] stats-gl init failed — GPU profiling disabled');
+      this.statsReady = false;
     }
   }
 
@@ -1416,7 +1474,13 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     checkerTex.colorSpace = SRGBColorSpace;
     checkerTex.magFilter = NearestFilter;
 
-    const groundGeo = new PlaneGeometry(100, 100);
+    let groundGeo: PlaneGeometry | BufferGeometry = new PlaneGeometry(100, 100);
+    // WebGPU r171: setIndex(Uint32) doesn't fix GPU buffer allocation — use toNonIndexed()
+    if (this.isWebGPU && groundGeo.index) {
+      const nonIndexed = groundGeo.toNonIndexed();
+      groundGeo.dispose();
+      groundGeo = nonIndexed;
+    }
     const groundMat = new MeshStandardMaterial({
       map: checkerTex,
       roughness: 0.9,
@@ -1424,7 +1488,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     });
     const ground = new Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
+    ground.receiveShadow = !this.isWebGPU;
     return ground;
   }
 }

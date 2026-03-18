@@ -96,9 +96,7 @@ async function init() {
   const container = document.getElementById('app')!;
 
   // --- Create Viewer ---
-  const viewer = useWebGPU
-    ? await RVViewer.create(container, { useWebGPU: true })
-    : new RVViewer(container);
+  const viewer = await RVViewer.create(container, { useWebGPU });
 
   // Expose viewer globally for console debugging
   (window as unknown as { viewer: RVViewer }).viewer = viewer;

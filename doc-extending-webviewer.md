@@ -1,6 +1,6 @@
-# Extending the realvirtual Web Viewer
+# Extending realvirtual WEB
 
-Guide for building custom plugins, adding UI components, and extending the viewer with new functionality.
+Guide for building custom plugins, adding UI components, and extending realvirtual WEB with new functionality.
 
 ## Architecture at a Glance
 
@@ -288,6 +288,10 @@ interface ViewerEvents {
   'interface-disconnected': { interfaceId: string; reason?: string };
   'interface-error':        { interfaceId: string; error: string };
 
+  // Raycast / Hover
+  'object-hover':           { node: Object3D; nodeType: string; nodePath: string; pointer: { x: number; y: number }; mesh: Object3D };
+  'object-unhover':         { node: Object3D; nodeType: string };
+
   // UI
   'camera-animation-done':  { targetPath?: string };
   'object-clicked':         { path: string; node: Object3D };
@@ -467,6 +471,7 @@ function CustomPanel() {
 | `useInterfaceStatus(id)` | `boolean` | Interface connection state |
 | `useDrives()` | drive list + hover state | All loaded drives |
 | `useSignal(name)` | signal value | Signal store subscription (by name) |
+| `useTooltipState()` | `TooltipState` | Current active tooltip (useSyncExternalStore) |
 
 ### Writing Custom Hooks
 
@@ -485,6 +490,78 @@ export function useAlarm() {
   return alarms;
 }
 ```
+
+---
+
+## 4b. Generic Tooltip System
+
+The tooltip system (`core/hmi/tooltip/`) uses a content-type registry pattern. To add a tooltip for a new object type:
+
+### Register a Content Provider
+
+```typescript
+// src/core/hmi/tooltip/SensorTooltipContent.tsx
+import { tooltipRegistry, type TooltipContentProps } from './tooltip-registry';
+
+function SensorTooltipContent({ data, viewer }: TooltipContentProps) {
+  return (
+    <>
+      <Typography variant="subtitle2" sx={{ color: '#4fc3f7' }}>
+        {data.sensorName}
+      </Typography>
+      <Typography variant="caption">
+        {data.occupied ? 'Occupied' : 'Free'}
+      </Typography>
+    </>
+  );
+}
+
+// Self-register at module load (imported in App.tsx)
+tooltipRegistry.register({ contentType: 'sensor', component: SensorTooltipContent });
+```
+
+### Create a Headless Controller
+
+```typescript
+// src/core/hmi/tooltip/SensorTooltipController.tsx
+import { useEffect } from 'react';
+import { tooltipStore } from './tooltip-store';
+
+export function SensorTooltipController() {
+  // Subscribe to hover events (from RaycastManager or custom logic)
+  useEffect(() => {
+    const onHover = (data) => {
+      if (data.nodeType === 'Sensor') {
+        tooltipStore.show({
+          id: 'sensor',
+          data: { type: 'sensor', sensorName: data.nodePath, occupied: false },
+          mode: 'cursor',
+          cursorPos: { x: data.pointer.x, y: data.pointer.y },
+          priority: 10,
+        });
+      }
+    };
+    const onUnhover = (data) => {
+      if (data.nodeType === 'Sensor') tooltipStore.hide('sensor');
+    };
+    viewer.on('object-hover', onHover);
+    viewer.on('object-unhover', onUnhover);
+    return () => { viewer.off('object-hover', onHover); viewer.off('object-unhover', onUnhover); };
+  }, [viewer]);
+  return null;  // Headless — no UI
+}
+```
+
+### Wire Into App.tsx
+
+```typescript
+import './core/hmi/tooltip/SensorTooltipContent';  // Triggers self-registration
+// Add <SensorTooltipController /> alongside <DriveTooltipController />
+```
+
+**Positioning modes:** `cursor` (follows mouse), `world` (3D→screen projection), `fixed` (screen position).
+
+**Priority:** When multiple tooltips are active simultaneously, the highest `priority` value wins.
 
 ---
 
