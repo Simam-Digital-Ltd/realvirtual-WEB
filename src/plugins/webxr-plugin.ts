@@ -38,6 +38,7 @@ import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
 import { RVXRManager } from '../core/engine/rv-xr-manager';
 import { setupDriveHover } from '../core/engine/rv-drive-hover';
+import { tooltipStore } from '../core/hmi/tooltip/tooltip-store';
 
 const DEAD_ZONE = 0.15;
 const SNAP_DEAD_ZONE = 0.5;
@@ -129,9 +130,7 @@ export class WebXRPlugin implements RVViewerPlugin {
   private instructionEl: HTMLDivElement | null = null;
 
   // AR drive selection & tooltip
-  private arTooltipEl: HTMLDivElement | null = null;
   private arSelectedDrive: import('../core/engine/rv-drive').RVDrive | null = null;
-  private arTooltipInterval: ReturnType<typeof setInterval> | null = null;
   private readonly arRaycaster = new Raycaster();
   private readonly arPointer = new Vector2();
   private arDriveTargets: import('three').Object3D[] = [];
@@ -1249,54 +1248,16 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.showARTooltip(bestDrive, clientX, clientY);
   }
 
-  /** Show a screen-space tooltip for the selected drive in the DOM overlay. */
+  /** Show a tooltip for the selected drive using the generic tooltip system. */
   private showARTooltip(drive: import('../core/engine/rv-drive').RVDrive, x: number, y: number): void {
     this.removeARTooltip();
-    const container = this.arOverlay ?? document.body;
-
-    const el = document.createElement('div');
-    el.style.cssText = 'pointer-events:none;position:fixed;z-index:10002;'
-      + 'padding:10px 14px;border-radius:8px;min-width:170px;max-width:260px;'
-      + 'background:rgba(18,18,18,0.88);backdrop-filter:blur(12px);'
-      + 'border:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 20px rgba(0,0,0,0.4);'
-      + 'font-family:system-ui,sans-serif;color:#fff;';
-    container.appendChild(el);
-    this.arTooltipEl = el;
-
-    // Position: above touch point, clamped to viewport
-    const positionTooltip = () => {
-      const left = Math.min(x + 16, window.innerWidth - 200);
-      const top = Math.max(y - 10, 10);
-      el.style.left = `${left}px`;
-      el.style.top = `${top}px`;
-      el.style.transform = 'translateY(-100%)';
-    };
-    positionTooltip();
-
-    // Render content (and start periodic refresh for live values)
-    const renderContent = () => {
-      const unit = drive.isRotary ? '\u00B0' : 'mm';
-      const cfg = drive.config;
-      let html = `<div style="color:#ffa040;font-weight:700;font-size:13px;line-height:1.2">${drive.name}</div>`;
-      html += `<div style="color:rgba(255,255,255,0.5);font-size:11px;margin-bottom:4px">${cfg.direction}${cfg.reverseDirection ? ' (rev)' : ''}</div>`;
-      html += this.tooltipRow('Position', `${drive.currentPosition.toFixed(1)}${unit}`);
-      html += this.tooltipRow('Speed', `${Math.abs(drive.currentSpeed).toFixed(1)} ${unit}/s`);
-      if (drive.isRunning) {
-        html += this.tooltipRow('Target', `${drive.targetPosition.toFixed(1)}${unit}`);
-      }
-      if (cfg.useLimits) {
-        html += this.tooltipRow('Limits', `${cfg.lowerLimit.toFixed(0)} \u2026 ${cfg.upperLimit.toFixed(0)}${unit}`);
-      }
-      el.innerHTML = html;
-    };
-    renderContent();
-    this.arTooltipInterval = setInterval(renderContent, 150);
-  }
-
-  private tooltipRow(label: string, value: string): string {
-    return `<div style="display:flex;justify-content:space-between;gap:8px">`
-      + `<span style="color:rgba(255,255,255,0.5);font-size:11px">${label}</span>`
-      + `<span style="color:#fff;font-size:11px;font-family:monospace">${value}</span></div>`;
+    tooltipStore.show({
+      id: 'ar-drive',
+      data: { type: 'drive', driveName: drive.name },
+      mode: 'fixed',
+      fixedPos: { x, y },
+      priority: 20, // Higher than normal drive tooltip
+    });
   }
 
   private clearARSelection(): void {
@@ -1308,14 +1269,7 @@ export class WebXRPlugin implements RVViewerPlugin {
   }
 
   private removeARTooltip(): void {
-    if (this.arTooltipInterval) {
-      clearInterval(this.arTooltipInterval);
-      this.arTooltipInterval = null;
-    }
-    if (this.arTooltipEl) {
-      this.arTooltipEl.remove();
-      this.arTooltipEl = null;
-    }
+    tooltipStore.hide('ar-drive');
   }
 
   private removeInfoPanel(): void {

@@ -10,9 +10,15 @@ import { KpiBar } from '../core/hmi/KpiBar';
 import { ButtonPanel } from '../core/hmi/ButtonPanel';
 import { MessagePanel } from '../core/hmi/MessagePanel';
 import { BottomBar } from '../core/hmi/BottomBar';
-import { DriveTooltip } from '../core/hmi/DriveTooltip';
 import { WelcomeModal } from '../core/hmi/WelcomeModal';
 import { loadVisualSettings } from '../core/hmi/visual-settings-store';
+
+// Generic tooltip system (replaces former DriveTooltip)
+import { TooltipLayer } from '../core/hmi/tooltip/TooltipLayer';
+import { DriveTooltipController } from '../core/hmi/tooltip/DriveTooltipController';
+// Import DriveTooltipContent to trigger self-registration in tooltipRegistry
+import '../core/hmi/tooltip/DriveTooltipContent';
+import { tooltipStore } from '../core/hmi/tooltip/tooltip-store';
 
 // Custom chart overlay (rendered at App level, toggled by button)
 import { DriveChartOverlay } from './DriveChartOverlay';
@@ -28,8 +34,17 @@ function useApplyPersistedSettings() {
   }, [viewer]);
 }
 
+/** Connect tooltip store to viewer for model-cleared cleanup. */
+function useTooltipStoreConnection() {
+  const viewer = useViewer();
+  useEffect(() => {
+    tooltipStore.connectViewer(viewer);
+  }, [viewer]);
+}
+
 export function App() {
   useApplyPersistedSettings();
+  useTooltipStoreConnection();
 
   return (
     <ThemeProvider theme={rvDarkTheme}>
@@ -41,7 +56,8 @@ export function App() {
         <BottomBar />
         <SlotRenderer slot="views" />
       </HMIShell>
-      <DriveTooltip />
+      <TooltipLayer />
+      <DriveTooltipController />
       <DriveChartOverlay />
       <WelcomeModal />
     </ThemeProvider>
