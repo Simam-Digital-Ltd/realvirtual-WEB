@@ -1,8 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { Paper, Box, Typography, IconButton } from '@mui/material';
 import { Warning, Build, Speed, Sensors, Close, OpenInNew } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
-import { DocViewerOverlay } from './DocViewerOverlay';
 
 const iconMap: Record<string, React.ReactElement> = {
   warning: <Warning />,
@@ -26,15 +25,12 @@ export interface TileCardProps {
   timestamp: string;
   /** Hierarchy path of the related scene component (enables hover highlight + click focus) */
   componentPath?: string;
-  /** URL to open in a new tab when clicking the OpenInNew button (overrides focusByPath) */
-  docUrl?: string;
   onDismiss?: () => void;
 }
 
-export function TileCard({ title, subtitle, severity, icon, timestamp, componentPath, docUrl, onDismiss }: TileCardProps) {
+export function TileCard({ title, subtitle, severity, icon, timestamp, componentPath, onDismiss }: TileCardProps) {
   const color = severityColors[severity];
   const viewer = useViewer();
-  const [docOpen, setDocOpen] = useState(false);
 
   const handleMouseEnter = useCallback(() => {
     if (componentPath) viewer.highlightByPath(componentPath, true);
@@ -45,18 +41,15 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
   }, [viewer, componentPath]);
 
   const handleClick = useCallback(() => {
-    if (docUrl) {
-      setDocOpen(true);
-    } else if (componentPath) {
+    if (componentPath) {
       viewer.focusByPath(componentPath);
       viewer.highlightByPath(componentPath, true);
       const driveName = componentPath.split('/').pop() ?? componentPath;
       viewer.filterDrives(driveName);
     }
-  }, [viewer, componentPath, docUrl]);
+  }, [viewer, componentPath]);
 
   return (
-    <>
     <Paper
       elevation={4}
       onMouseEnter={handleMouseEnter}
@@ -65,7 +58,7 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
       sx={{
         p: 1.5,
         borderLeft: `3px solid ${color}`,
-        cursor: (componentPath || docUrl) ? 'pointer' : 'default',
+        cursor: componentPath ? 'pointer' : 'default',
         pointerEvents: 'auto',
         '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
         transition: 'background-color 0.15s',
@@ -79,7 +72,7 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
           <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
             {title}
           </Typography>
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.25 }}>
+          <Typography variant="caption" component="div" sx={{ color: 'text.secondary', mt: 0.25 }}>
             {subtitle}
           </Typography>
         </Box>
@@ -88,7 +81,7 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
             {timestamp}
           </Typography>
           <Box sx={{ display: 'flex', gap: 0.25 }}>
-            <IconButton size="small" sx={{ p: 0.25 }} onClick={(e) => { e.stopPropagation(); if (docUrl) { setDocOpen(true); } else if (componentPath) { viewer.focusByPath(componentPath); viewer.highlightByPath(componentPath, true); } }}>
+            <IconButton size="small" sx={{ p: 0.25 }} onClick={(e) => { e.stopPropagation(); if (componentPath) { viewer.focusByPath(componentPath); viewer.highlightByPath(componentPath, true); } }}>
               <OpenInNew sx={{ fontSize: 14 }} />
             </IconButton>
             <IconButton size="small" sx={{ p: 0.25 }} onClick={(e) => { e.stopPropagation(); onDismiss?.(); }}>
@@ -98,7 +91,5 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
         </Box>
       </Box>
     </Paper>
-    {docUrl && docOpen && <DocViewerOverlay url={docUrl} title={title} onClose={() => setDocOpen(false)} />}
-    </>
   );
 }

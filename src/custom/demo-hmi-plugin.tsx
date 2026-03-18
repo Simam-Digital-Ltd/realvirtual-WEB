@@ -23,6 +23,7 @@ import { EnergyChart } from './EnergyChart';
 
 // Custom overlays
 import { SensorChartOverlay } from './SensorChartOverlay';
+import { DocViewerOverlay } from '../core/hmi/DocViewerOverlay';
 
 // Hooks
 import { useDriveChartOpen } from '../hooks/use-drive-chart';
@@ -143,16 +144,19 @@ function DriveInfoMessage(_props: UISlotProps) {
 const DOC_URL = 'pdf/fanuc-crx-educational-cell-manual.pdf#page=105';
 
 function RobotMaintenanceMessage(_props: UISlotProps) {
+  const [docOpen, setDocOpen] = useState(false);
   return (
-    <TileCard
-      title="Robot Maintenance"
-      subtitle={<>Motor J4 overheating — <a href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} style={{ color: '#4fc3f7', textDecoration: 'underline', cursor: 'pointer' }}>see manual p.105</a></>}
-      severity="warning"
-      icon="build"
-      timestamp="Today"
-      componentPath="A4"
-      docUrl={DOC_URL}
-    />
+    <>
+      <TileCard
+        title="Robot Maintenance"
+        subtitle={<>Motor J4 overheating — <a href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDocOpen(true); }} style={{ color: '#4fc3f7', textDecoration: 'underline', cursor: 'pointer' }}>see manual p.105</a></>}
+        severity="warning"
+        icon="build"
+        timestamp="Today"
+        componentPath="A4"
+      />
+      {docOpen && <DocViewerOverlay url={DOC_URL} title="Robot Maintenance — Manual p.105" onClose={() => setDocOpen(false)} />}
+    </>
   );
 }
 
