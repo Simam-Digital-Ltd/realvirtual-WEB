@@ -29,7 +29,6 @@ import {
   Button,
   Chip,
   LinearProgress,
-  useMediaQuery,
 } from '@mui/material';
 import {
   Close,
@@ -39,7 +38,7 @@ import {
 import type { RVViewer } from '../rv-viewer';
 import { RvExtrasEditorPlugin } from './rv-extras-editor';
 import { getOverriddenFields } from '../engine/rv-extras-overlay-store';
-import { MOBILE_BREAKPOINT } from '../../hooks/use-mobile-layout';
+import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import {
   isHiddenComponentType,
   isComponentRef,
@@ -296,7 +295,7 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
     plugin.clearSelection();
   }, [plugin]);
 
-  const isMobile = useMediaQuery(`(max-width:${MOBILE_BREAKPOINT - 1}px)`);
+  const isMobile = useMobileLayout();
 
   // Consumed-only filter: hide non-consumed (grayed-out) fields
   const [consumedOnly, setConsumedOnly] = useState(loadConsumedOnly);

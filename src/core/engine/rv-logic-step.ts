@@ -465,8 +465,8 @@ export class RVSetDriveSpeed extends RVLogicStep {
 
 /** Enable - enables/disables a Three.js Object3D (visibility) and finishes immediately */
 export class RVEnable extends RVLogicStep {
-  private target: { visible: boolean } | null;
-  private enable: boolean;
+  readonly target: { visible: boolean } | null;
+  readonly enable: boolean;
 
   constructor(target: { visible: boolean } | null, enable: boolean) {
     super();

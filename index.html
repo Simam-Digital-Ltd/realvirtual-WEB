@@ -3,11 +3,20 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#e94078" />
   <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.json" />
   <title>realvirtual Web Viewer</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100dvh; height: 100vh; overflow: hidden; background: #9a9a9a; }
+    /* Scale up react-root overlay on touch devices so buttons/text are physically large enough.
+       The 3D canvas is unaffected. On phones the viewport is ~360-430px CSS-wide but
+       devicePixelRatio is 2-3x, making CSS-px physically tiny. */
+    @media (hover: none) and (pointer: coarse) {
+      #react-root { zoom: 1; }
+    }
     #app { width: 100%; height: 100dvh; height: 100vh; touch-action: none; }
     #react-root { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
 

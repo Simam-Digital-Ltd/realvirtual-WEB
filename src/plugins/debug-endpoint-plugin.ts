@@ -101,6 +101,9 @@ export class DebugEndpointPlugin extends RVBehavior {
   private _stateTrackingOff?: () => void;
   private _pushInFlight = false;
 
+  // Console monkey-patch guard — prevents double-patching on model reload
+  private _intercepted = false;
+
   // ── Lifecycle ──
 
   protected onStart(_result: LoadResult): void {
@@ -146,6 +149,7 @@ export class DebugEndpointPlugin extends RVBehavior {
   // ── Error Capture ──
 
   private _setupErrorCapture(): void {
+    if (this._intercepted) return;
     this._origError = console.error;
     this._origWarn = console.warn;
 
@@ -159,6 +163,7 @@ export class DebugEndpointPlugin extends RVBehavior {
       this._origWarn!.apply(console, args);
     };
 
+    this._intercepted = true;
     this.addCleanup(() => this._restoreConsole());
   }
 
@@ -174,6 +179,7 @@ export class DebugEndpointPlugin extends RVBehavior {
   private _restoreConsole(): void {
     if (this._origError) { console.error = this._origError; this._origError = null; }
     if (this._origWarn) { console.warn = this._origWarn; this._origWarn = null; }
+    this._intercepted = false;
   }
 
   // ── Signal Changelog ──

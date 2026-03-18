@@ -24,6 +24,10 @@ export const rvDarkTheme = createTheme({
     MuiCssBaseline: {
       styleOverrides: {
         body: { backgroundColor: 'transparent' },
+        // Increase base font size on touch devices so UI is readable on phones
+        '@media (hover: none) and (pointer: coarse)': {
+          html: { fontSize: '16px' },
+        },
       },
     },
     MuiPaper: {

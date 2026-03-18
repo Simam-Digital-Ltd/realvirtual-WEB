@@ -4,7 +4,7 @@ import { useViewer } from '../hooks/use-viewer';
 
 // Core HMI components
 import { rvDarkTheme } from '../core/hmi/theme';
-import { HMIShell } from '../core/hmi/HMIShell';
+import { HMIShell, SlotRenderer } from '../core/hmi/HMIShell';
 import { TopBar } from '../core/hmi/TopBar';
 import { KpiBar } from '../core/hmi/KpiBar';
 import { ButtonPanel } from '../core/hmi/ButtonPanel';
@@ -39,6 +39,7 @@ export function App() {
         <ButtonPanel />
         <MessagePanel />
         <BottomBar />
+        <SlotRenderer slot="views" />
       </HMIShell>
       <DriveTooltip />
       <DriveChartOverlay />

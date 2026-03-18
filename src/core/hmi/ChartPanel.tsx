@@ -12,6 +12,7 @@ import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { Box, IconButton, Typography, Paper } from '@mui/material';
 import { Close, UnfoldMore, UnfoldLess, DragIndicator } from '@mui/icons-material';
 import { BOTTOM_BAR_HEIGHT } from './BottomBar';
+import { useMobileLayout } from '../../hooks/use-mobile-layout';
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
@@ -164,7 +165,7 @@ export function ChartPanel({
   toolbar,
   children,
 }: ChartPanelProps) {
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const isMobile = useMobileLayout();
   const minW = isMobile ? MIN_W_MOBILE : MIN_W_DESKTOP;
   const expandedH = Math.round(window.innerHeight * 0.55);
 

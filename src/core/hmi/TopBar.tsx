@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { Vector3 } from 'three';
-import { Typography, Box, IconButton, Paper, Button, CircularProgress, Tabs, Tab, Switch, Slider, Tooltip, useMediaQuery, Select, MenuItem, TextField } from '@mui/material';
-import { Settings, Close, PlayArrow, CheckCircle, Error as ErrorIcon, RestartAlt, AccountTree } from '@mui/icons-material';
-import { MOBILE_BREAKPOINT } from '../../hooks/use-mobile-layout';
+import { Typography, Box, IconButton, Paper, Button, CircularProgress, Tabs, Tab, Switch, Slider, Tooltip, Select, MenuItem, TextField } from '@mui/material';
+import { Settings, Close, PlayArrow, CheckCircle, Error as ErrorIcon, RestartAlt, AccountTree, ViewInAr } from '@mui/icons-material';
+import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { useViewer } from '../../hooks/use-viewer';
+import type { WebXRPlugin } from '../../plugins/webxr-plugin';
 import { loadVisualSettings, saveVisualSettings, type VisualSettings, type CameraBookmark } from './visual-settings-store';
 import { loadPhysicsSettings, savePhysicsSettings, type PhysicsSettings } from './physics-settings-store';
 import { loadInterfaceSettings, saveInterfaceSettings, type InterfaceSettings, type InterfaceType, INTERFACE_DEFAULTS } from '../../interfaces/interface-settings-store';
@@ -34,12 +35,16 @@ export function TopBar() {
     setVrOpen(false);
   }, [plugin]);
 
-  const isMobile = useMediaQuery(`(max-width:${MOBILE_BREAKPOINT - 1}px)`);
+  const isMobile = useMobileLayout();
+
+  // WebXR plugin for AR button on mobile
+  const xrPlugin = viewer.getPlugin<WebXRPlugin>('webxr');
+  const showMobileAR = isMobile && xrPlugin?.arSupported;
 
   return (
     <>
       {/* Hierarchy + VR + Settings buttons — fixed top-right */}
-      <Paper elevation={4} sx={{ position: 'fixed', top: 8, right: 8, borderRadius: 2, pointerEvents: 'auto', zIndex: 9001, display: 'flex', gap: 0.25, px: 0.25 }}>
+      <Paper elevation={4} sx={{ position: 'fixed', top: 8, right: 8, borderRadius: 2, pointerEvents: 'auto', zIndex: 9001, display: 'flex', gap: isMobile ? 0.5 : 0.25, px: isMobile ? 0.5 : 0.25 }}>
         {plugin && !isMobile && (
           <IconButton
             size="small"
@@ -60,21 +65,29 @@ export function TopBar() {
             {vrOpen ? <Close fontSize="small" /> : <Typography sx={{ fontSize: 11, fontWeight: 700, px: 0.25 }}>VR</Typography>}
           </IconButton>
         )}
+        {showMobileAR && (
+          <IconButton
+            sx={{ p: 1, color: '#81c784' }}
+            onClick={() => xrPlugin?.startAR()}
+          >
+            <ViewInAr />
+          </IconButton>
+        )}
         <IconButton
-          size="small"
+          size={isMobile ? 'medium' : 'small'}
           color={settingsOpen ? 'primary' : 'inherit'}
-          sx={{ p: 0.75 }}
+          sx={{ p: isMobile ? 1 : 0.75 }}
           onClick={() => { setSettingsOpen(!settingsOpen); setVrOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
         >
-          {settingsOpen ? <Close fontSize="small" /> : <Settings fontSize="small" />}
+          {settingsOpen ? <Close fontSize={isMobile ? 'medium' : 'small'} /> : <Settings fontSize={isMobile ? 'medium' : 'small'} />}
         </IconButton>
       </Paper>
 
-      {/* Hierarchy browser panel */}
-      {hierarchyOpen && <HierarchyBrowser viewer={viewer} />}
+      {/* Hierarchy browser panel (disabled on mobile) */}
+      {!isMobile && hierarchyOpen && <HierarchyBrowser viewer={viewer} />}
 
-      {/* Property inspector (shows when a node is selected in hierarchy) */}
-      {hierarchyOpen && pluginState.selectedNodePath && <PropertyInspector viewer={viewer} />}
+      {/* Property inspector (disabled on mobile) */}
+      {!isMobile && hierarchyOpen && pluginState.selectedNodePath && <PropertyInspector viewer={viewer} />}
 
       {/* VR/AR modal */}
       {vrOpen && <VRModal onClose={() => setVrOpen(false)} />}

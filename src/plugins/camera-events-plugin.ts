@@ -19,8 +19,7 @@ export class CameraEventsPlugin implements RVViewerPlugin {
 
   onRender(): void {
     if (!this.viewer) return;
-    // Access private cameraAnim via bracket notation (no API change needed)
-    const isAnimating = (this.viewer as unknown as { cameraAnim: unknown }).cameraAnim !== null;
+    const isAnimating = this.viewer.isCameraAnimating;
     if (this.wasAnimating && !isAnimating) {
       this.viewer.emit('camera-animation-done', {});
     }

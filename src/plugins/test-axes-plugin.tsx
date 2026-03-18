@@ -6,7 +6,7 @@
  * and drives are locked via positionOverwrite. Closing restores everything.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useSyncExternalStore, useCallback } from 'react';
 import { Box, Paper, Typography, Slider, IconButton, Button } from '@mui/material';
 import { Science, Close } from '@mui/icons-material';
 import type { UISlotEntry, UISlotProps } from '../core/rv-ui-plugin';
@@ -73,12 +73,10 @@ function TestAxesWindow({ plugin, onClose }: { plugin: TestAxesPlugin; onClose: 
 
 function TestAxesButton({ viewer }: UISlotProps) {
   const plugin = viewer.getPlugin<TestAxesPlugin>('test-axes');
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (plugin) plugin._setOpen = setOpen;
-    return () => { if (plugin) plugin._setOpen = null; };
-  }, [plugin]);
+  const open = useSyncExternalStore(
+    plugin?.subscribe ?? (() => () => {}),
+    plugin?.getSnapshot ?? (() => false),
+  );
 
   const handleToggle = useCallback(() => {
     if (!plugin) return;
@@ -112,8 +110,23 @@ export class TestAxesPlugin extends RVBehavior {
   private _savedOverwrites: boolean[] = [];
   private _savedActiveOnly: ActiveOnly = 'Always';
 
-  /** React state bridge. */
-  _setOpen: ((v: boolean) => void) | null = null;
+  // ── External store subscription (React) ──
+  private _listeners = new Set<() => void>();
+  private _snapshot = false;
+
+  /** Subscribe for React useSyncExternalStore. */
+  subscribe = (listener: () => void): (() => void) => {
+    this._listeners.add(listener);
+    return () => { this._listeners.delete(listener); };
+  };
+
+  /** Snapshot getter for React useSyncExternalStore. Returns stable primitive. */
+  getSnapshot = (): boolean => this._snapshot;
+
+  private _notify(): void {
+    this._snapshot = this._isOpen;
+    for (const listener of this._listeners) listener();
+  }
 
   get axes(): RVDrive[] { return this._axes; }
   get isOpen(): boolean { return this._isOpen; }
@@ -127,11 +140,8 @@ export class TestAxesPlugin extends RVBehavior {
   }
 
   protected onDestroy(): void {
-    if (this._isOpen) { this._restore(); this._isOpen = false; this._setOpen?.(false); }
+    if (this._isOpen) { this._restore(); this._isOpen = false; this._notify(); }
     this._axes = [];
-    // Don't null _setOpen here — React useEffect manages its lifecycle.
-    // Nulling it breaks the bridge after model reload (onDestroy runs but
-    // useEffect doesn't re-run since the plugin reference is unchanged).
   }
 
   // ── Public API ──
@@ -158,7 +168,7 @@ export class TestAxesPlugin extends RVBehavior {
     }
 
     this._isOpen = true;
-    this._setOpen?.(true);
+    this._notify();
     console.log(`[TestAxes] Window opened — ${this._axes.length} axes, recorder deactivated`);
   }
 
@@ -166,7 +176,7 @@ export class TestAxesPlugin extends RVBehavior {
     if (!this._isOpen) return;
     this._restore();
     this._isOpen = false;
-    this._setOpen?.(false);
+    this._notify();
     console.log('[TestAxes] Window closed — state restored');
   }
 

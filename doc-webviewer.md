@@ -113,7 +113,8 @@ src/
     ├── rv-simulation-loop-xr.test.ts    # SimLoop XR compat (5 tests)
     ├── rv-xr-manager.test.ts            # XR platform detection (8 tests)
     ├── rv-xr-hit-test.test.ts           # AR hit-test (5 tests)
-    └── kpi-utils.test.ts                # KPI utilities (40 tests)
+    ├── kpi-utils.test.ts                # KPI utilities (40 tests)
+    ├── rv-step-serializer.test.ts       # LogicStep serializer (5 tests)
 ```
 
 > **Note:** The `~` suffix in `realvirtual-WebViewer~` prevents Unity from importing `node_modules/`.
@@ -271,6 +272,7 @@ Test GLB: Export from Unity demo scene → `public/models/tests.glb`.
 | SimLoop XR | 5 | setAnimationLoop, frame clamping |
 | XR Manager | 8 | Platform detection, WebGPU guard |
 | XR Hit-Test | 5 | Reticle, placement, dispose |
+| Step Serializer | 5 | RVLogicStep to RVStepNode conversion |
 
 ## Debug Logging
 

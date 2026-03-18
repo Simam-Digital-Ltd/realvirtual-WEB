@@ -137,7 +137,7 @@ export function DriveTooltip() {
         top: data.y,
         transform: 'translateY(-100%)',
         pointerEvents: 'none',
-        zIndex: 2000,
+        zIndex: 1100,
         bgcolor: 'rgba(18, 18, 18, 0.88)',
         backdropFilter: 'blur(12px)',
         borderRadius: 1,

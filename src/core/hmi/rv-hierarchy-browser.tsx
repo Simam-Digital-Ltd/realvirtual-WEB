@@ -42,7 +42,6 @@ import { STEP_STATE_COLORS, STEP_STATE_LABELS } from './rv-logic-step-colors';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { componentColor } from './rv-inspector-helpers';
 import { useVirtualizer } from '@tanstack/react-virtual';
-
 // ─── CSS Pulse Animation ─────────────────────────────────────────────────
 
 const PULSE_STYLE_ID = 'rv-pulse-keyframes';
@@ -218,9 +217,9 @@ function isLogicStepType(type: string): boolean {
   return type.startsWith('LogicStep_');
 }
 
-/** Get badge color for a component type — dynamic for LogicStep types. */
+/** Get badge color for a component type — dynamic for LogicStep types (Active/Waiting only). */
 function badgeColor(type: string, stepState?: StepState): string {
-  if (isLogicStepType(type) && stepState !== undefined) {
+  if (isLogicStepType(type) && (stepState === StepState.Active || stepState === StepState.Waiting)) {
     return STEP_STATE_COLORS[stepState];
   }
   return componentColor(type);
@@ -235,12 +234,13 @@ function getStepInfoForPath(engine: RVLogicEngine | null, path: string | null): 
 /** Format container progress text. */
 function formatContainerProgress(info: StepStateInfo): string | null {
   if (info.type === 'SerialContainer' && info.currentIndex !== undefined && info.childCount !== undefined) {
-    return `${info.currentIndex + 1}/${info.childCount}`;
+    const cycle = info.completedCycles ? ` #${info.completedCycles}` : '';
+    return `${info.currentIndex + 1}/${info.childCount}${cycle}`;
   }
   if (info.type === 'ParallelContainer' && info.finishedCount !== undefined && info.childCount !== undefined) {
-    return `${info.finishedCount}/${info.childCount} done`;
+    return `${info.finishedCount}/${info.childCount}`;
   }
-  if (info.type === 'Delay' && info.elapsed !== undefined && info.duration !== undefined) {
+  if (info.type === 'Delay' && info.state === StepState.Active && info.elapsed !== undefined && info.duration !== undefined) {
     return `${info.elapsed.toFixed(1)}s/${info.duration.toFixed(1)}s`;
   }
   return null;
@@ -248,10 +248,30 @@ function formatContainerProgress(info: StepStateInfo): string | null {
 
 // ─── Badge label ─────────────────────────────────────────────────────────
 
+/** Shorten verbose LogicStep type names to fit in compact badges. */
+function shortStepType(type: string): string {
+  const raw = type.replace('LogicStep_', '');
+  switch (raw) {
+    case 'SerialContainer':   return 'Serial';
+    case 'ParallelContainer': return 'Parallel';
+    case 'SetSignalBool':     return 'SetBool';
+    case 'WaitForSignalBool': return 'WaitBool';
+    case 'WaitForSensor':     return 'WaitSens';
+    case 'DriveToPosition':
+    case 'DriveTo':           return 'DriveTo';
+    case 'SetDriveSpeed':     return 'SetSpd';
+    case 'Enable':            return 'Enable';
+    case 'Delay':             return 'Delay';
+    case 'Pause':             return 'Pause';
+    default:                  return raw;
+  }
+}
+
 function badgeLabel(type: string, stepState?: StepState): string {
   if (isLogicStepType(type)) {
-    const shortType = type.replace('LogicStep_', 'LS:');
-    if (stepState !== undefined) {
+    const shortType = shortStepType(type);
+    // Only show state label for Active/Waiting — Idle and Finished are not shown
+    if (stepState === StepState.Active || stepState === StepState.Waiting) {
       return `${shortType} ${STEP_STATE_LABELS[stepState]}`;
     }
     return shortType;
@@ -286,7 +306,9 @@ function BadgeChip({ color, label }: { color: string; label: string }) {
         bgcolor: color + '22',
         color: color,
         border: `1px solid ${color}44`,
-        '& .MuiChip-label': { px: 0.4, py: 0 },
+        flexShrink: 0,
+        maxWidth: 100,
+        '& .MuiChip-label': { px: 0.4, py: 0, overflow: 'hidden', textOverflow: 'ellipsis' },
       }}
     />
   );
@@ -353,7 +375,7 @@ function NodeBadges({
   const progressText = stepInfo ? formatContainerProgress(stepInfo) : null;
 
   return (
-    <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 0, ml: 'auto', alignItems: 'center' }}>
+    <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 1, ml: 'auto', alignItems: 'center', overflow: 'hidden', minWidth: 0 }}>
       {nonSignalTypes.map((type) => (
         <BadgeChip
           key={type}
@@ -488,10 +510,11 @@ const TreeNodeRow = memo(function TreeNodeRow({
           display: 'flex',
           alignItems: 'center',
           pl: depth * 1 + 0.5,
-          pr: 0.5,
+          pr: 2,
           py: 0,
           cursor: 'pointer',
           borderRadius: 0.5,
+          minWidth: 0,
           bgcolor: isSelected ? 'rgba(79, 195, 247, 0.15)' : 'transparent',
           '&:hover': {
             bgcolor: isSelected ? 'rgba(79, 195, 247, 0.2)' : 'rgba(255, 255, 255, 0.04)',
@@ -529,6 +552,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
         {hasComponents && (
           <NodeBadges types={node.types} signalStore={signalStore} path={node.path} stepInfo={stepInfo} />
         )}
+
       </Box>
 
       {hasChildren && (
@@ -579,6 +603,7 @@ function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, sig
 
   const hasLogicStep = info.types.some(isLogicStepType);
   const stepInfo = hasLogicStep ? getStepInfoForPath(logicEngine, info.path) : null;
+  const isContainer = info.types.some(t => t === 'LogicStep_SerialContainer' || t === 'LogicStep_ParallelContainer');
 
   const handleDblClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -596,19 +621,27 @@ function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, sig
       sx={{
         display: 'flex',
         alignItems: 'center',
-        pl: 1 + depth * 1.5,
-        pr: 0.5,
+        pl: depth > 0 ? 1 : 0.5,
+        pr: 2,
         py: 0,
         cursor: 'pointer',
         borderRadius: 0.5,
-        bgcolor: isSelected ? 'rgba(79, 195, 247, 0.15)' : 'transparent',
+        bgcolor: isSelected ? 'rgba(79, 195, 247, 0.15)' : isContainer ? 'rgba(255, 255, 255, 0.04)' : 'transparent',
         '&:hover': {
-          bgcolor: isSelected ? 'rgba(79, 195, 247, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+          bgcolor: isSelected ? 'rgba(79, 195, 247, 0.2)' : 'rgba(255, 255, 255, 0.06)',
         },
         height: FLAT_ROW_HEIGHT,
+        minWidth: 0,
+        // Container rows get top margin for visual group separation
+        ...(isContainer && { mt: '4px' }),
+        // Left border line for indented children (more prominent)
+        ...(depth > 0 && {
+          borderLeft: '2px solid rgba(79, 195, 247, 0.25)',
+          ml: `${(depth - 1) * 14 + 8}px`,
+        }),
       }}
     >
-      {/* Status dot for LogicStep nodes */}
+      {/* Status dot for LogicStep nodes — only Active/Waiting */}
       {stepInfo && <StepStateDot stepState={stepInfo.state} />}
 
       <Typography
@@ -616,11 +649,13 @@ function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, sig
           fontSize: 12,
           lineHeight: 1.3,
           color: isSelected ? 'primary.main' : 'text.primary',
+          fontWeight: isContainer ? 600 : 400,
           flex: 1,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
-          mr: 0.25,
+          minWidth: 0,
+          mr: 0.5,
         }}
       >
         {name}
@@ -693,10 +728,16 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
   }, [flatFiltered]);
 
   // Flat list virtualizer (only active when typeFilter !== 'all')
+  // Container rows have 4px top margin, so estimate slightly larger
   const flatRowVirtualizer = useVirtualizer({
     count: flatFiltered?.length ?? 0,
     getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => FLAT_ROW_HEIGHT,
+    estimateSize: (index) => {
+      if (!flatFiltered) return FLAT_ROW_HEIGHT;
+      const info = flatFiltered[index];
+      const isContainer = info.types.some(t => t === 'LogicStep_SerialContainer' || t === 'LogicStep_ParallelContainer');
+      return isContainer ? FLAT_ROW_HEIGHT + 4 : FLAT_ROW_HEIGHT;
+    },
     overscan: 10,
   });
 
@@ -963,6 +1004,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
                     onSelect={handleSelect}
                     onDoubleClick={handleDoubleClick}
                     onHover={handleHover}
+
                     signalStore={signalStore}
                     logicEngine={logicEngine}
                     depth={flatDepths.get(info.path) ?? 0}

@@ -43,8 +43,11 @@ const LS_KEY_MODEL = 'rv-webviewer-last-model';
 const LS_KEY_RENDERER = 'rv-webviewer-renderer';
 
 // --- Renderer selection via URL parameter (fallback to localStorage) ---
+// Mobile/touch devices always use WebGL — WebGPU is desktop-only unless explicitly overridden.
 const params = new URLSearchParams(window.location.search);
-const useWebGPU = (params.get('renderer') ?? localStorage.getItem(LS_KEY_RENDERER)) === 'webgpu';
+const isTouchDevice = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+const useWebGPU = !isTouchDevice
+  && (params.get('renderer') ?? localStorage.getItem(LS_KEY_RENDERER)) === 'webgpu';
 
 // --- Loading overlay ---
 const loadingOverlay = document.getElementById('loading-overlay')!;
@@ -88,9 +91,12 @@ async function init() {
   // Expose viewer globally for console debugging
   (window as unknown as { viewer: RVViewer }).viewer = viewer;
 
-  // --- Preload Rapier WASM (before registering plugin) ---
+  // --- Preload Rapier WASM (non-blocking) ---
+  // Start WASM download in background. If it finishes before model load,
+  // physics will be used; otherwise kinematic transport kicks in and
+  // physics activates on the next model load.
   const rapierPlugin = new RapierPhysicsPlugin();
-  await rapierPlugin.preload();
+  const rapierReady = rapierPlugin.preload();
 
   // --- Register Industrial Interfaces ---
   const ifaceManager = new InterfaceManager();
@@ -115,7 +121,7 @@ async function init() {
   const modelFiles = import.meta.glob('/public/models/*.glb', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
   const entries = Object.keys(modelFiles).map((key) => {
     const filename = key.split('/').pop()!;
-    return { filename, url: `./models/${filename}` };
+    return { filename, url: `${import.meta.env.BASE_URL}models/${filename}` };
   });
 
   // Expose discovered models to the HMI model selector
@@ -195,6 +201,9 @@ async function init() {
       }
     }
   }
+
+  // --- Wait for Rapier WASM (non-critical, already has internal fallback) ---
+  await rapierReady;
 
   // --- Initialize HMI React Overlay ---
   initHMI(viewer);

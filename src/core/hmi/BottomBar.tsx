@@ -2,12 +2,12 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   TextField, InputAdornment, Box, Paper, IconButton,
   Popover, Switch, FormControlLabel, Typography, Divider,
-  List, ListItemButton, useMediaQuery,
+  List, ListItemButton,
 } from '@mui/material';
 import { Search, Clear, MoreHoriz, CenterFocusStrong } from '@mui/icons-material';
 import { CameraBar } from './CameraBar';
 import { useNodeFilter } from '../../hooks/use-node-filter';
-import { MOBILE_BREAKPOINT } from '../../hooks/use-mobile-layout';
+import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { useViewer } from '../../hooks/use-viewer';
 import {
   loadSearchSettings, saveSearchSettings,
@@ -46,7 +46,7 @@ export function BottomBar() {
   const [inputValue, setInputValue] = useState('');
   const [settings, setSettings] = useState<SearchSettings>(loadSearchSettings);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isMobile = useMediaQuery(`(max-width:${MOBILE_BREAKPOINT - 1}px)`);
+  const isMobile = useMobileLayout();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const listRef = useRef<HTMLUListElement>(null);

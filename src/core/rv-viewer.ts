@@ -35,6 +35,7 @@ import {
   NearestFilter,
   SRGBColorSpace,
   Raycaster,
+  Spherical,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import Stats from 'stats-gl';
@@ -184,6 +185,10 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _lastLoadResult: LoadResult | null = null;
   /** URL of the currently loaded model (for reloadModel). */
   private _currentModelUrl: string | null = null;
+  /** True while OrbitControls is actively rotating/panning/pinching. */
+  private _isOrbiting = false;
+  /** Pointer position at pointerdown — used for drag-distance threshold. */
+  private _pointerDownPos: { x: number; y: number } | null = null;
 
   /** Available model entries for the model selector UI. */
   availableModels: Array<{ url: string; label: string }> = [];
@@ -432,6 +437,44 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     };
     this.controls.update();
 
+    // Track orbit/pan/pinch gesture state to suppress selection & hover highlighting
+    this.controls.addEventListener('start', () => {
+      this._isOrbiting = true;
+      if (this.driveHover) this.driveHover.enabled = false;
+    });
+    this.controls.addEventListener('end', () => {
+      this._isOrbiting = false;
+      if (this.driveHover) this.driveHover.enabled = true;
+    });
+
+    // Trackpad: two-finger drag rotates when no modifier, pinch (ctrl+wheel) zooms.
+    // Detect trackpad vs mouse-wheel: trackpad emits pixel-based deltas (deltaMode===0)
+    // with much smaller per-event values and often has non-zero deltaX.
+    this.renderer.domElement.addEventListener('wheel', (e) => {
+      // ctrlKey → pinch-to-zoom on trackpad: let OrbitControls handle it
+      if (e.ctrlKey) return;
+      // Only intercept pixel-mode events (trackpad), not line/page mode (mouse wheel)
+      if (e.deltaMode !== 0) return;
+      // Heuristic: mouse wheel typically produces deltaY multiples of ~100;
+      // trackpad produces smaller, smoother values. Also trackpad often has deltaX.
+      const absDY = Math.abs(e.deltaY);
+      if (absDY >= 50 && e.deltaX === 0) return; // likely mouse wheel — let OrbitControls zoom
+      e.preventDefault();
+      e.stopPropagation();
+      // Apply orbit rotation: deltaX → azimuthal, deltaY → polar
+      const azimuth = e.deltaX * 0.003;
+      const polar = e.deltaY * 0.003;
+      const spherical = new Spherical().setFromVector3(
+        this.camera.position.clone().sub(this.controls.target),
+      );
+      spherical.theta += azimuth;
+      spherical.phi = Math.max(0.01, Math.min(Math.PI - 0.01, spherical.phi + polar));
+      const offset = new Vector3().setFromSpherical(spherical);
+      this.camera.position.copy(this.controls.target).add(offset);
+      this.camera.lookAt(this.controls.target);
+      this.controls.update();
+    }, { passive: false });
+
     // --- XR session lifecycle ---
     this.renderer.xr.addEventListener('sessionstart', () => {
       this._savedBackground = this.scene.background as Color | null;
@@ -455,9 +498,24 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.emit('xr-session-end', undefined as never);
     });
 
-    // Canvas click: emit object-clicked for hovered/raycast node, or clear focus
+    // Canvas click: record pointer start, then select on pointerup only if
+    // the pointer didn't move (drag threshold) — prevents selection during
+    // orbit/pinch gestures on touch devices.
+    const DRAG_THRESHOLD = 8; // px — movement beyond this suppresses selection
     this.renderer.domElement.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
+      this._pointerDownPos = { x: e.clientX, y: e.clientY };
+    });
+    this.renderer.domElement.addEventListener('pointerup', (e) => {
+      if (e.button !== 0 || !this._pointerDownPos) return;
+      const dx = e.clientX - this._pointerDownPos.x;
+      const dy = e.clientY - this._pointerDownPos.y;
+      this._pointerDownPos = null;
+      // Suppress selection if pointer moved too far (user was dragging/orbiting)
+      if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) return;
+      // Suppress selection if orbit controls are still active
+      if (this._isOrbiting) return;
+
       const hovered = this.driveHover?.hoveredDrive;
       if (hovered && this._driveChartOpen) {
         this.filterDrives(hovered.name);
@@ -1113,6 +1171,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       duration,
     };
   }
+
+  /** Whether a camera animation is currently in progress. */
+  get isCameraAnimating(): boolean { return this.cameraAnim !== null; }
 
   /** Advance camera animation by frame delta. */
   private tickCameraAnimation(dtSec: number): void {

@@ -18,6 +18,8 @@ export class RVDriveHover {
   private lastRaycastMs = 0;
 
   hoveredDrive: RVDrive | null = null;
+  /** When false, hover raycasting is suppressed (e.g. during orbit/pinch gestures). */
+  enabled = true;
   /** Last known pointer position (for UI tooltip positioning) */
   pointerClientX = 0;
   pointerClientY = 0;
@@ -62,6 +64,12 @@ export class RVDriveHover {
     // Always track pointer position (for external tooltip positioning)
     this.pointerClientX = e.clientX;
     this.pointerClientY = e.clientY;
+
+    // Suppress hover during orbit/pinch gestures
+    if (!this.enabled) {
+      this.clearHover();
+      return;
+    }
 
     const now = performance.now();
     if (now - this.lastRaycastMs < THROTTLE_MS) return;

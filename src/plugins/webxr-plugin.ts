@@ -3,18 +3,19 @@
  *
  * Features:
  * - VR mode: full immersion with teleport, locomotion, snap turn
- * - AR mode: passthrough with pinch-to-scale (place machine on table)
+ * - AR mode: passthrough with hit-test surface placement, pinch-to-scale
  * - Teleport: hold trigger → parabolic arc, release → jump
  * - Left thumbstick: head-direction locomotion
  * - Right thumbstick X: snap turn, Y (AR only): scale up/down
  * - Info panel follows user view, dismissed by trigger press
  * - Controller models rendered
+ * - Mobile AR: hit-test reticle on surfaces, tap to place, pinch/drag/rotate gestures
  */
 
 import {
   Group,
   Vector3,
-  Quaternion,
+  Vector2,
   Box3,
   Mesh,
   MeshBasicMaterial,
@@ -28,7 +29,7 @@ import {
   DoubleSide,
   Float32BufferAttribute,
   Color,
-  Scene,
+  Raycaster,
 } from 'three';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
@@ -36,6 +37,7 @@ import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
 import { RVXRManager } from '../core/engine/rv-xr-manager';
+import { setupDriveHover } from '../core/engine/rv-drive-hover';
 
 const DEAD_ZONE = 0.15;
 const SNAP_DEAD_ZONE = 0.5;
@@ -57,6 +59,11 @@ type SessionMode = 'none' | 'vr' | 'ar';
 
 export class WebXRPlugin implements RVViewerPlugin {
   readonly id = 'webxr';
+
+  /** True when AR sessions are supported by the browser. */
+  arSupported = false;
+  /** True when VR sessions are supported by the browser. */
+  vrSupported = false;
 
   private vrButton: HTMLElement | null = null;
   private arButton: HTMLElement | null = null;
@@ -96,10 +103,39 @@ export class WebXRPlugin implements RVViewerPlugin {
 
   // Reusable vectors
   private readonly _headDir = new Vector3();
-  private readonly _flipY = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI);
 
   // Saved scene state for AR
   private savedBackground: Color | null | undefined = undefined;
+  private hiddenForAR: { obj: Mesh; visible: boolean }[] = [];
+
+  // Mobile AR touch gesture state
+  private arOverlay: HTMLDivElement | null = null;
+  private arTouchHandlers: {
+    start: (e: TouchEvent) => void;
+    move: (e: TouchEvent) => void;
+    end: (e: TouchEvent) => void;
+  } | null = null;
+  private touchState = { lastPinchDist: 0, lastAngle: 0, lastX: 0, lastY: 0, count: 0 };
+  private placementMode = false;
+  private placementBtn: HTMLButtonElement | null = null;
+  private scaleBadge: HTMLDivElement | null = null;
+  private replaceBtn: HTMLButtonElement | null = null;
+
+  // Hit-test surface placement
+  private hitTestSource: unknown = null;
+  private hitReticle: Group | null = null;
+  private hitTestMode = false;
+  private lastPlaceBtnTap = 0;
+  private instructionEl: HTMLDivElement | null = null;
+
+  // AR drive selection & tooltip
+  private arTooltipEl: HTMLDivElement | null = null;
+  private arSelectedDrive: import('../core/engine/rv-drive').RVDrive | null = null;
+  private arTooltipInterval: ReturnType<typeof setInterval> | null = null;
+  private readonly arRaycaster = new Raycaster();
+  private readonly arPointer = new Vector2();
+  private arDriveTargets: import('three').Object3D[] = [];
+  private arStyleEl: HTMLStyleElement | null = null;
 
   onModelLoaded(result: LoadResult, viewer: RVViewer): void {
     this.viewer = viewer;
@@ -129,6 +165,8 @@ export class WebXRPlugin implements RVViewerPlugin {
 
   private async initXR(viewer: RVViewer): Promise<void> {
     const support = await RVXRManager.checkSupport();
+    this.arSupported = support.ar;
+    this.vrSupported = support.vr;
 
     if (!RVXRManager.isXRCapable(viewer.renderer)) {
       console.warn('[WebXR] Renderer does not support WebXR');
@@ -210,22 +248,51 @@ export class WebXRPlugin implements RVViewerPlugin {
     }
   }
 
-  /** Start an AR passthrough session. */
-  private async startAR(): Promise<void> {
+  /** Start an AR passthrough session (can be called externally, e.g. from TopBar). */
+  async startAR(): Promise<void> {
     if (!this.viewer) return;
     const renderer = this.viewer.renderer;
+    const isMobile = !WebXRPlugin.isHeadsetBrowser();
 
     try {
-      const session = await navigator.xr!.requestSession('immersive-ar', {
-        requiredFeatures: ['local-floor'],
-        optionalFeatures: ['hand-tracking'],
-      });
+      // On mobile: create DOM overlay for touch gestures (pinch-to-scale, drag-to-move)
+      const sessionInit: XRSessionInit = {
+        optionalFeatures: ['local-floor', 'hand-tracking', 'hit-test'],
+      };
+
+      if (isMobile) {
+        this.arOverlay = document.createElement('div');
+        this.arOverlay.style.cssText = 'position:fixed;inset:0;touch-action:none;';
+        document.body.appendChild(this.arOverlay);
+        // Move #react-root into overlay so React UI renders in AR
+        const reactRoot = document.getElementById('react-root');
+        if (reactRoot) this.arOverlay.appendChild(reactRoot);
+        // Inject CSS to hide all HMI except MessagePanel during AR
+        this.arStyleEl = document.createElement('style');
+        this.arStyleEl.id = 'ar-hmi-overrides';
+        this.arStyleEl.textContent = `
+          #react-root > * > * { display: none !important; }
+          #react-root [data-ar-show] { display: flex !important; }
+        `;
+        document.head.appendChild(this.arStyleEl);
+        sessionInit.optionalFeatures!.push('dom-overlay');
+        (sessionInit as Record<string, unknown>).domOverlay = { root: this.arOverlay };
+      }
+
+      const session = await navigator.xr!.requestSession('immersive-ar', sessionInit);
 
       this.sessionMode = 'ar';
       renderer.xr.setReferenceSpaceType('local-floor');
       await renderer.xr.setSession(session);
+
+      // Setup touch handlers after session is active (sceneContent exists after onSessionStart)
+      if (isMobile && this.arOverlay) {
+        this.setupMobileARTouch(this.arOverlay);
+        await this.requestHitTest(session);
+      }
     } catch (e) {
       console.warn('[WebXR] AR session failed:', e);
+      this.teardownMobileARTouch();
     }
   }
 
@@ -331,10 +398,28 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.modelBoundingBox.getCenter(center);
     this.modelBoundingBox.getSize(size);
 
+    // Clear highlights BEFORE wrapping children into sceneContent,
+    // otherwise scene.remove() can't find overlays that moved into the group.
+    this.viewer.highlighter.clear();
+    // Disable drive hover so no new highlights appear during XR
+    if (this.viewer.driveHover) this.viewer.driveHover.dispose();
+
     if (this.sessionMode === 'ar') {
       // AR mode: make background transparent for passthrough
       this.savedBackground = this.viewer.scene.background as Color | null;
       this.viewer.scene.background = null;
+
+      // Hide ground plane and other large floor meshes for passthrough
+      this.hiddenForAR = [];
+      this.viewer.scene.traverse((obj) => {
+        if (obj instanceof Mesh && obj.geometry instanceof PlaneGeometry) {
+          const params = (obj.geometry as PlaneGeometry).parameters;
+          if (params.width >= 50 && params.height >= 50) {
+            this.hiddenForAR.push({ obj, visible: obj.visible });
+            obj.visible = false;
+          }
+        }
+      });
 
       // Wrap scene content in a group for scaling
       this.sceneContent = new Group();
@@ -348,17 +433,23 @@ export class WebXRPlugin implements RVViewerPlugin {
       }
       this.viewer.scene.add(this.sceneContent);
 
-      // Start at table scale: shrink to ~30cm, place 0.8m in front at table height
-      const maxDim = Math.max(size.x, size.y, size.z, 0.1);
-      this.arScale = 0.3 / maxDim;
+      // Start at 1:1 scale
+      this.arScale = 1.0;
       this.sceneContent.scale.setScalar(this.arScale);
 
-      // Position: model center at roughly table height, in front of user
-      this.sceneContent.position.set(
-        -center.x * this.arScale,
-        0.7 - center.y * this.arScale,
-        -1.0 - center.z * this.arScale,
-      );
+      const isMobileAR = !WebXRPlugin.isHeadsetBrowser();
+      if (isMobileAR) {
+        // Hide model until placed via hit-test tap
+        this.sceneContent.visible = false;
+        this.sceneContent.position.set(0, 0, 0);
+      } else {
+        // Headset AR: position model at floor level, 2m in front of user
+        this.sceneContent.position.set(
+          -center.x,
+          -this.modelBoundingBox.min.y,
+          -2.0 - center.z,
+        );
+      }
 
       // Dolly at origin for AR (user stands where they are)
       this.dolly.position.set(0, 0, 0);
@@ -385,11 +476,18 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.rightTriggerWasPressed = false;
     this.leftTriggerWasPressed = false;
 
-    // Show info panel
-    this.infoPanelDismissed = false;
-    this.infoPanel = this.createInfoPanel(this.sessionMode);
-    this.dolly.add(this.infoPanel);
-    this.infoPanel.position.set(0, 1.5, -1.2);
+    // (highlights already cleared before wrapping into sceneContent above)
+
+    // Show info panel (skip on mobile AR — no controllers to dismiss it)
+    const isMobileAR = this.sessionMode === 'ar' && !WebXRPlugin.isHeadsetBrowser();
+    if (isMobileAR) {
+      this.infoPanelDismissed = true;
+    } else {
+      this.infoPanelDismissed = false;
+      this.infoPanel = this.createInfoPanel(this.sessionMode);
+      this.dolly.add(this.infoPanel);
+      this.infoPanel.position.set(0, 1.5, -1.2);
+    }
   }
 
   /** Reset when leaving XR. */
@@ -401,6 +499,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     if (this.sceneContent) {
       this.sceneContent.scale.setScalar(1);
       this.sceneContent.position.set(0, 0, 0);
+      this.sceneContent.visible = true;
       const children = [...this.sceneContent.children];
       for (const child of children) {
         this.viewer.scene.add(child);
@@ -408,6 +507,12 @@ export class WebXRPlugin implements RVViewerPlugin {
       this.viewer.scene.remove(this.sceneContent);
       this.sceneContent = null;
     }
+
+    // Restore ground plane visibility
+    for (const { obj, visible } of this.hiddenForAR) {
+      obj.visible = visible;
+    }
+    this.hiddenForAR = [];
 
     // Restore background
     if (this.savedBackground !== undefined) {
@@ -423,6 +528,35 @@ export class WebXRPlugin implements RVViewerPlugin {
     if (this.teleportArc) this.teleportArc.visible = false;
 
     this.removeInfoPanel();
+    this.teardownMobileARTouch();
+
+    // Re-enable drive hover (was disposed on session start)
+    if (this.viewer.drives.length > 0 && this.viewer.registry) {
+      const dh = setupDriveHover(
+        this.viewer.renderer, this.viewer.camera,
+        this.viewer.scene, this.viewer.registry, this.viewer.highlighter,
+      );
+      dh.setDriveTargets(this.viewer.drives);
+      this.viewer.driveHover = dh;
+    }
+
+    // Clean up hit-test resources
+    if (this.hitTestSource) {
+      try { (this.hitTestSource as { cancel(): void }).cancel(); } catch (_) { /* ok */ }
+      this.hitTestSource = null;
+    }
+    this.hitTestMode = false;
+    if (this.hitReticle) {
+      this.hitReticle.removeFromParent();
+      this.hitReticle.traverse((child) => {
+        if (child instanceof Mesh) {
+          child.geometry.dispose();
+          (child.material as MeshBasicMaterial).dispose();
+        }
+      });
+      this.hitReticle = null;
+    }
+
     this.sessionMode = 'none';
     this.arScale = 1.0;
   }
@@ -441,10 +575,13 @@ export class WebXRPlugin implements RVViewerPlugin {
     if (this.dolly) this.dolly.worldToLocal(worldTarget);
     this.infoPanel.position.copy(worldTarget);
 
-    const localCamPos = camPos.clone();
-    if (this.dolly) this.dolly.worldToLocal(localCamPos);
-    this.infoPanel.lookAt(localCamPos);
-    this.infoPanel.quaternion.multiply(this._flipY);
+    // lookAt() expects world coordinates and points -Z toward the target.
+    // PlaneGeometry texture is on the +Z face. To show the texture toward the camera,
+    // we look at the reflection of the camera THROUGH the panel (i.e. away from camera).
+    const panelWorld = new Vector3();
+    this.infoPanel.getWorldPosition(panelWorld);
+    const awayFromCam = panelWorld.clone().multiplyScalar(2).sub(camPos);
+    this.infoPanel.lookAt(awayFromCam);
 
     const session = this.viewer.renderer.xr.getSession();
     if (!session) return;
@@ -653,6 +790,534 @@ export class WebXRPlugin implements RVViewerPlugin {
     }
   }
 
+  // ─── Hit-test surface placement ───────────────────────────────────────
+
+  /** Request WebXR hit-test source for surface detection. */
+  private async requestHitTest(session: XRSession): Promise<void> {
+    try {
+      const viewerSpace = await session.requestReferenceSpace('viewer');
+      this.hitTestSource = await (session as any).requestHitTestSource({ space: viewerSpace });
+      this.hitTestMode = true;
+
+      // Create reticle mesh (green ring on detected surfaces)
+      this.hitReticle = this.createHitReticle();
+      this.viewer!.scene.add(this.hitReticle);
+
+      // Start per-frame hit-test loop
+      this.startHitTestLoop(session);
+    } catch (e) {
+      console.warn('[WebXR] Hit-test not supported:', e);
+      this.placeModelDefault();
+    }
+  }
+
+  /** Create a ring reticle that appears on detected surfaces. */
+  private createHitReticle(): Group {
+    const group = new Group();
+    group.visible = false;
+
+    // Outer ring
+    const ringGeo = new RingGeometry(0.08, 0.11, 32).rotateX(-Math.PI / 2);
+    const ringMat = new MeshBasicMaterial({
+      color: 0x81c784, transparent: true, opacity: 0.85, side: DoubleSide,
+    });
+    group.add(new Mesh(ringGeo, ringMat));
+
+    // Center dot
+    const dotGeo = new CircleGeometry(0.015, 16).rotateX(-Math.PI / 2);
+    const dotMat = new MeshBasicMaterial({
+      color: 0x81c784, transparent: true, opacity: 0.5, side: DoubleSide,
+    });
+    group.add(new Mesh(dotGeo, dotMat));
+
+    return group;
+  }
+
+  /** Per-frame hit-test loop using session.requestAnimationFrame. */
+  private startHitTestLoop(session: XRSession): void {
+    const onFrame = (_time: number, frame: unknown): void => {
+      if (!this.hitTestMode || !this.hitTestSource) return;
+
+      const refSpace = this.viewer?.renderer.xr.getReferenceSpace();
+      if (!refSpace) {
+        session.requestAnimationFrame(onFrame as XRFrameRequestCallback);
+        return;
+      }
+
+      try {
+        const results = (frame as any).getHitTestResults(this.hitTestSource);
+        if (results.length > 0) {
+          const pose = results[0].getPose(refSpace);
+          if (pose && this.hitReticle) {
+            this.hitReticle.visible = true;
+            const p = pose.transform.position;
+            const q = pose.transform.orientation;
+            this.hitReticle.position.set(p.x, p.y, p.z);
+            this.hitReticle.quaternion.set(q.x, q.y, q.z, q.w);
+          }
+        } else if (this.hitReticle) {
+          this.hitReticle.visible = false;
+        }
+      } catch (_) {
+        // Hit-test results may not be available on every frame
+      }
+
+      session.requestAnimationFrame(onFrame as XRFrameRequestCallback);
+    };
+    session.requestAnimationFrame(onFrame as XRFrameRequestCallback);
+  }
+
+  /** Place model at the hit-test reticle position. */
+  private placeModelAtReticle(): void {
+    if (!this.hitReticle || !this.sceneContent || !this.modelBoundingBox) return;
+
+    const center = new Vector3();
+    this.modelBoundingBox.getCenter(center);
+
+    // Position model so its bottom-center aligns with the reticle
+    this.sceneContent.position.set(
+      this.hitReticle.position.x - center.x,
+      this.hitReticle.position.y - this.modelBoundingBox.min.y,
+      this.hitReticle.position.z - center.z,
+    );
+    this.sceneContent.visible = true;
+
+    // Exit hit-test mode
+    this.hitTestMode = false;
+    this.hitReticle.visible = false;
+    if (this.hitTestSource) {
+      try { (this.hitTestSource as { cancel(): void }).cancel(); } catch (_) { /* ok */ }
+      this.hitTestSource = null;
+    }
+
+    // Show placement controls, hide instruction
+    if (this.instructionEl) this.instructionEl.style.display = 'none';
+    if (this.placementBtn) this.placementBtn.style.display = '';
+    if (this.scaleBadge) this.scaleBadge.style.display = '';
+    if (this.replaceBtn) this.replaceBtn.style.display = '';
+
+    // Enter adjustment mode by default after placing
+    this.placementMode = true;
+    this.updatePlacementButton(true);
+  }
+
+  /** Fallback: place model 2m in front when hit-test is unavailable. */
+  private placeModelDefault(): void {
+    if (!this.sceneContent || !this.modelBoundingBox) return;
+
+    const center = new Vector3();
+    this.modelBoundingBox.getCenter(center);
+    this.sceneContent.position.set(-center.x, -this.modelBoundingBox.min.y, -2.0 - center.z);
+    this.sceneContent.visible = true;
+
+    this.hitTestMode = false;
+    if (this.instructionEl) this.instructionEl.style.display = 'none';
+    if (this.placementBtn) this.placementBtn.style.display = '';
+    if (this.scaleBadge) this.scaleBadge.style.display = '';
+    if (this.replaceBtn) this.replaceBtn.style.display = '';
+  }
+
+  /** Re-enter hit-test mode to place the model on a new surface. */
+  private reenterHitTest(): void {
+    if (!this.sceneContent || !this.viewer) return;
+
+    // Hide model and placement controls
+    this.sceneContent.visible = false;
+    this.placementMode = false;
+    if (this.placementBtn) this.placementBtn.style.display = 'none';
+    if (this.scaleBadge) this.scaleBadge.style.display = 'none';
+    if (this.replaceBtn) this.replaceBtn.style.display = 'none';
+    if (this.instructionEl) this.instructionEl.style.display = '';
+
+    // Re-start hit-test
+    const session = this.viewer.renderer.xr.getSession();
+    if (session) {
+      this.requestHitTest(session);
+    }
+  }
+
+  // ─── Mobile AR touch UI & gestures ────────────────────────────────────
+
+  /** Setup touch listeners and overlay UI for mobile AR gestures. */
+  private setupMobileARTouch(overlay: HTMLDivElement): void {
+    // Overlay captures touches (for hit-test tap and placement gestures)
+    overlay.style.pointerEvents = 'auto';
+    this.placementMode = false;
+
+    // --- Overlay UI buttons ---
+    const btnStyle = 'pointer-events:auto;border:none;border-radius:24px;font-weight:700;'
+      + 'font-family:system-ui,sans-serif;cursor:pointer;letter-spacing:0.5px;';
+
+    // Exit AR button (top-left) — always visible
+    const exitBtn = document.createElement('button');
+    exitBtn.textContent = 'Exit AR';
+    exitBtn.style.cssText = `${btnStyle}position:fixed;top:16px;left:16px;z-index:10001;`
+      + 'padding:10px 20px;font-size:14px;background:rgba(239,83,80,0.85);color:#fff;';
+    exitBtn.addEventListener('click', () => {
+      this.viewer?.renderer.xr.getSession()?.end();
+    });
+    overlay.appendChild(exitBtn);
+
+    // Instruction text (shown during hit-test mode)
+    this.instructionEl = document.createElement('div');
+    this.instructionEl.textContent = 'Point at a surface \u00b7 Tap to place';
+    this.instructionEl.style.cssText = 'position:fixed;bottom:32px;left:50%;transform:translateX(-50%);'
+      + 'z-index:10001;padding:12px 24px;border-radius:16px;background:rgba(0,0,0,0.7);'
+      + 'color:#81c784;font:bold 15px system-ui,sans-serif;white-space:nowrap;pointer-events:none;';
+    overlay.appendChild(this.instructionEl);
+
+    // Place mode toggle (bottom-center) — hidden until model is placed
+    this.placementBtn = document.createElement('button');
+    this.updatePlacementButton(false);
+    this.placementBtn.style.cssText = `${btnStyle}position:fixed;bottom:24px;left:50%;`
+      + 'transform:translateX(-50%);z-index:10001;padding:12px 28px;font-size:15px;'
+      + 'box-shadow:0 4px 20px rgba(0,0,0,0.3);display:none;';
+    this.placementBtn.addEventListener('click', () => {
+      // Double-tap detection: reset scale to 1:1
+      const now = Date.now();
+      if (now - this.lastPlaceBtnTap < 400) {
+        this.arScale = 1.0;
+        if (this.sceneContent) this.sceneContent.scale.setScalar(1.0);
+        this.updateScaleBadge();
+        this.lastPlaceBtnTap = 0;
+        return;
+      }
+      this.lastPlaceBtnTap = now;
+
+      this.placementMode = !this.placementMode;
+      this.updatePlacementButton(this.placementMode);
+    });
+    overlay.appendChild(this.placementBtn);
+
+    // Scale badge (bottom, above place button) — hidden until model is placed
+    this.scaleBadge = document.createElement('div');
+    this.scaleBadge.style.cssText = 'pointer-events:none;position:fixed;bottom:76px;left:50%;'
+      + 'transform:translateX(-50%);z-index:10001;padding:4px 12px;border-radius:12px;'
+      + 'background:rgba(0,0,0,0.6);color:#81c784;font:bold 12px system-ui,sans-serif;display:none;';
+    this.updateScaleBadge();
+    overlay.appendChild(this.scaleBadge);
+
+    // Re-place button (top-right) — hidden until model is placed
+    this.replaceBtn = document.createElement('button');
+    this.replaceBtn.textContent = '\u21BB Re-place';
+    this.replaceBtn.style.cssText = `${btnStyle}position:fixed;top:16px;right:16px;z-index:10001;`
+      + 'padding:10px 18px;font-size:13px;background:rgba(129,199,132,0.85);color:#000;display:none;';
+    this.replaceBtn.addEventListener('click', () => this.reenterHitTest());
+    overlay.appendChild(this.replaceBtn);
+
+    // --- Touch gesture handlers ---
+    const handlers = {
+      start: (e: TouchEvent) => {
+        // Never block button clicks
+        if ((e.target as HTMLElement).closest('button')) return;
+
+        if (this.hitTestMode) {
+          // In hit-test mode: record position for tap detection
+          e.preventDefault();
+          if (e.touches.length === 1) {
+            this.touchState.lastX = e.touches[0].clientX;
+            this.touchState.lastY = e.touches[0].clientY;
+          }
+          return;
+        }
+
+        if (!this.placementMode) {
+          // Not in placement mode: track touch start for tap-to-select
+          if (e.touches.length === 1) {
+            this.touchState.lastX = e.touches[0].clientX;
+            this.touchState.lastY = e.touches[0].clientY;
+          }
+          return;
+        }
+        e.preventDefault();
+        if (e.touches.length === 2) {
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          this.touchState.lastPinchDist = Math.hypot(dx, dy);
+          this.touchState.lastAngle = Math.atan2(dy, dx);
+          this.touchState.count = 2;
+        } else if (e.touches.length === 1) {
+          this.touchState.lastX = e.touches[0].clientX;
+          this.touchState.lastY = e.touches[0].clientY;
+          this.touchState.count = 1;
+        }
+      },
+      move: (e: TouchEvent) => {
+        if ((e.target as HTMLElement).closest('button')) return;
+        if (this.hitTestMode) { e.preventDefault(); return; }
+        if (!this.placementMode) return;
+        e.preventDefault();
+        if (!this.sceneContent || !this.viewer) return;
+
+        if (e.touches.length === 2) {
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const dist = Math.hypot(dx, dy);
+          const angle = Math.atan2(dy, dx);
+
+          if (this.touchState.lastPinchDist > 0) {
+            // Pinch to scale
+            const factor = dist / this.touchState.lastPinchDist;
+            this.arScale = Math.max(AR_MIN_SCALE, Math.min(AR_MAX_SCALE, this.arScale * factor));
+            this.sceneContent.scale.setScalar(this.arScale);
+            this.updateScaleBadge();
+
+            // Two-finger rotate
+            const angleDelta = angle - this.touchState.lastAngle;
+            this.sceneContent.rotation.y -= angleDelta;
+          }
+          this.touchState.lastPinchDist = dist;
+          this.touchState.lastAngle = angle;
+          this.touchState.count = 2;
+        } else if (e.touches.length === 1 && this.touchState.count !== 2) {
+          // One-finger drag to move model (camera-relative)
+          const sdx = e.touches[0].clientX - this.touchState.lastX;
+          const sdy = e.touches[0].clientY - this.touchState.lastY;
+
+          const cam = this.viewer.renderer.xr.getCamera();
+          const camDir = new Vector3();
+          cam.getWorldDirection(camDir);
+          camDir.y = 0;
+          camDir.normalize();
+          const camRight = new Vector3(-camDir.z, 0, camDir.x);
+
+          // 1px ≈ 1mm world movement
+          const s = 0.001;
+          this.sceneContent.position.x += (camRight.x * sdx - camDir.x * sdy) * s;
+          this.sceneContent.position.z += (camRight.z * sdx - camDir.z * sdy) * s;
+
+          this.touchState.lastX = e.touches[0].clientX;
+          this.touchState.lastY = e.touches[0].clientY;
+        }
+      },
+      end: (e: TouchEvent) => {
+        if ((e.target as HTMLElement).closest('button')) return;
+
+        if (this.hitTestMode && e.changedTouches.length > 0) {
+          // Detect tap: touchend close to touchstart position → place model
+          const ct = e.changedTouches[0];
+          const dx = ct.clientX - this.touchState.lastX;
+          const dy = ct.clientY - this.touchState.lastY;
+          if (Math.hypot(dx, dy) < 20 && this.hitReticle?.visible) {
+            this.placeModelAtReticle();
+          }
+          return;
+        }
+
+        if (!this.placementMode) {
+          // Not in placement mode: detect tap for drive selection
+          if (e.changedTouches.length > 0) {
+            const ct = e.changedTouches[0];
+            const dx = ct.clientX - this.touchState.lastX;
+            const dy = ct.clientY - this.touchState.lastY;
+            if (Math.hypot(dx, dy) < 20) {
+              this.arTapSelect(ct.clientX, ct.clientY);
+            }
+          }
+          return;
+        }
+        if (e.touches.length < 2) this.touchState.lastPinchDist = 0;
+        if (e.touches.length === 1) {
+          this.touchState.lastX = e.touches[0].clientX;
+          this.touchState.lastY = e.touches[0].clientY;
+        }
+        this.touchState.count = e.touches.length;
+      },
+    };
+
+    overlay.addEventListener('touchstart', handlers.start, { passive: false });
+    overlay.addEventListener('touchmove', handlers.move, { passive: false });
+    overlay.addEventListener('touchend', handlers.end);
+    this.arTouchHandlers = handlers;
+  }
+
+  private updatePlacementButton(active: boolean): void {
+    if (!this.placementBtn) return;
+    this.placementBtn.textContent = active ? 'Done' : 'Place';
+    this.placementBtn.style.background = active
+      ? 'rgba(79, 195, 247, 0.9)' : 'rgba(129, 199, 132, 0.9)';
+    this.placementBtn.style.color = '#000';
+  }
+
+  private updateScaleBadge(): void {
+    if (!this.scaleBadge) return;
+    const pct = Math.round(this.arScale * 100);
+    this.scaleBadge.textContent = `${pct}%`;
+  }
+
+  /** Remove touch listeners, overlay UI, and DOM overlay. */
+  private teardownMobileARTouch(): void {
+    if (this.arOverlay && this.arTouchHandlers) {
+      this.arOverlay.removeEventListener('touchstart', this.arTouchHandlers.start);
+      this.arOverlay.removeEventListener('touchmove', this.arTouchHandlers.move);
+      this.arOverlay.removeEventListener('touchend', this.arTouchHandlers.end);
+      this.arTouchHandlers = null;
+    }
+    if (this.arOverlay) {
+      // Restore #react-root back to document.body before removing overlay
+      const reactRoot = document.getElementById('react-root');
+      if (reactRoot && this.arOverlay.contains(reactRoot)) {
+        document.body.appendChild(reactRoot);
+      }
+      this.arOverlay.remove();
+      this.arOverlay = null;
+    }
+    if (this.arStyleEl) {
+      this.arStyleEl.remove();
+      this.arStyleEl = null;
+    }
+    this.placementBtn = null;
+    this.scaleBadge = null;
+    this.replaceBtn = null;
+    this.instructionEl = null;
+    this.placementMode = false;
+    this.hitTestMode = false;
+    this.clearARSelection();
+    this.arDriveTargets = [];
+  }
+
+  // ─── AR drive selection & tooltip ──────────────────────────────────────
+
+  /**
+   * Raycast from a screen-space touch position and select/highlight the drive.
+   * Uses multi-point sampling (center + 8 surrounding points) for easier tapping.
+   * If no drive is hit, clears the current selection.
+   */
+  private arTapSelect(clientX: number, clientY: number): void {
+    if (!this.viewer || !this.viewer.registry) return;
+    const renderer = this.viewer.renderer;
+    const camera = renderer.xr.isPresenting ? renderer.xr.getCamera() : this.viewer.camera;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    // Build drive mesh targets (only once, cache for session)
+    if (this.arDriveTargets.length === 0 && this.viewer.drives.length > 0) {
+      for (const drive of this.viewer.drives) {
+        drive.node.traverse((child) => {
+          if ((child as Mesh).isMesh && !child.userData?._highlightOverlay) {
+            this.arDriveTargets.push(child);
+          }
+        });
+      }
+    }
+    const targets = this.arDriveTargets.length > 0 ? this.arDriveTargets : this.viewer.scene.children;
+    const recursive = this.arDriveTargets.length === 0;
+
+    // Sample center + 8 surrounding points (20px radius) for forgiving tap
+    const TAP_RADIUS = 20;
+    const offsets = [
+      [0, 0], [-TAP_RADIUS, 0], [TAP_RADIUS, 0], [0, -TAP_RADIUS], [0, TAP_RADIUS],
+      [-TAP_RADIUS * 0.7, -TAP_RADIUS * 0.7], [TAP_RADIUS * 0.7, -TAP_RADIUS * 0.7],
+      [-TAP_RADIUS * 0.7, TAP_RADIUS * 0.7], [TAP_RADIUS * 0.7, TAP_RADIUS * 0.7],
+    ];
+
+    let bestDrive: import('../core/engine/rv-drive').RVDrive | null = null;
+    let bestDist = Infinity;
+
+    for (const [ox, oy] of offsets) {
+      this.arPointer.x = ((clientX + ox) / w) * 2 - 1;
+      this.arPointer.y = -((clientY + oy) / h) * 2 + 1;
+      this.arRaycaster.setFromCamera(this.arPointer, camera);
+
+      const hits = this.arRaycaster.intersectObjects(targets, recursive);
+      const hit = hits.find(
+        (hr) => (hr.object as Mesh).isMesh
+          && !hr.object.name.endsWith('_sensorViz')
+          && !hr.object.userData?._highlightOverlay
+          && !hr.object.userData?._driveHoverOverlay,
+      );
+      if (hit) {
+        const drive = this.viewer.registry!.findInParent<import('../core/engine/rv-drive').RVDrive>(hit.object, 'Drive');
+        if (drive && hit.distance < bestDist) {
+          bestDist = hit.distance;
+          bestDrive = drive;
+        }
+      }
+    }
+
+    if (!bestDrive) {
+      this.clearARSelection();
+      return;
+    }
+
+    // Same drive already selected — ignore
+    if (bestDrive === this.arSelectedDrive) return;
+
+    this.clearARSelection();
+    this.arSelectedDrive = bestDrive;
+    this.viewer.highlighter.highlight(bestDrive.node, true, { includeChildDrives: true });
+    this.showARTooltip(bestDrive, clientX, clientY);
+  }
+
+  /** Show a screen-space tooltip for the selected drive in the DOM overlay. */
+  private showARTooltip(drive: import('../core/engine/rv-drive').RVDrive, x: number, y: number): void {
+    this.removeARTooltip();
+    const container = this.arOverlay ?? document.body;
+
+    const el = document.createElement('div');
+    el.style.cssText = 'pointer-events:none;position:fixed;z-index:10002;'
+      + 'padding:10px 14px;border-radius:8px;min-width:170px;max-width:260px;'
+      + 'background:rgba(18,18,18,0.88);backdrop-filter:blur(12px);'
+      + 'border:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 20px rgba(0,0,0,0.4);'
+      + 'font-family:system-ui,sans-serif;color:#fff;';
+    container.appendChild(el);
+    this.arTooltipEl = el;
+
+    // Position: above touch point, clamped to viewport
+    const positionTooltip = () => {
+      const left = Math.min(x + 16, window.innerWidth - 200);
+      const top = Math.max(y - 10, 10);
+      el.style.left = `${left}px`;
+      el.style.top = `${top}px`;
+      el.style.transform = 'translateY(-100%)';
+    };
+    positionTooltip();
+
+    // Render content (and start periodic refresh for live values)
+    const renderContent = () => {
+      const unit = drive.isRotary ? '\u00B0' : 'mm';
+      const cfg = drive.config;
+      let html = `<div style="color:#ffa040;font-weight:700;font-size:13px;line-height:1.2">${drive.name}</div>`;
+      html += `<div style="color:rgba(255,255,255,0.5);font-size:11px;margin-bottom:4px">${cfg.direction}${cfg.reverseDirection ? ' (rev)' : ''}</div>`;
+      html += this.tooltipRow('Position', `${drive.currentPosition.toFixed(1)}${unit}`);
+      html += this.tooltipRow('Speed', `${Math.abs(drive.currentSpeed).toFixed(1)} ${unit}/s`);
+      if (drive.isRunning) {
+        html += this.tooltipRow('Target', `${drive.targetPosition.toFixed(1)}${unit}`);
+      }
+      if (cfg.useLimits) {
+        html += this.tooltipRow('Limits', `${cfg.lowerLimit.toFixed(0)} \u2026 ${cfg.upperLimit.toFixed(0)}${unit}`);
+      }
+      el.innerHTML = html;
+    };
+    renderContent();
+    this.arTooltipInterval = setInterval(renderContent, 150);
+  }
+
+  private tooltipRow(label: string, value: string): string {
+    return `<div style="display:flex;justify-content:space-between;gap:8px">`
+      + `<span style="color:rgba(255,255,255,0.5);font-size:11px">${label}</span>`
+      + `<span style="color:#fff;font-size:11px;font-family:monospace">${value}</span></div>`;
+  }
+
+  private clearARSelection(): void {
+    if (this.arSelectedDrive) {
+      this.viewer?.highlighter.clear();
+      this.arSelectedDrive = null;
+    }
+    this.removeARTooltip();
+  }
+
+  private removeARTooltip(): void {
+    if (this.arTooltipInterval) {
+      clearInterval(this.arTooltipInterval);
+      this.arTooltipInterval = null;
+    }
+    if (this.arTooltipEl) {
+      this.arTooltipEl.remove();
+      this.arTooltipEl = null;
+    }
+  }
+
   private removeInfoPanel(): void {
     if (!this.infoPanel) return;
     this.infoPanel.removeFromParent();
@@ -683,6 +1348,18 @@ export class WebXRPlugin implements RVViewerPlugin {
       this.teleportArc = null;
     }
     this.removeInfoPanel();
+    this.teardownMobileARTouch();
+    if (this.hitReticle) {
+      this.hitReticle.removeFromParent();
+      this.hitReticle.traverse((child) => {
+        if (child instanceof Mesh) {
+          child.geometry.dispose();
+          (child.material as MeshBasicMaterial).dispose();
+        }
+      });
+      this.hitReticle = null;
+    }
+    this.hitTestSource = null;
     if (this.dolly && this.viewer) {
       this.viewer.scene.add(this.viewer.camera);
       this.viewer.scene.remove(this.dolly);

@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { Box, useMediaQuery } from '@mui/material';
+import { Box } from '@mui/material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useSlot } from '../../hooks/use-slot';
-import { MOBILE_BREAKPOINT } from '../../hooks/use-mobile-layout';
+import { useMobileLayout } from '../../hooks/use-mobile-layout';
 
 /** Core layout container for messages (right side). Renders 'messages' slot entries. */
 export function MessagePanel() {
   const viewer = useViewer();
   const entries = useSlot('messages');
-  const isMobile = useMediaQuery(`(max-width:${MOBILE_BREAKPOINT - 1}px)`);
+  const isMobile = useMobileLayout();
   const [expandedIdx, setExpandedIdx] = useState(-1);
 
   if (entries.length === 0) return null;
@@ -17,6 +17,7 @@ export function MessagePanel() {
   if (!isMobile) {
     return (
       <Box
+        data-ar-show
         sx={{
           position: 'fixed',
           right: 8,
@@ -46,6 +47,7 @@ export function MessagePanel() {
   // Tapping slides the full card into view.
   return (
     <Box
+      data-ar-show
       sx={{
         position: 'fixed',
         right: 0,
