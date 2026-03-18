@@ -27,6 +27,7 @@ export class InterfaceManager implements RVViewerPlugin {
   private viewer: RVViewer | null = null;
   private registry = new Map<string, BaseIndustrialInterface>();
   private _activeId: string | null = null;
+  private _activating = false; // Fix 2: mutex guard against concurrent activate
 
   /** Register an interface implementation. Does NOT activate it. */
   register(iface: BaseIndustrialInterface): this {
@@ -54,27 +55,35 @@ export class InterfaceManager implements RVViewerPlugin {
    * Disconnects any previously active interface first (mutex).
    */
   async activate(interfaceId: string, settings: InterfaceSettings): Promise<void> {
-    // Deactivate current if different
-    if (this._activeId && this._activeId !== interfaceId) {
-      this.deactivate();
+    // Fix 2: Guard against concurrent activate calls
+    if (this._activating) return;
+    this._activating = true;
+
+    try {
+      // Deactivate current (same or different ID) to reset state
+      if (this._activeId) {
+        this.deactivate();
+      }
+
+      const iface = this.registry.get(interfaceId);
+      if (!iface) {
+        throw new Error(`Interface '${interfaceId}' not registered`);
+      }
+
+      this._activeId = interfaceId;
+
+      // Pass viewer reference and connect
+      if (this.viewer) {
+        iface.onModelLoaded?.(
+          { drives: [], sensors: [], sources: [], extras: {} } as unknown as LoadResult,
+          this.viewer,
+        );
+      }
+
+      await iface.connect(settings);
+    } finally {
+      this._activating = false;
     }
-
-    const iface = this.registry.get(interfaceId);
-    if (!iface) {
-      throw new Error(`Interface '${interfaceId}' not registered`);
-    }
-
-    this._activeId = interfaceId;
-
-    // Pass viewer reference and connect
-    if (this.viewer) {
-      iface.onModelLoaded?.(
-        { drives: [], sensors: [], sources: [], extras: {} } as unknown as LoadResult,
-        this.viewer,
-      );
-    }
-
-    await iface.connect(settings);
   }
 
   /** Deactivate the current interface (disconnect + cleanup). */
@@ -99,13 +108,14 @@ export class InterfaceManager implements RVViewerPlugin {
     if (active) {
       active.onModelLoaded?.(result, viewer);
     } else {
-      // Check settings for auto-connect
+      // Fix 8: Use activate() which properly sets _settings and calls connect()
       const settings = loadInterfaceSettings();
       if (settings.activeType !== 'none' && settings.autoConnect) {
         const iface = this.registry.get(settings.activeType);
         if (iface) {
-          this._activeId = settings.activeType;
-          iface.onModelLoaded?.(result, viewer);
+          this.activate(settings.activeType, settings).catch((err) => {
+            console.warn(`[interface-manager] Auto-connect failed:`, err);
+          });
         }
       }
     }
@@ -134,6 +144,10 @@ export class InterfaceManager implements RVViewerPlugin {
 
   dispose(): void {
     this.deactivate();
+    // Fix 9: Dispose all registered interfaces, not just the active one
+    for (const iface of this.registry.values()) {
+      iface.dispose?.();
+    }
     this.registry.clear();
     this.viewer = null;
   }

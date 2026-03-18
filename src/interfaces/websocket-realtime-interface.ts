@@ -42,6 +42,7 @@ export class WebSocketRealtimeInterface extends BaseIndustrialInterface {
   private _importResolve: ((signals: SignalDescriptor[]) => void) | null = null;
   private _importReject: ((err: Error) => void) | null = null;
   private _importTimeout: ReturnType<typeof setTimeout> | null = null;
+  private _connectTimeout: ReturnType<typeof setTimeout> | null = null; // Fix 3: track connect timeout
 
   // ── Protocol Implementation ──
 
@@ -58,7 +59,9 @@ export class WebSocketRealtimeInterface extends BaseIndustrialInterface {
         return;
       }
 
-      const connectTimeout = setTimeout(() => {
+      // Fix 3: Store timeout handle as instance field for cleanup in doDisconnect
+      this._connectTimeout = setTimeout(() => {
+        this._connectTimeout = null;
         if (this.ws?.readyState !== WebSocket.OPEN) {
           this.ws?.close();
           reject(new Error(`Connection to ${url} timed out (5s)`));
@@ -66,7 +69,10 @@ export class WebSocketRealtimeInterface extends BaseIndustrialInterface {
       }, 5000);
 
       this.ws.onopen = () => {
-        clearTimeout(connectTimeout);
+        if (this._connectTimeout) {
+          clearTimeout(this._connectTimeout);
+          this._connectTimeout = null;
+        }
         // Send init message
         this.wsSend({ type: 'init', version: 2, name: 'WebViewer' });
         resolve();
@@ -77,20 +83,31 @@ export class WebSocketRealtimeInterface extends BaseIndustrialInterface {
       };
 
       this.ws.onclose = (event) => {
-        clearTimeout(connectTimeout);
+        if (this._connectTimeout) {
+          clearTimeout(this._connectTimeout);
+          this._connectTimeout = null;
+        }
         if (this.isConnected) {
           this.onConnectionLost(event.reason || `WebSocket closed (code ${event.code})`);
         }
       };
 
       this.ws.onerror = () => {
-        clearTimeout(connectTimeout);
+        if (this._connectTimeout) {
+          clearTimeout(this._connectTimeout);
+          this._connectTimeout = null;
+        }
         // onclose will also fire — error handling happens there
       };
     });
   }
 
   protected doDisconnect(): void {
+    // Fix 3: Clear connect timeout if still pending
+    if (this._connectTimeout) {
+      clearTimeout(this._connectTimeout);
+      this._connectTimeout = null;
+    }
     this.clearImportPromise();
     if (this.ws) {
       // Prevent onclose from triggering reconnect
@@ -109,8 +126,10 @@ export class WebSocketRealtimeInterface extends BaseIndustrialInterface {
       this._importResolve = resolve;
       this._importReject = reject;
 
-      // Timeout for discovery
+      // Timeout for discovery — null out _importReject first so clearImportPromise
+      // doesn't reject with 'Discovery cancelled' before our explicit timeout error
       this._importTimeout = setTimeout(() => {
+        this._importReject = null;
         this.clearImportPromise();
         reject(new Error('Signal discovery timed out (10s)'));
       }, 10_000);
@@ -181,8 +200,10 @@ export class WebSocketRealtimeInterface extends BaseIndustrialInterface {
       signals.push({ name, type, direction, initialValue });
     }
 
-    // Resolve the discovery promise
+    // Resolve the discovery promise — null out reject first to prevent
+    // clearImportPromise from rejecting a successfully resolved discovery
     const resolve = this._importResolve;
+    this._importReject = null;
     this.clearImportPromise();
     resolve(signals);
 
@@ -240,6 +261,10 @@ export class WebSocketRealtimeInterface extends BaseIndustrialInterface {
     if (this._importTimeout) {
       clearTimeout(this._importTimeout);
       this._importTimeout = null;
+    }
+    // Fix 5: Reject any pending discovery promise before clearing
+    if (this._importReject) {
+      this._importReject(new Error('Discovery cancelled'));
     }
     this._importResolve = null;
     this._importReject = null;

@@ -234,7 +234,9 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
 
   /** Disconnect and stop reconnect attempts. */
   disconnect(): void {
-    this.cancelReconnect();
+    // Fix 4: Set state first — prevents onConnectionLost from triggering reconnect
+    this._connectionState = 'disconnected'; // direct assignment, skip event for now
+
     this.unsubscribeFromOutputSignals();
     this.pendingIncoming.clear();
     this.dirtyOutgoing.clear();
@@ -246,7 +248,8 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
       console.warn(`[${this.id}] doDisconnect error:`, err);
     }
 
-    this.setConnectionState('disconnected');
+    this.cancelReconnect(); // AFTER doDisconnect — catches any timer set during close
+    this.setConnectionState('disconnected'); // emit events now (no-op if already disconnected)
   }
 
   /**
@@ -351,7 +354,8 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
     if (!this.signalStore) return;
 
     for (const sig of signals) {
-      this.signalStore.register(sig.name, sig.name, sig.initialValue);
+      // Fix 6: Use prefixed path to avoid collision with GLB model paths
+      this.signalStore.register(sig.name, `__iface__/${sig.name}`, sig.initialValue);
     }
     console.log(`[${this.id}] Registered ${signals.length} signals in SignalStore`);
   }
@@ -363,11 +367,14 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
    */
   private subscribeToOutputSignals(signals: SignalDescriptor[]): void {
     this.unsubscribeFromOutputSignals();
+    if (!this.signalStore) return; // Fix 1: null guard
 
     for (const sig of signals) {
       if (sig.direction !== 'output') continue;
 
-      const unsub = this.signalStore!.subscribe(sig.name, (value) => {
+      const unsub = this.signalStore.subscribe(sig.name, (value) => {
+        // Fix 7: Don't echo back values we just received from the remote
+        if (this.pendingIncoming.has(sig.name)) return;
         this.dirtyOutgoing.set(sig.name, value);
       });
       this._outgoingSubscriptions.push(unsub);
