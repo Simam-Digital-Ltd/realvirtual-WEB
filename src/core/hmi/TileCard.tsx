@@ -20,7 +20,7 @@ const severityColors: Record<string, string> = {
 
 export interface TileCardProps {
   title: string;
-  subtitle: string;
+  subtitle: React.ReactNode;
   severity: 'error' | 'warning' | 'info' | 'success';
   icon: string;
   timestamp: string;
@@ -45,14 +45,15 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
   }, [viewer, componentPath]);
 
   const handleClick = useCallback(() => {
-    if (componentPath) {
+    if (docUrl) {
+      setDocOpen(true);
+    } else if (componentPath) {
       viewer.focusByPath(componentPath);
       viewer.highlightByPath(componentPath, true);
-      // Only filter chart if already open — don't force it open
       const driveName = componentPath.split('/').pop() ?? componentPath;
       viewer.filterDrives(driveName);
     }
-  }, [viewer, componentPath]);
+  }, [viewer, componentPath, docUrl]);
 
   return (
     <>
@@ -64,7 +65,7 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
       sx={{
         p: 1.5,
         borderLeft: `3px solid ${color}`,
-        cursor: componentPath ? 'pointer' : 'default',
+        cursor: (componentPath || docUrl) ? 'pointer' : 'default',
         pointerEvents: 'auto',
         '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
         transition: 'background-color 0.15s',

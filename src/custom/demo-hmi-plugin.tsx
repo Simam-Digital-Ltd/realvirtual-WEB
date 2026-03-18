@@ -140,16 +140,18 @@ function DriveInfoMessage(_props: UISlotProps) {
   );
 }
 
+const DOC_URL = 'pdf/fanuc-crx-educational-cell-manual.pdf#page=105';
+
 function RobotMaintenanceMessage(_props: UISlotProps) {
   return (
     <TileCard
       title="Robot Maintenance"
-      subtitle="Motor J4 overheating — see manual p.105"
+      subtitle={<>Motor J4 overheating — <a href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }} style={{ color: '#4fc3f7', textDecoration: 'underline', cursor: 'pointer' }}>see manual p.105</a></>}
       severity="warning"
       icon="build"
       timestamp="Today"
-      componentPath="FanucCRX-10iA_L"
-      docUrl="pdf/fanuc-crx-educational-cell-manual.pdf#page=105"
+      componentPath="A4"
+      docUrl={DOC_URL}
     />
   );
 }

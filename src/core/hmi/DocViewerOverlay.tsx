@@ -54,10 +54,11 @@ export function DocViewerOverlay({ url, title, onClose }: DocViewerOverlayProps)
           </IconButton>
         </Box>
 
-        {/* PDF iframe */}
+        {/* PDF embed */}
         <Box
-          component="iframe"
-          src={url}
+          component="object"
+          data={url}
+          type="application/pdf"
           sx={{ flex: 1, border: 'none', width: '100%', bgcolor: '#525659' }}
         />
       </Paper>
