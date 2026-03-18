@@ -15,7 +15,6 @@
 import {
   Group,
   Vector3,
-  Vector2,
   Box3,
   Mesh,
   MeshBasicMaterial,
@@ -29,7 +28,6 @@ import {
   DoubleSide,
   Float32BufferAttribute,
   Color,
-  Raycaster,
 } from 'three';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
@@ -37,7 +35,6 @@ import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
 import { RVXRManager } from '../core/engine/rv-xr-manager';
-import { setupDriveHover } from '../core/engine/rv-drive-hover';
 import { tooltipStore } from '../core/hmi/tooltip/tooltip-store';
 
 const DEAD_ZONE = 0.15;
@@ -131,9 +128,6 @@ export class WebXRPlugin implements RVViewerPlugin {
 
   // AR drive selection & tooltip
   private arSelectedDrive: import('../core/engine/rv-drive').RVDrive | null = null;
-  private readonly arRaycaster = new Raycaster();
-  private readonly arPointer = new Vector2();
-  private arDriveTargets: import('three').Object3D[] = [];
   private arStyleEl: HTMLStyleElement | null = null;
 
   onModelLoaded(result: LoadResult, viewer: RVViewer): void {
@@ -400,8 +394,8 @@ export class WebXRPlugin implements RVViewerPlugin {
     // Clear highlights BEFORE wrapping children into sceneContent,
     // otherwise scene.remove() can't find overlays that moved into the group.
     this.viewer.highlighter.clear();
-    // Disable drive hover so no new highlights appear during XR
-    if (this.viewer.driveHover) this.viewer.driveHover.dispose();
+    // Disable raycast hover so no new highlights appear during XR
+    if (this.viewer.raycastManager) this.viewer.raycastManager.setEnabled(false);
 
     if (this.sessionMode === 'ar') {
       // AR mode: make background transparent for passthrough
@@ -529,14 +523,9 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.removeInfoPanel();
     this.teardownMobileARTouch();
 
-    // Re-enable drive hover (was disposed on session start)
-    if (this.viewer.drives.length > 0 && this.viewer.registry) {
-      const dh = setupDriveHover(
-        this.viewer.renderer, this.viewer.camera,
-        this.viewer.scene, this.viewer.registry, this.viewer.highlighter,
-      );
-      dh.setDriveTargets(this.viewer.drives);
-      this.viewer.driveHover = dh;
+    // Re-enable raycast hover (was disabled on session start)
+    if (this.viewer.raycastManager) {
+      this.viewer.raycastManager.setEnabled(true);
     }
 
     // Clean up hit-test resources
@@ -1172,7 +1161,6 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.placementMode = false;
     this.hitTestMode = false;
     this.clearARSelection();
-    this.arDriveTargets = [];
   }
 
   // ─── AR drive selection & tooltip ──────────────────────────────────────
@@ -1185,67 +1173,33 @@ export class WebXRPlugin implements RVViewerPlugin {
   private arTapSelect(clientX: number, clientY: number): void {
     if (!this.viewer || !this.viewer.registry) return;
     const renderer = this.viewer.renderer;
-    const camera = renderer.xr.isPresenting ? renderer.xr.getCamera() : this.viewer.camera;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const xrCamera = renderer.xr.isPresenting
+      ? renderer.xr.getCamera() as import('three').PerspectiveCamera
+      : undefined;
 
-    // Build drive mesh targets (only once, cache for session)
-    if (this.arDriveTargets.length === 0 && this.viewer.drives.length > 0) {
-      for (const drive of this.viewer.drives) {
-        drive.node.traverse((child) => {
-          if ((child as Mesh).isMesh && !child.userData?._highlightOverlay) {
-            this.arDriveTargets.push(child);
-          }
-        });
+    // Delegate to RaycastManager's 9-point AR tap sampling
+    if (this.viewer.raycastManager) {
+      const result = this.viewer.raycastManager.arTapRaycast(clientX, clientY, xrCamera);
+
+      if (!result || result.nodeType !== 'Drive') {
+        this.clearARSelection();
+        return;
       }
-    }
-    const targets = this.arDriveTargets.length > 0 ? this.arDriveTargets : this.viewer.scene.children;
-    const recursive = this.arDriveTargets.length === 0;
 
-    // Sample center + 8 surrounding points (20px radius) for forgiving tap
-    const TAP_RADIUS = 20;
-    const offsets = [
-      [0, 0], [-TAP_RADIUS, 0], [TAP_RADIUS, 0], [0, -TAP_RADIUS], [0, TAP_RADIUS],
-      [-TAP_RADIUS * 0.7, -TAP_RADIUS * 0.7], [TAP_RADIUS * 0.7, -TAP_RADIUS * 0.7],
-      [-TAP_RADIUS * 0.7, TAP_RADIUS * 0.7], [TAP_RADIUS * 0.7, TAP_RADIUS * 0.7],
-    ];
-
-    let bestDrive: import('../core/engine/rv-drive').RVDrive | null = null;
-    let bestDist = Infinity;
-
-    for (const [ox, oy] of offsets) {
-      this.arPointer.x = ((clientX + ox) / w) * 2 - 1;
-      this.arPointer.y = -((clientY + oy) / h) * 2 + 1;
-      this.arRaycaster.setFromCamera(this.arPointer, camera);
-
-      const hits = this.arRaycaster.intersectObjects(targets, recursive);
-      const hit = hits.find(
-        (hr) => (hr.object as Mesh).isMesh
-          && !hr.object.name.endsWith('_sensorViz')
-          && !hr.object.userData?._highlightOverlay
-          && !hr.object.userData?._driveHoverOverlay,
-      );
-      if (hit) {
-        const drive = this.viewer.registry!.findInParent<import('../core/engine/rv-drive').RVDrive>(hit.object, 'Drive');
-        if (drive && hit.distance < bestDist) {
-          bestDist = hit.distance;
-          bestDrive = drive;
-        }
+      const drive = this.viewer.registry.findInParent<import('../core/engine/rv-drive').RVDrive>(result.node, 'Drive');
+      if (!drive) {
+        this.clearARSelection();
+        return;
       }
-    }
 
-    if (!bestDrive) {
+      // Same drive already selected — ignore
+      if (drive === this.arSelectedDrive) return;
+
       this.clearARSelection();
-      return;
+      this.arSelectedDrive = drive;
+      this.viewer.highlighter.highlight(drive.node, true, { includeChildDrives: true });
+      this.showARTooltip(drive, clientX, clientY);
     }
-
-    // Same drive already selected — ignore
-    if (bestDrive === this.arSelectedDrive) return;
-
-    this.clearARSelection();
-    this.arSelectedDrive = bestDrive;
-    this.viewer.highlighter.highlight(bestDrive.node, true, { includeChildDrives: true });
-    this.showARTooltip(bestDrive, clientX, clientY);
   }
 
   /** Show a tooltip for the selected drive using the generic tooltip system. */

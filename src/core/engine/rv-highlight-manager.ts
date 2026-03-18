@@ -3,7 +3,7 @@
  *
  * Provides a single "highlight slot" that shows semi-transparent orange overlays
  * + glowing edge outlines on any Object3D subtree. Used by:
- *   - Drive hover (rv-drive-hover.ts)
+ *   - RaycastManager hover (rv-raycast-manager.ts)
  *   - Notification card hover/click
  *   - Any future selection or inspection feature
  *

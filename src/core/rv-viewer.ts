@@ -43,8 +43,8 @@ import Stats from 'stats-gl';
 import { EventEmitter } from './rv-events';
 import { loadGLB, type LoadResult } from './engine/rv-scene-loader';
 import { SimulationLoop } from './engine/rv-simulation-loop';
-import { setupDriveHover, type RVDriveHover } from './engine/rv-drive-hover';
 import { RVHighlightManager } from './engine/rv-highlight-manager';
+import { RaycastManager, type ObjectHoverData, type ObjectUnhoverData, type ObjectClickData } from './engine/rv-raycast-manager';
 import type { RVDrive } from './engine/rv-drive';
 import type { RVTransportManager } from './engine/rv-transport-manager';
 import type { SignalStore } from './engine/rv-signal-store';
@@ -103,6 +103,11 @@ export interface ViewerEvents {
   'interface-disconnected': { interfaceId: string; reason?: string };
   'interface-error': { interfaceId: string; error: string };
   'interface-data': { interfaceId: string; signals: Record<string, unknown> };
+
+  // ── Generic raycast events (emitted by RaycastManager) ──
+  'object-hover': ObjectHoverData | null;
+  'object-unhover': ObjectUnhoverData;
+  'object-click': ObjectClickData;
 
   // ── UI events (emitted by UI plugins) ──
   'camera-animation-done': { targetPath?: string };
@@ -164,10 +169,52 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   signalStore: SignalStore | null = null;
   registry: NodeRegistry | null = null;
   drives: RVDrive[] = [];
-  driveHover: RVDriveHover | null = null;
+  /** Unified raycast manager (replaces the old driveHover). */
+  raycastManager: RaycastManager | null = null;
   transportManager: RVTransportManager | null = null;
   logicEngine: RVLogicEngine | null = null;
   playback: RVDrivesPlayback | null = null;
+
+  /**
+   * @deprecated Use `viewer.raycastManager` instead. This getter returns
+   * an adapter that delegates to RaycastManager for backward compatibility.
+   */
+  get driveHover(): {
+    enabled: boolean;
+    hoveredDrive: RVDrive | null;
+    pointerClientX: number;
+    pointerClientY: number;
+    lastRayOrigin: Vector3 | null;
+    lastRayDirection: Vector3 | null;
+    setDriveTargets(drives: RVDrive[]): void;
+    updateFromXRController(origin: Vector3, direction: Vector3): void;
+    dispose(): void;
+  } | null {
+    if (!this.raycastManager) return null;
+    const rm = this.raycastManager;
+    const self = this;
+    return {
+      get enabled() { return rm.enabled; },
+      set enabled(v: boolean) { rm.setEnabled(v); },
+      get hoveredDrive() {
+        if (!rm.hoveredNode || rm.hoveredNodeType !== 'Drive') return null;
+        return self.registry?.findInParent<RVDrive>(rm.hoveredNode, 'Drive') ?? null;
+      },
+      get pointerClientX() { return rm.pointerClientX; },
+      get pointerClientY() { return rm.pointerClientY; },
+      get lastRayOrigin() { return rm.lastRayOrigin; },
+      get lastRayDirection() { return rm.lastRayDirection; },
+      setDriveTargets(drives: RVDrive[]) {
+        rm.registerTargets('DRIVE', drives.map(d => d.node));
+      },
+      updateFromXRController(origin: Vector3, direction: Vector3) {
+        rm.updateFromXRController(origin, direction);
+      },
+      dispose() {
+        rm.dispose();
+      },
+    };
+  }
 
   // --- Plugin System ---
 
@@ -440,11 +487,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     // Track orbit/pan/pinch gesture state to suppress selection & hover highlighting
     this.controls.addEventListener('start', () => {
       this._isOrbiting = true;
-      if (this.driveHover) this.driveHover.enabled = false;
+      if (this.raycastManager) this.raycastManager.setEnabled(false);
     });
     this.controls.addEventListener('end', () => {
       this._isOrbiting = false;
-      if (this.driveHover) this.driveHover.enabled = true;
+      if (this.raycastManager) this.raycastManager.setEnabled(true);
     });
 
     // Trackpad: two-finger drag rotates when no modifier, pinch (ctrl+wheel) zooms.
@@ -516,17 +563,23 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       // Suppress selection if orbit controls are still active
       if (this._isOrbiting) return;
 
-      const hovered = this.driveHover?.hoveredDrive;
-      if (hovered && this._driveChartOpen) {
-        this.filterDrives(hovered.name);
-      } else if (hovered) {
-        const path = this.registry?.getPathForNode(hovered.node);
+      // Check if raycastManager has a hovered drive
+      const hoveredNode = this.raycastManager?.hoveredNode ?? null;
+      const hoveredType = this.raycastManager?.hoveredNodeType ?? null;
+      const hoveredDrive = (hoveredNode && hoveredType === 'Drive')
+        ? this.registry?.findInParent<RVDrive>(hoveredNode, 'Drive') ?? null
+        : null;
+
+      if (hoveredDrive && this._driveChartOpen) {
+        this.filterDrives(hoveredDrive.name);
+      } else if (hoveredDrive) {
+        const path = this.registry?.getPathForNode(hoveredDrive.node);
         if (path) {
-          this.highlighter.highlight(hovered.node, true, { includeChildDrives: true });
-          this.emit('object-clicked', { path, node: hovered.node });
+          this.highlighter.highlight(hoveredDrive.node, true, { includeChildDrives: true });
+          this.emit('object-clicked', { path, node: hoveredDrive.node });
         }
       } else {
-        const hitPath = this._raycastForRVNode(e);
+        const hitPath = this.raycastManager?.raycastForRVNode(e) ?? this._raycastForRVNode(e);
         if (hitPath && this.registry) {
           const node = this.registry.getNode(hitPath);
           if (node) {
@@ -541,7 +594,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     // Double-click: emit object-focus for camera zoom
     this.renderer.domElement.addEventListener('dblclick', (e) => {
-      const hitPath = this._raycastForRVNode(e);
+      const hitPath = this.raycastManager?.raycastForRVNode(e) ?? this._raycastForRVNode(e);
       if (hitPath && this.registry) {
         const node = this.registry.getNode(hitPath);
         if (node) {
@@ -710,9 +763,12 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     registerFilterSubscriber({ id: 'Sensor', label: 'Sensors', componentType: 'Sensor' });
     registerFilterSubscriber({ id: 'TransportSurface', label: 'Conveyors', componentType: 'TransportSurface' });
 
-    // Drive hover highlighting (hover events emitted in render loop)
-    this.driveHover = setupDriveHover(this.renderer, this.camera, this.scene, result.registry, this.highlighter);
-    this.driveHover.setDriveTargets(this.drives);
+    // Unified raycast manager (replaces old driveHover)
+    this.raycastManager = new RaycastManager(
+      this.renderer, this.camera, this.scene,
+      result.registry, this.highlighter, this,
+    );
+    this.raycastManager.registerTargets('DRIVE', this.drives.map(d => d.node));
 
     // LogicEngine
     if (this.logicEngine) {
@@ -783,9 +839,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     }
     this._lastLoadResult = null;
 
-    if (this.driveHover) {
-      this.driveHover.dispose();
-      this.driveHover = null;
+    if (this.raycastManager) {
+      this.raycastManager.dispose();
+      this.raycastManager = null;
     }
     if (this.currentModel) {
       this.scene.remove(this.currentModel);
@@ -1268,20 +1324,44 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       catch (e) { console.error(`[RVViewer] Plugin '${p.id}' onRender error:`, e); }
     }
 
-    // Emit drive-hover events when hovered drive changes or pointer moves significantly
-    if (this.driveHover) {
-      const hovered = this.driveHover.hoveredDrive;
-      const cx = this.driveHover.pointerClientX;
-      const cy = this.driveHover.pointerClientY;
-      const driveChanged = hovered !== this.lastHoveredDrive;
+    // Emit object-hover + backward-compatible drive-hover events
+    if (this.raycastManager) {
+      const rm = this.raycastManager;
+      const hoveredNode = rm.hoveredNode;
+      const hoveredType = rm.hoveredNodeType;
+      const hoveredPath = rm.hoveredNodePath;
+      const cx = rm.pointerClientX;
+      const cy = rm.pointerClientY;
+
+      // Resolve drive for compat layer
+      const hoveredDrive = (hoveredNode && hoveredType === 'Drive')
+        ? this.registry?.findInParent<RVDrive>(hoveredNode, 'Drive') ?? null
+        : null;
+
+      const driveChanged = hoveredDrive !== this.lastHoveredDrive;
       const dx = cx - this.lastHoverClientX;
       const dy = cy - this.lastHoverClientY;
       const movedEnough = dx * dx + dy * dy > 16; // 4px threshold squared
       if (driveChanged || movedEnough) {
-        this.lastHoveredDrive = hovered;
+        this.lastHoveredDrive = hoveredDrive;
         this.lastHoverClientX = cx;
         this.lastHoverClientY = cy;
-        this.emit('drive-hover', { drive: hovered, clientX: cx, clientY: cy });
+
+        // Emit generic object-hover
+        if (hoveredNode && hoveredType && hoveredPath) {
+          this.emit('object-hover', {
+            node: hoveredNode,
+            nodeType: hoveredType,
+            nodePath: hoveredPath,
+            pointer: { x: cx, y: cy },
+            mesh: hoveredNode,
+          });
+        } else {
+          this.emit('object-hover', null);
+        }
+
+        // Backward-compat: drive-hover with EXACT existing signature
+        this.emit('drive-hover', { drive: hoveredDrive, clientX: cx, clientY: cy });
       }
     }
 
