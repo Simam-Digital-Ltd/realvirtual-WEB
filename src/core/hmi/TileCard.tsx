@@ -1,7 +1,8 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { Paper, Box, Typography, IconButton } from '@mui/material';
 import { Warning, Build, Speed, Sensors, Close, OpenInNew } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
+import { DocViewerOverlay } from './DocViewerOverlay';
 
 const iconMap: Record<string, React.ReactElement> = {
   warning: <Warning />,
@@ -33,6 +34,7 @@ export interface TileCardProps {
 export function TileCard({ title, subtitle, severity, icon, timestamp, componentPath, docUrl, onDismiss }: TileCardProps) {
   const color = severityColors[severity];
   const viewer = useViewer();
+  const [docOpen, setDocOpen] = useState(false);
 
   const handleMouseEnter = useCallback(() => {
     if (componentPath) viewer.highlightByPath(componentPath, true);
@@ -53,6 +55,7 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
   }, [viewer, componentPath]);
 
   return (
+    <>
     <Paper
       elevation={4}
       onMouseEnter={handleMouseEnter}
@@ -84,7 +87,7 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
             {timestamp}
           </Typography>
           <Box sx={{ display: 'flex', gap: 0.25 }}>
-            <IconButton size="small" sx={{ p: 0.25 }} onClick={(e) => { e.stopPropagation(); if (docUrl) { window.open(docUrl, '_blank', 'noopener'); } else if (componentPath) { viewer.focusByPath(componentPath); viewer.highlightByPath(componentPath, true); } }}>
+            <IconButton size="small" sx={{ p: 0.25 }} onClick={(e) => { e.stopPropagation(); if (docUrl) { setDocOpen(true); } else if (componentPath) { viewer.focusByPath(componentPath); viewer.highlightByPath(componentPath, true); } }}>
               <OpenInNew sx={{ fontSize: 14 }} />
             </IconButton>
             <IconButton size="small" sx={{ p: 0.25 }} onClick={(e) => { e.stopPropagation(); onDismiss?.(); }}>
@@ -94,5 +97,7 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
         </Box>
       </Box>
     </Paper>
+    {docUrl && docOpen && <DocViewerOverlay url={docUrl} title={title} onClose={() => setDocOpen(false)} />}
+    </>
   );
 }
