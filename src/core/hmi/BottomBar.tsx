@@ -4,8 +4,9 @@ import {
   Popover, Switch, FormControlLabel, Typography, Divider,
   List, ListItemButton,
 } from '@mui/material';
-import { Search, Clear, MoreHoriz, CenterFocusStrong } from '@mui/icons-material';
+import { Search, Clear, MoreHoriz, CenterFocusStrong, Layers } from '@mui/icons-material';
 import { CameraBar } from './CameraBar';
+import { GroupsOverlay } from './GroupsOverlay';
 import { useNodeFilter } from '../../hooks/use-node-filter';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { useViewer } from '../../hooks/use-viewer';
@@ -356,7 +357,21 @@ export function BottomBar() {
         }}
       >
         <CameraBar />
+        {viewer.groups && viewer.groups.groupCount > 0 && (
+          <IconButton
+            size="small"
+            color="inherit"
+            title="Toggle Groups panel"
+            onClick={() => viewer.toggleGroupsOverlay()}
+            sx={{
+              color: viewer.groupsOverlayOpen ? '#ab47bc' : 'inherit',
+            }}
+          >
+            <Layers fontSize="small" />
+          </IconButton>
+        )}
       </Paper>
+      <GroupsOverlay />
 
       {/* Search settings popover */}
       <Popover

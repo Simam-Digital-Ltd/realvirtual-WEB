@@ -17,6 +17,7 @@ export const ALL_RV_STORAGE_KEYS = [
   'rv-hierarchy-expanded',
   'rv-inspector-collapsed',
   'rv-inspector-consumed-only',
+  'rv-group-visibility',
 ] as const;
 
 /**

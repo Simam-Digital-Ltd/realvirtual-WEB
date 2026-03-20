@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
-import { VitePWA } from 'vite-plugin-pwa';
+// PWA disabled – always serve fresh content, no service worker caching
+// import { VitePWA } from 'vite-plugin-pwa';
 import { playwright } from '@vitest/browser-playwright';
 import { readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -183,24 +184,7 @@ export default defineConfig({
   base: process.env.VITE_BASE || './',
   plugins: [
     react(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      manifest: false, // use public/manifest.json directly
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,png,wasm}'],
-        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024, // 10MB for WASM/Three.js chunks
-        navigateFallback: 'index.html',
-        runtimeCaching: [{
-          urlPattern: /\.glb$/,
-          handler: 'CacheFirst',
-          options: {
-            cacheName: 'glb-models',
-            expiration: { maxEntries: 5, maxAgeSeconds: 7 * 24 * 60 * 60 },
-            cacheableResponse: { statuses: [0, 200] },
-          },
-        }],
-      },
-    }),
+    // VitePWA disabled – no service worker, always fresh content
     testRunnerPlugin(),
     debugApiPlugin(),
   ],

@@ -13,6 +13,7 @@ import { RVViewer } from './core/rv-viewer';
 import { initHMI } from './custom/hmi-entry';
 import { initTestRunner } from './rv-test-runner';
 import { fetchAppConfig, setAppConfig } from './core/hmi/rv-app-config';
+import { loadVisualSettings } from './core/hmi/visual-settings-store';
 
 // Core Plugins
 import { SensorMonitorPlugin } from './plugins/sensor-monitor-plugin';
@@ -39,6 +40,9 @@ import { CtrlXInterface } from './interfaces/ctrlx-interface';
 // WebXR plugin (immersive VR on Quest 3 and other headsets)
 import { WebXRPlugin } from './plugins/webxr-plugin';
 
+// Performance test plugin (activated via ?perf URL param)
+import { PerfTestPlugin } from './plugins/perf-test-plugin';
+
 // --- localStorage keys ---
 const LS_KEY_MODEL = 'rv-webviewer-last-model';
 const LS_KEY_RENDERER = 'rv-webviewer-renderer';
@@ -61,8 +65,7 @@ function showLoadingOverlay(modelName: string) {
   loadingProgressBar.classList.add('indeterminate');
   loadingProgressBar.style.width = '';
   loadingProgressPct.textContent = '';
-  loadingOverlay.classList.remove('fade-out');
-  loadingOverlay.classList.add('visible');
+  loadingOverlay.classList.remove('fade-out', 'hidden');
 }
 
 function setLoadingProgress(loaded: number, total: number) {
@@ -77,7 +80,8 @@ function setLoadingProgress(loaded: number, total: number) {
 function hideLoadingOverlay() {
   loadingOverlay.classList.add('fade-out');
   setTimeout(() => {
-    loadingOverlay.classList.remove('visible', 'fade-out');
+    loadingOverlay.classList.add('hidden');
+    loadingOverlay.classList.remove('fade-out');
   }, 600);
 }
 
@@ -90,13 +94,24 @@ async function init() {
     appConfig.lockSettings = params.get('lockSettings') !== 'false';
   }
 
+  // Perf test mode: suppress UI chrome
+  const perfMode = params.has('perf');
+  if (perfMode) {
+    appConfig.lockSettings = true;
+    appConfig.hideWelcomeModal = true;
+  }
+
   // Set singleton — from here all stores have access via getAppConfig()
   setAppConfig(appConfig);
 
   const container = document.getElementById('app')!;
 
+  // --- Resolve antialias BEFORE renderer creation (constructor-only param) ---
+  const initialSettings = loadVisualSettings();
+  const wantAntialias = initialSettings.antialias !== false && !isTouchDevice;
+
   // --- Create Viewer ---
-  const viewer = await RVViewer.create(container, { useWebGPU });
+  const viewer = await RVViewer.create(container, { useWebGPU, antialias: wantAntialias });
 
   // Expose viewer globally for console debugging
   (window as unknown as { viewer: RVViewer }).viewer = viewer;
@@ -127,6 +142,8 @@ async function init() {
     .use(new TestAxesPlugin())
     .use(new RvExtrasEditorPlugin());
 
+  if (perfMode) viewer.use(new PerfTestPlugin());
+
   // --- Model discovery ---
   const modelFiles = import.meta.glob('/public/models/*.glb', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
   const entries = Object.keys(modelFiles).map((key) => {
@@ -139,7 +156,7 @@ async function init() {
 
   // --- Load model helper ---
   async function loadModel(url: string) {
-    const modelName = url.split('/').pop() ?? url;
+    const modelName = (url.split('/').pop() ?? url).split('?')[0].replace(/\.glb$/i, '');
     showLoadingOverlay(modelName);
     localStorage.setItem(LS_KEY_MODEL, url);
 
@@ -171,8 +188,10 @@ async function init() {
 
       const result = await viewer.loadModel(modelUrl);
 
-      // Clean up blob URL if we created one
-      if (modelUrl !== url) URL.revokeObjectURL(modelUrl);
+      // Clean up blob URL after a delay — GLTFLoader may have pending async
+      // operations (DRACO decoder, texture loading) that still reference the
+      // blob URL after loadModel() resolves.
+      if (modelUrl !== url) setTimeout(() => URL.revokeObjectURL(modelUrl), 5000);
 
       const loadTime = ((performance.now() - loadStart) / 1000).toFixed(1) + 's';
       viewer.lastLoadInfo = { glbSize: sizeMB, loadTime };

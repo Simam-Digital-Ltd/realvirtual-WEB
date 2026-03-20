@@ -36,6 +36,9 @@ const _muWorldPos = new Vector3();
 const _worldQuat = new Quaternion();
 const _localCenter = new Vector3();
 const _worldScale = new Vector3();
+const _tmpVec3 = new Vector3();
+const _rayOrigin = new Vector3();
+const _rayDir = new Vector3();
 
 export class RapierPhysicsPlugin implements RVViewerPlugin {
   readonly id = 'rapier-physics';
@@ -64,6 +67,13 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
   /** Node sync map: MU ID → { position, quaternion } for Rapier → Three.js sync */
   private _nodeSyncMap = new Map<string, { position: Vector3; quaternion: Quaternion }>();
 
+  /** Cache last conveyor speed per surface to avoid redundant Rapier calls */
+  private _lastSpeed = new Map<RVTransportSurface, number>();
+  /** Cache normalized transport direction per surface (computed once at model load) */
+  private _cachedDirs = new Map<RVTransportSurface, { x: number; y: number; z: number }>();
+  /** Cache parent inverse matrices for MU sync (for static parents) */
+  private _parentInverseCache = new WeakMap<Object3D, { matrix: import('three').Matrix4; dirty: boolean }>();
+
   /** Debug wireframe group (added to scene when debugWireframes is enabled) */
   private _debugGroup: Group | null = null;
   /** Debug wireframe materials by type */
@@ -79,8 +89,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
   async preload(): Promise<void> {
     try {
       const RAPIER = await import('@dimforge/rapier3d-compat');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- suppress deprecated param warning from WASM
-      await (RAPIER as any).init({});
+      await RAPIER.init();
       this._rapier = RAPIER;
       console.log('[RapierPhysicsPlugin] WASM loaded successfully');
     } catch (e) {
@@ -184,7 +193,10 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
 
       // Speed in m/s (currentSpeed is in mm/s)
       const speedMs = surface.speed / 1000;
-      const dir = surface.config.transportDirection.clone().normalize();
+      // Pre-normalize and cache transport direction (avoid clone().normalize() GC in hot path)
+      _tmpVec3.copy(surface.config.transportDirection).normalize();
+      const dir = { x: _tmpVec3.x, y: _tmpVec3.y, z: _tmpVec3.z };
+      this._cachedDirs.set(surface, dir);
 
       this._physicsWorld.addConveyorSurface(
         surfaceId,
@@ -290,10 +302,15 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       }
     }
 
-    // 2. Update conveyor velocities from drive speeds
+    // 2. Update conveyor velocities from drive speeds (skip unchanged)
     for (const surface of tm.surfaces) {
       const surfaceId = this._surfaceIds.get(surface);
       if (!surfaceId) continue;
+
+      // Skip Rapier call when speed hasn't changed
+      const lastSpeed = this._lastSpeed.get(surface);
+      if (lastSpeed === surface.speed) continue;
+      this._lastSpeed.set(surface, surface.speed);
 
       const speedMs = surface.speed / 1000;
       if (surface.config.isRadial) {
@@ -306,11 +323,11 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
           angularSpeed,
         );
       } else {
-        // Linear: linear velocity
-        const dir = surface.config.transportDirection.clone().normalize();
+        // Linear: use pre-cached normalized direction (avoids clone().normalize() GC)
+        const dir = this._cachedDirs.get(surface) ?? { x: 1, y: 0, z: 0 };
         this._physicsWorld.updateConveyorVelocity(
           surfaceId,
-          { x: dir.x, y: dir.y, z: dir.z },
+          dir,
           speedMs,
         );
       }
@@ -463,8 +480,9 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     const maxDist = (cfg.rayCastLength ?? 1000) / 1000; // mm → meters
 
     sensor.node.updateWorldMatrix(true, false);
-    const origin = new Vector3().setFromMatrixPosition(sensor.node.matrixWorld);
-    const dir = new Vector3(d.x, d.y, d.z).transformDirection(sensor.node.matrixWorld).normalize();
+    // Use pre-allocated vectors to avoid GC in hot path
+    const origin = _rayOrigin.setFromMatrixPosition(sensor.node.matrixWorld);
+    const dir = _rayDir.set(d.x, d.y, d.z).transformDirection(sensor.node.matrixWorld).normalize();
 
     const hit = this._physicsWorld.castRay(
       { x: origin.x, y: origin.y, z: origin.z },

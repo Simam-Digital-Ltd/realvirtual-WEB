@@ -829,7 +829,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
 
   const handleSelect = useCallback(
     (path: string) => {
-      plugin.selectNode(path);
+      plugin.selectNode(path, true);
       highlightNode(path);
     },
     [plugin, highlightNode],

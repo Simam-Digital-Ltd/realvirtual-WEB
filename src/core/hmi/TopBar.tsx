@@ -5,7 +5,7 @@ import { Settings, Close, PlayArrow, CheckCircle, Error as ErrorIcon, RestartAlt
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { useViewer } from '../../hooks/use-viewer';
 import type { WebXRPlugin } from '../../plugins/webxr-plugin';
-import { loadVisualSettings, saveVisualSettings, type VisualSettings, type CameraBookmark } from './visual-settings-store';
+import { loadVisualSettings, saveVisualSettings, LIGHTING_MODES, TONE_MAPPING_OPTIONS, SHADOW_QUALITY_OPTIONS, type VisualSettings, type CameraBookmark, type LightingMode, type ToneMappingType, type ShadowQuality, type ProjectionType } from './visual-settings-store';
 import { loadPhysicsSettings, savePhysicsSettings, type PhysicsSettings } from './physics-settings-store';
 import { loadInterfaceSettings, saveInterfaceSettings, type InterfaceSettings, type InterfaceType, INTERFACE_DEFAULTS } from '../../interfaces/interface-settings-store';
 import { InterfaceManager } from '../../interfaces/interface-manager';
@@ -86,71 +86,82 @@ export function TopBar() {
         )}
       </Paper>
 
-      {/* Hierarchy browser panel (disabled on mobile) */}
-      {!isMobile && hierarchyOpen && <HierarchyBrowser viewer={viewer} />}
+      {/* Hierarchy browser panel (disabled on mobile, hidden when settings open) */}
+      {!isMobile && hierarchyOpen && !settingsOpen && <HierarchyBrowser viewer={viewer} />}
 
-      {/* Property inspector (disabled on mobile) */}
-      {!isMobile && hierarchyOpen && pluginState.selectedNodePath && <PropertyInspector viewer={viewer} />}
+      {/* Property inspector (disabled on mobile, hidden when settings open) */}
+      {!isMobile && hierarchyOpen && !settingsOpen && pluginState.showInspector && pluginState.selectedNodePath && <PropertyInspector viewer={viewer} />}
 
       {/* VR/AR modal */}
       {vrOpen && <VRModal onClose={() => setVrOpen(false)} />}
 
-      {/* Settings full-screen overlay */}
+      {/* Settings side panel */}
       {settingsOpen && (
-        <Box
+        <Paper
+          elevation={4}
+          data-ui-panel
           sx={{
             position: 'fixed',
-            inset: 0,
-            zIndex: 9000,
+            left: isMobile ? 0 : 8,
+            top: isMobile ? 44 : 44,
+            bottom: isMobile ? 0 : 8,
+            right: isMobile ? 0 : 'auto',
+            width: isMobile ? '100%' : 360,
+            zIndex: 1200,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            bgcolor: 'rgba(0,0,0,0.5)',
+            flexDirection: 'column',
+            overflow: 'hidden',
             pointerEvents: 'auto',
+            borderRadius: isMobile ? 0 : 2,
           }}
-          onClick={() => setSettingsOpen(false)}
         >
-          <Paper
-            elevation={12}
+          {/* Header */}
+          <Box
             sx={{
-              borderRadius: 2,
-              width: 560,
-              maxWidth: '95vw',
-              minHeight: { xs: 0, sm: 400 },
-              maxHeight: '90dvh',
               display: 'flex',
-              flexDirection: 'column',
-              overflow: 'auto',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              px: 1.5,
+              py: 0.75,
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
             }}
-            onClick={(e) => e.stopPropagation()}
           >
-            <Tabs
-              value={settingsTab}
-              onChange={(_, v) => setSettingsTab(v)}
-              sx={{
-                borderBottom: '1px solid rgba(255,255,255,0.08)',
-                minHeight: 40,
-                '& .MuiTab-root': { minHeight: 40, py: 1, textTransform: 'none', fontSize: 13, minWidth: 0, px: { xs: 1.5, sm: 2 } },
-              }}
-            >
-              {!isTabLocked('model') && <Tab label="Model" value={0} />}
-              {!isTabLocked('visual') && <Tab label="Visual" value={1} />}
-              {!isTabLocked('physics') && <Tab label="Physics" value={2} />}
-              {!isTabLocked('interfaces') && <Tab label="Interfaces" value={3} />}
-              {!isTabLocked('devtools') && <Tab label="Dev Tools" value={4} />}
-              {!isTabLocked('tests') && <Tab label="Tests" value={5} />}
-            </Tabs>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>Settings</Typography>
+            <IconButton size="small" onClick={() => setSettingsOpen(false)} sx={{ color: 'text.secondary' }}>
+              <Close fontSize="small" />
+            </IconButton>
+          </Box>
 
-            <Box sx={{ p: { xs: 2, sm: 3 }, flex: 1 }}>
-              {settingsTab === 0 && !isTabLocked('model') && <ModelTab />}
-              {settingsTab === 1 && !isTabLocked('visual') && <VisualTab />}
-              {settingsTab === 2 && !isTabLocked('physics') && <PhysicsTab />}
-              {settingsTab === 3 && !isTabLocked('interfaces') && <InterfacesTab />}
-              {settingsTab === 4 && !isTabLocked('devtools') && <DevToolsTab />}
-              {settingsTab === 5 && !isTabLocked('tests') && <TestsTab />}
-            </Box>
-          </Paper>
-        </Box>
+          {/* Tabs - scrollable for 360px width */}
+          <Tabs
+            value={settingsTab}
+            onChange={(_, v) => setSettingsTab(v)}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              minHeight: 40,
+              '& .MuiTab-root': { minHeight: 40, py: 1, textTransform: 'none', fontSize: 13, minWidth: 0, px: { xs: 1.5, sm: 2 } },
+            }}
+          >
+            {!isTabLocked('model') && <Tab label="Model" value={0} />}
+            {!isTabLocked('visual') && <Tab label="Visual" value={1} />}
+            {!isTabLocked('physics') && <Tab label="Physics" value={2} />}
+            {!isTabLocked('interfaces') && <Tab label="Interfaces" value={3} />}
+            {!isTabLocked('devtools') && <Tab label="Dev Tools" value={4} />}
+            {!isTabLocked('tests') && <Tab label="Tests" value={5} />}
+          </Tabs>
+
+          {/* Tab content - minHeight: 0 for correct flexbox scrolling */}
+          <Box sx={{ flex: 1, overflow: 'auto', minHeight: 0, px: { xs: 1.5, sm: 2 }, py: 1.5 }}>
+            {settingsTab === 0 && !isTabLocked('model') && <ModelTab />}
+            {settingsTab === 1 && !isTabLocked('visual') && <VisualTab />}
+            {settingsTab === 2 && !isTabLocked('physics') && <PhysicsTab />}
+            {settingsTab === 3 && !isTabLocked('interfaces') && <InterfacesTab />}
+            {settingsTab === 4 && !isTabLocked('devtools') && <DevToolsTab />}
+            {settingsTab === 5 && !isTabLocked('tests') && <TestsTab />}
+          </Box>
+        </Paper>
       )}
     </>
   );
@@ -353,24 +364,127 @@ function ModelTab() {
 function VisualTab() {
   const viewer = useViewer();
   const settingsRef = useRef(loadVisualSettings());
-  const [shadows, setShadows] = useState(settingsRef.current.shadows);
-  const [shadowStr, setShadowStr] = useState(settingsRef.current.shadowStrength);
-  const [lightInt, setLightInt] = useState(settingsRef.current.lightIntensity);
+  const initMs = settingsRef.current.modeSettings[settingsRef.current.lightingMode];
+  const [mode, setMode] = useState<LightingMode>(settingsRef.current.lightingMode);
+  const [lightInt, setLightInt] = useState(initMs.lightIntensity);
+  const [toneMap, setToneMap] = useState<ToneMappingType>(initMs.toneMapping);
+  const [exposure, setExposure] = useState(initMs.toneMappingExposure);
+  const [ambColor, setAmbColor] = useState(initMs.ambientColor);
+  const [ambInt, setAmbInt] = useState(initMs.ambientIntensity);
+  const [dirEnabled, setDirEnabled] = useState(initMs.dirLightEnabled);
+  const [dirColor, setDirColor] = useState(initMs.dirLightColor);
+  const [dirInt, setDirInt] = useState(initMs.dirLightIntensity);
+  const [shadowOn, setShadowOn] = useState(initMs.shadowEnabled);
+  const [shadowInt, setShadowInt] = useState(initMs.shadowIntensity);
+  const [shadowQual, setShadowQual] = useState<ShadowQuality>(initMs.shadowQuality);
   const [cameras, setCameras] = useState<(CameraBookmark | null)[]>(settingsRef.current.cameras);
+  const [proj, setProj] = useState<ProjectionType>(settingsRef.current.projection);
+  const [fov, setFov] = useState(settingsRef.current.fov);
+  const [antialiasDesired, setAntialiasDesired] = useState<boolean>(settingsRef.current.antialias);
+  const [shadowMapSize, setShadowMapSize] = useState<number>(settingsRef.current.shadowMapSize);
+  const [shadowRadiusVal, setShadowRadiusVal] = useState<number>(settingsRef.current.shadowRadius);
 
   const persist = (patch: Partial<VisualSettings>) => {
     Object.assign(settingsRef.current, patch);
     saveVisualSettings(settingsRef.current);
   };
+  const persistMode = () => persist({ modeSettings: { ...settingsRef.current.modeSettings } });
 
-  const updateShadows = (_: unknown, v: boolean) => {
-    viewer.shadowsEnabled = v; setShadows(v); persist({ shadows: v });
+  const updateMode = (newMode: LightingMode) => {
+    // Save current values into old mode
+    const old = settingsRef.current.modeSettings[mode];
+    old.lightIntensity = lightInt; old.toneMapping = toneMap; old.toneMappingExposure = exposure;
+    old.ambientColor = ambColor; old.ambientIntensity = ambInt;
+    old.dirLightEnabled = dirEnabled; old.dirLightColor = dirColor; old.dirLightIntensity = dirInt;
+    old.shadowEnabled = shadowOn; old.shadowIntensity = shadowInt; old.shadowQuality = shadowQual;
+    // Switch mode — apply settings before lightingMode to avoid applyLightingMode resetting them
+    setMode(newMode);
+    const ms = settingsRef.current.modeSettings[newMode];
+    viewer.toneMapping = ms.toneMapping;
+    viewer.toneMappingExposure = ms.toneMappingExposure;
+    viewer.ambientColor = ms.ambientColor;
+    viewer.ambientIntensity = ms.ambientIntensity;
+    viewer.dirLightColor = ms.dirLightColor;
+    viewer.dirLightIntensity = ms.dirLightIntensity;
+    viewer.shadowIntensity = ms.shadowIntensity;
+    viewer.shadowQuality = ms.shadowQuality;
+    viewer.dirLightEnabled = ms.dirLightEnabled;
+    viewer.shadowEnabled = ms.shadowEnabled;
+    viewer.lightingMode = newMode;
+    viewer.lightIntensity = ms.lightIntensity;
+    setLightInt(ms.lightIntensity); setToneMap(ms.toneMapping); setExposure(ms.toneMappingExposure);
+    setAmbColor(ms.ambientColor); setAmbInt(ms.ambientIntensity);
+    setDirEnabled(ms.dirLightEnabled); setDirColor(ms.dirLightColor); setDirInt(ms.dirLightIntensity);
+    setShadowOn(ms.shadowEnabled); setShadowInt(ms.shadowIntensity); setShadowQual(ms.shadowQuality);
+    persist({ lightingMode: newMode });
   };
-  const updateShadowStr = (_: unknown, v: number | number[]) => {
-    const val = v as number; viewer.shadowStrength = val; setShadowStr(val); persist({ shadowStrength: val });
-  };
+
   const updateLightInt = (_: unknown, v: number | number[]) => {
-    const val = v as number; viewer.lightIntensity = val; setLightInt(val); persist({ lightIntensity: val });
+    const val = v as number; viewer.lightIntensity = val; setLightInt(val);
+    settingsRef.current.modeSettings[mode].lightIntensity = val; persistMode();
+  };
+  const updateToneMap = (v: ToneMappingType) => {
+    viewer.toneMapping = v; setToneMap(v);
+    settingsRef.current.modeSettings[mode].toneMapping = v; persistMode();
+  };
+  const updateExposure = (_: unknown, v: number | number[]) => {
+    const val = v as number; viewer.toneMappingExposure = val; setExposure(val);
+    settingsRef.current.modeSettings[mode].toneMappingExposure = val; persistMode();
+  };
+  const updateAmbColor = (hex: string) => {
+    viewer.ambientColor = hex; setAmbColor(hex);
+    settingsRef.current.modeSettings[mode].ambientColor = hex; persistMode();
+  };
+  const updateAmbInt = (_: unknown, v: number | number[]) => {
+    const val = v as number; viewer.ambientIntensity = val; setAmbInt(val);
+    settingsRef.current.modeSettings[mode].ambientIntensity = val; persistMode();
+  };
+  const updateDirEnabled = (_: unknown, v: boolean) => {
+    viewer.dirLightEnabled = v; setDirEnabled(v);
+    if (!v) { viewer.shadowEnabled = false; setShadowOn(false); settingsRef.current.modeSettings[mode].shadowEnabled = false; }
+    settingsRef.current.modeSettings[mode].dirLightEnabled = v; persistMode();
+  };
+  const updateDirColor = (hex: string) => {
+    viewer.dirLightColor = hex; setDirColor(hex);
+    settingsRef.current.modeSettings[mode].dirLightColor = hex; persistMode();
+  };
+  const updateDirInt = (_: unknown, v: number | number[]) => {
+    const val = v as number; viewer.dirLightIntensity = val; setDirInt(val);
+    settingsRef.current.modeSettings[mode].dirLightIntensity = val; persistMode();
+  };
+  const updateShadowOn = (_: unknown, v: boolean) => {
+    viewer.shadowEnabled = v; setShadowOn(v);
+    settingsRef.current.modeSettings[mode].shadowEnabled = v; persistMode();
+  };
+  const updateShadowInt = (_: unknown, v: number | number[]) => {
+    const val = v as number; viewer.shadowIntensity = val; setShadowInt(val);
+    settingsRef.current.modeSettings[mode].shadowIntensity = val; persistMode();
+  };
+  const updateShadowQual = (v: ShadowQuality) => {
+    viewer.shadowQuality = v; setShadowQual(v);
+    settingsRef.current.modeSettings[mode].shadowQuality = v; persistMode();
+  };
+  const updateAntialiasDesired = (_: unknown, v: boolean) => {
+    setAntialiasDesired(v);
+    persist({ antialias: v });
+  };
+  const updateShadowMapSize = (v: number) => {
+    setShadowMapSize(v);
+    viewer.shadowMapSize = v;
+    persist({ shadowMapSize: v });
+  };
+  const updateShadowRadius = (_: unknown, v: number | number[]) => {
+    const val = v as number;
+    setShadowRadiusVal(val);
+    viewer.shadowRadius = val;
+    persist({ shadowRadius: val });
+  };
+
+  const updateProj = (v: ProjectionType) => {
+    viewer.projection = v; setProj(v); persist({ projection: v });
+  };
+  const updateFov = (_: unknown, v: number | number[]) => {
+    const val = v as number; viewer.fov = val; setFov(val); persist({ fov: val });
   };
 
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -416,31 +530,101 @@ function VisualTab() {
     if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
   };
 
+  const antialiasMismatch = antialiasDesired !== viewer.antialiasActive;
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-      {/* Shadows on/off */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="body2" sx={{ color: 'text.primary' }}>Shadows</Typography>
-        <Switch size="small" checked={shadows} onChange={updateShadows} />
+      {/* Antialiasing */}
+      <Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="body2" sx={{ color: 'text.primary' }}>Antialiasing (MSAA)</Typography>
+          <Switch size="small" checked={antialiasDesired} onChange={updateAntialiasDesired} />
+        </Box>
+        {antialiasMismatch && (
+          <Box sx={{ mt: 0.5 }}>
+            <Typography variant="caption" sx={{ color: '#ffb74d', display: 'block', mb: 0.5, fontSize: 11 }}>
+              Antialiasing change requires page reload
+            </Typography>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => window.location.reload()}
+              startIcon={<RestartAlt />}
+              sx={{ fontSize: 11, textTransform: 'none', borderColor: '#ffb74d', color: '#ffb74d' }}
+            >
+              Reload now
+            </Button>
+          </Box>
+        )}
       </Box>
 
-      {/* Shadow Strength */}
+      {/* Shadow Map Size */}
       <Box>
         <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-          Shadow Strength
+          Shadow Map Size
         </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
-          <Slider size="small" min={0} max={1} step={0.05} value={shadowStr} disabled={!shadows} onChange={updateShadowStr} sx={{ flex: 1 }} />
+        <Select
+          size="small"
+          fullWidth
+          value={shadowMapSize}
+          onChange={(e) => updateShadowMapSize(Number(e.target.value))}
+          sx={{ mt: 0.5 }}
+        >
+          {[512, 1024, 2048].map((s) => (
+            <MenuItem key={s} value={s}>{s}</MenuItem>
+          ))}
+        </Select>
+      </Box>
+
+      {/* Shadow Radius */}
+      <Box>
+        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+          Shadow Radius
+        </Typography>
+        <Slider size="small" min={1} max={5} step={1} value={shadowRadiusVal} onChange={updateShadowRadius} valueLabelDisplay="auto" sx={{ mt: 1 }} />
+      </Box>
+
+      {/* Lighting Mode */}
+      <Box>
+        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+          Lighting Mode
+        </Typography>
+        <Select
+          size="small"
+          fullWidth
+          value={mode}
+          onChange={(e) => updateMode(e.target.value as LightingMode)}
+          sx={{ mt: 0.5 }}
+        >
+          {LIGHTING_MODES.map((m) => (
+            <MenuItem key={m} value={m}>{m.charAt(0).toUpperCase() + m.slice(1)}</MenuItem>
+          ))}
+        </Select>
+      </Box>
+
+      {/* Ambient Light */}
+      <Box>
+        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+          Ambient Light
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 0.5 }}>
+          <Slider size="small" min={0} max={2} step={0.05} value={ambInt} onChange={updateAmbInt} sx={{ flex: 1 }} />
           <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
-            {shadowStr.toFixed(2)}
+            {ambInt.toFixed(2)}
           </Typography>
+          <input
+            type="color"
+            value={ambColor}
+            onChange={(e) => updateAmbColor(e.target.value)}
+            style={{ width: 28, height: 28, border: 'none', borderRadius: 4, padding: 0, cursor: 'pointer', background: 'none' }}
+          />
         </Box>
       </Box>
 
       {/* Global Lighting */}
       <Box>
         <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-          Global Lighting
+          {mode === 'default' ? 'Environment Intensity' : 'Global Lighting'}
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
           <Slider size="small" min={0} max={2} step={0.05} value={lightInt} onChange={updateLightInt} sx={{ flex: 1 }} />
@@ -448,6 +632,147 @@ function VisualTab() {
             {lightInt.toFixed(2)}
           </Typography>
         </Box>
+      </Box>
+
+      {/* Tone Mapping (default mode only) */}
+      {mode === 'default' && (
+        <>
+          <Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+              Tone Mapping
+            </Typography>
+            <Select
+              size="small"
+              fullWidth
+              value={toneMap}
+              onChange={(e) => updateToneMap(e.target.value as ToneMappingType)}
+              sx={{ mt: 0.5 }}
+            >
+              {TONE_MAPPING_OPTIONS.map((t) => (
+                <MenuItem key={t} value={t}>{t === 'aces' ? 'ACES Filmic' : t === 'agx' ? 'AgX' : t.charAt(0).toUpperCase() + t.slice(1)}</MenuItem>
+              ))}
+            </Select>
+          </Box>
+
+          {toneMap !== 'none' && (
+            <Box>
+              <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+                Exposure
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+                <Slider size="small" min={0} max={3} step={0.05} value={exposure} onChange={updateExposure} sx={{ flex: 1 }} />
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
+                  {exposure.toFixed(2)}
+                </Typography>
+              </Box>
+            </Box>
+          )}
+        </>
+      )}
+
+      {/* Directional Light (default mode only) */}
+      {mode === 'default' && (
+        <>
+          <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="body2" sx={{ color: 'text.primary' }}>Directional Light</Typography>
+              <Switch size="small" checked={dirEnabled} onChange={updateDirEnabled} />
+            </Box>
+          </Box>
+
+          {dirEnabled && (
+            <>
+              <Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Light Intensity
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 0.5 }}>
+                  <Slider size="small" min={0} max={3} step={0.05} value={dirInt} onChange={updateDirInt} sx={{ flex: 1 }} />
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
+                    {dirInt.toFixed(2)}
+                  </Typography>
+                  <input
+                    type="color"
+                    value={dirColor}
+                    onChange={(e) => updateDirColor(e.target.value)}
+                    style={{ width: 28, height: 28, border: 'none', borderRadius: 4, padding: 0, cursor: 'pointer', background: 'none' }}
+                  />
+                </Box>
+              </Box>
+
+              {/* Shadows */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="body2" sx={{ color: 'text.primary' }}>Shadows</Typography>
+                <Switch size="small" checked={shadowOn} onChange={updateShadowOn} />
+              </Box>
+
+              {shadowOn && (
+                <>
+                  <Box>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+                      Shadow Intensity
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+                      <Slider size="small" min={0} max={3} step={0.05} value={shadowInt} onChange={updateShadowInt} sx={{ flex: 1 }} />
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
+                        {shadowInt.toFixed(2)}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+                      Shadow Quality
+                    </Typography>
+                    <Select
+                      size="small"
+                      fullWidth
+                      value={shadowQual}
+                      onChange={(e) => updateShadowQual(e.target.value as ShadowQuality)}
+                      sx={{ mt: 0.5 }}
+                    >
+                      {SHADOW_QUALITY_OPTIONS.map((q) => (
+                        <MenuItem key={q} value={q}>{q.charAt(0).toUpperCase() + q.slice(1)}</MenuItem>
+                      ))}
+                    </Select>
+                  </Box>
+                </>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {/* Camera Projection & FOV */}
+      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 2 }}>
+        <Box>
+          <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+            Projection
+          </Typography>
+          <Select
+            size="small"
+            fullWidth
+            value={proj}
+            onChange={(e) => updateProj(e.target.value as ProjectionType)}
+            sx={{ mt: 0.5 }}
+          >
+            <MenuItem value="perspective">Perspective</MenuItem>
+            <MenuItem value="orthographic">Orthographic</MenuItem>
+          </Select>
+        </Box>
+
+        {proj === 'perspective' && (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+              Field of View
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+              <Slider size="small" min={10} max={120} step={1} value={fov} onChange={updateFov} sx={{ flex: 1 }} />
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
+                {fov}°
+              </Typography>
+            </Box>
+          </Box>
+        )}
       </Box>
 
       {/* Camera Bookmarks */}

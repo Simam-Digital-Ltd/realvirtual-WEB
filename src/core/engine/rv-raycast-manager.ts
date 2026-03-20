@@ -21,7 +21,7 @@ import {
   Object3D,
   Layers,
 } from 'three';
-import type { PerspectiveCamera, Scene } from 'three';
+import type { Camera, PerspectiveCamera, Scene } from 'three';
 import { RaycastLayers, type RaycastLayerName } from './rv-raycast-layers';
 import type { NodeRegistry } from './rv-node-registry';
 import type { RVHighlightManager } from './rv-highlight-manager';
@@ -103,12 +103,15 @@ export class RaycastManager {
 
   constructor(
     private readonly renderer: { readonly domElement: HTMLCanvasElement },
-    private readonly camera: PerspectiveCamera,
+    private readonly camera: Camera,
     private readonly scene: Scene,
     private readonly registry: NodeRegistry,
     private readonly highlighter: RVHighlightManager,
     private readonly emitter: ViewerEmitter,
   ) {
+    // Enable firstHitOnly for BVH-accelerated raycasting (massive speedup)
+    this.raycaster.firstHitOnly = true;
+
     this.onPointerMove = this._handlePointerMove.bind(this);
     renderer.domElement.addEventListener('pointermove', this.onPointerMove);
 
@@ -412,6 +415,10 @@ export class RaycastManager {
 
   /** Determine the primary node type from the registry. */
   private _determineNodeType(node: Object3D, path: string): string {
+    // Fast path: check cached type from scene loader (avoids parent chain walk)
+    const cachedType = node.userData?._rvType as string | undefined;
+    if (cachedType) return cachedType;
+
     // Check standard types in priority order
     const typeChecks: Array<{ type: string; layerName: RaycastLayerName }> = [
       { type: 'Drive', layerName: 'DRIVE' },

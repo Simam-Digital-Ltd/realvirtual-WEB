@@ -20,6 +20,9 @@ export class RVTransportManager {
   mus: RVMovingUnit[] = [];
   scene: Scene | null = null;
 
+  /** Whether surface AABBs have been computed at least once (they are static). */
+  private _surfaceAabbInitialized = false;
+
   /** Total MUs spawned since start */
   totalSpawned = 0;
   /** Total MUs consumed by sinks since start */
@@ -48,9 +51,12 @@ export class RVTransportManager {
       }
     }
 
-    // 2. Update surface AABBs
-    for (const surface of this.surfaces) {
-      surface.updateAABB();
+    // 2. Update surface AABBs (skip for static surfaces — their mesh never moves)
+    if (!this._surfaceAabbInitialized) {
+      for (const surface of this.surfaces) {
+        surface.updateAABB();
+      }
+      this._surfaceAabbInitialized = true;
     }
 
     // 3. Transport: each MU is moved by exactly one surface (currentSurface)
@@ -137,6 +143,7 @@ export class RVTransportManager {
     this.mus.length = 0;
     this.totalSpawned = 0;
     this.totalConsumed = 0;
+    this._surfaceAabbInitialized = false;
     for (const sensor of this.sensors) {
       sensor.occupied = false;
       sensor.occupiedMU = null;

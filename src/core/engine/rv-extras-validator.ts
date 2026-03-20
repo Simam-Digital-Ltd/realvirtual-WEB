@@ -93,6 +93,9 @@ const CONSUMED: Record<string, string[]> = {
 
   // ConnectSignal — C# source: ConnectSignal.cs (Packages/io.realvirtual.starter/Runtime/Components/ConnectSignal.cs)
   ConnectSignal: ['ConnectedSignal'],
+
+  // Group — parsed by loadGLB group parsing
+  Group: ['GroupName', 'GroupNamePrefix'],
 };
 
 /**
@@ -231,6 +234,9 @@ const IGNORED: Record<string, string[]> = {
 
   // ConnectSignal — internal state, Name/Active metadata
   ConnectSignal: ['Name', 'Active'],
+
+  // Group — component metadata
+  Group: ['Name', 'Active', '_fullTypeName', '_version', '_enabled'],
 };
 
 /** Summary of unhandled fields per component type (collected during load) */

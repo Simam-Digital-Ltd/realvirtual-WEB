@@ -114,21 +114,24 @@ describe('rv-app-config', () => {
   // --- Lock-Guard in Stores ---
 
   it('should not write to localStorage when settings locked (visual)', async () => {
-    const { saveVisualSettings } = await import('../src/core/hmi/visual-settings-store');
+    const { saveVisualSettings, loadVisualSettings } = await import('../src/core/hmi/visual-settings-store');
     setAppConfig({ lockSettings: true });
     const spy = vi.spyOn(Storage.prototype, 'setItem');
 
-    saveVisualSettings({ shadows: true, shadowStrength: 0.5, lightIntensity: 1.0, cameras: [null, null, null] });
+    // Use current VisualSettings shape (nested modeSettings)
+    const settings = loadVisualSettings();
+    saveVisualSettings(settings);
 
     expect(spy).not.toHaveBeenCalled();
   });
 
   it('should write to localStorage when settings NOT locked (visual)', async () => {
-    const { saveVisualSettings } = await import('../src/core/hmi/visual-settings-store');
+    const { saveVisualSettings, loadVisualSettings } = await import('../src/core/hmi/visual-settings-store');
     setAppConfig({});
     const spy = vi.spyOn(Storage.prototype, 'setItem');
 
-    saveVisualSettings({ shadows: true, shadowStrength: 0.5, lightIntensity: 1.0, cameras: [null, null, null] });
+    const settings = loadVisualSettings();
+    saveVisualSettings(settings);
 
     expect(spy).toHaveBeenCalledWith('rv-visual-settings', expect.any(String));
   });
@@ -140,27 +143,35 @@ describe('rv-app-config', () => {
 
     // Step 1: Populate localStorage with user values (lock must be off for save)
     setAppConfig({});
-    saveVisualSettings({ shadows: false, shadowStrength: 0.3, lightIntensity: 1.0, cameras: [null, null, null] });
+    const defaults = loadVisualSettings();
+    defaults.modeSettings.default.shadowEnabled = false;
+    defaults.modeSettings.default.lightIntensity = 1.0;
+    saveVisualSettings(defaults);
 
-    // Step 2: Set config override
-    setAppConfig({ visual: { shadows: true, lightIntensity: 2.0 } });
+    // Step 2: Set config override (lightingMode override)
+    setAppConfig({ visual: { lightingMode: 'default' } });
 
-    // Step 3: Load — config must win over localStorage
+    // Step 3: Load — config must win over localStorage for overridden fields
     const result = loadVisualSettings();
-    expect(result.shadows).toBe(true);        // Config overrides
-    expect(result.shadowStrength).toBe(0.3);  // localStorage preserved (not in config)
-    expect(result.lightIntensity).toBe(2.0);  // Config overrides
+    expect(result.lightingMode).toBe('default');
+    // localStorage values preserved for non-overridden fields
+    expect(result.modeSettings.default.shadowEnabled).toBe(false);
+    expect(result.modeSettings.default.lightIntensity).toBe(1.0);
   });
 
   it('should return localStorage values when no config override', async () => {
     const { loadVisualSettings, saveVisualSettings } = await import('../src/core/hmi/visual-settings-store');
 
     setAppConfig({}); // No override
-    saveVisualSettings({ shadows: false, shadowStrength: 0.3, lightIntensity: 1.5, cameras: [null, null, null] });
+    const defaults = loadVisualSettings();
+    defaults.modeSettings.default.shadowEnabled = false;
+    defaults.modeSettings.default.lightIntensity = 1.5;
+    defaults.lightingMode = 'default';
+    saveVisualSettings(defaults);
 
     const result = loadVisualSettings();
-    expect(result.shadows).toBe(false);
-    expect(result.shadowStrength).toBe(0.3);
-    expect(result.lightIntensity).toBe(1.5);
+    expect(result.lightingMode).toBe('default');
+    expect(result.modeSettings.default.shadowEnabled).toBe(false);
+    expect(result.modeSettings.default.lightIntensity).toBe(1.5);
   });
 });

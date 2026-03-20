@@ -29,9 +29,24 @@ function useApplyPersistedSettings() {
   const viewer = useViewer();
   useEffect(() => {
     const s = loadVisualSettings();
-    viewer.shadowsEnabled = s.shadows;
-    viewer.shadowStrength = s.shadowStrength;
-    viewer.lightIntensity = s.lightIntensity;
+    const ms = s.modeSettings[s.lightingMode];
+    viewer.toneMapping = ms.toneMapping;
+    viewer.toneMappingExposure = ms.toneMappingExposure;
+    viewer.ambientColor = ms.ambientColor;
+    viewer.ambientIntensity = ms.ambientIntensity;
+    viewer.dirLightColor = ms.dirLightColor;
+    viewer.dirLightIntensity = ms.dirLightIntensity;
+    viewer.shadowIntensity = ms.shadowIntensity;
+    viewer.shadowQuality = ms.shadowQuality;
+    viewer.dirLightEnabled = ms.dirLightEnabled;
+    viewer.shadowEnabled = ms.shadowEnabled;
+    viewer.lightingMode = s.lightingMode;
+    viewer.lightIntensity = ms.lightIntensity;
+    viewer.fov = s.fov;
+    viewer.projection = s.projection;
+    // Apply individual rendering settings (antialias already set at construction)
+    viewer.shadowMapSize = s.shadowMapSize ?? 1024;
+    viewer.shadowRadius = s.shadowRadius ?? 2;
   }, [viewer]);
 }
 

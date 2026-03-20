@@ -14,6 +14,7 @@ import { RVDrivesPlayback, type CompactRecording } from './rv-drives-playback';
 import { RVReplayRecording } from './rv-replay-recording';
 import { RVLogicEngine } from './rv-logic-engine';
 import { NodeRegistry, type ComponentRef } from './rv-node-registry';
+import { GroupRegistry } from './rv-group-registry';
 import { unityDirectionToGltf, unityPositionToGltf } from './rv-coordinate-utils';
 import { validateExtras, printParitySummary, resetParityValidator } from './rv-extras-validator';
 import { parseActiveOnly, type ActiveOnly } from './rv-active-only';
@@ -45,6 +46,7 @@ export interface LoadResult {
   logicEngine: RVLogicEngine | null;
   boundingBox: Box3;
   triangleCount: number;
+  groups: GroupRegistry | null;
 }
 
 /** Parse Direction string from GLB extras to DriveDirection enum */
@@ -333,14 +335,49 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
   const sourceNodes: { node: Object3D; data: Record<string, unknown> }[] = [];
   const sinkNodes: { node: Object3D; rv: Record<string, unknown> }[] = [];
   const muTemplateNodes: Object3D[] = [];
+  const groupNodes: { node: Object3D; key: string; data: Record<string, unknown> }[] = [];
+
+  // Collect drive node set for static/dynamic classification (Phase 1.3)
+  // We need a two-step approach: first find all drives, then classify meshes
+  const driveNodeSet = new Set<Object3D>();
+  const transportSurfaceNodeSet = new Set<Object3D>();
+
+  // Pre-scan for Drive and TransportSurface nodes
+  root.traverse((node: Object3D) => {
+    const rv = node.userData?.realvirtual as Record<string, unknown> | undefined;
+    if (!rv) return;
+    if (rv['Drive']) driveNodeSet.add(node);
+    if (rv['TransportSurface']) transportSurfaceNodeSet.add(node);
+  });
+
+  /** Check if a node is under a Drive ancestor (dynamic mesh). */
+  function isUnderDrive(node: Object3D): boolean {
+    let current: Object3D | null = node.parent;
+    while (current) {
+      if (driveNodeSet.has(current)) return true;
+      current = current.parent;
+    }
+    return false;
+  }
+
+  /** Check if a node is under a TransportSurface ancestor (static despite Drive parent). */
+  function isUnderTransportSurface(node: Object3D): boolean {
+    let current: Object3D | null = node;
+    while (current) {
+      if (transportSurfaceNodeSet.has(current)) return true;
+      current = current.parent;
+    }
+    return false;
+  }
 
   // First pass: shadows, triangles, drives, collect component nodes, register all nodes
   root.traverse((node: Object3D) => {
-    // Enable shadows on mesh nodes (skip transparent materials)
+    // Enable shadows on mesh nodes with static/dynamic classification
     const anyNode = node as unknown as {
       isMesh?: boolean;
       castShadow?: boolean;
       receiveShadow?: boolean;
+      matrixAutoUpdate?: boolean;
       material?: {
         transparent?: boolean;
         alphaTest?: number;
@@ -359,8 +396,23 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
       );
       if (hasAlpha) {
         console.log(`  No shadow: ${node.name} (transparent=${mat?.transparent}, alphaTest=${mat?.alphaTest}, opacity=${mat?.opacity})`);
+        anyNode.castShadow = false;
+      } else {
+        // Static/dynamic classification:
+        // - Dynamic: mesh under a Drive node (except TransportSurface children)
+        // - Static: everything else (factory structure, conveyors, ground, walls)
+        // TransportSurface meshes are static — conveyor jog drives Rapier velocity, not the mesh
+        const underDrive = isUnderDrive(node);
+        const underTS = isUnderTransportSurface(node);
+        const isStatic = !underDrive || underTS;
+
+        if (isStatic) {
+          anyNode.castShadow = false;    // static: receive shadows only
+          anyNode.matrixAutoUpdate = false; // static: never moves
+        } else {
+          anyNode.castShadow = true;     // dynamic: cast + receive shadows
+        }
       }
-      anyNode.castShadow = !hasAlpha;
       anyNode.receiveShadow = true;
     }
     const mesh = node as { geometry?: { index?: { count: number }; attributes?: { position?: { count: number } } } };
@@ -402,6 +454,8 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
         const drive = new RVDrive(node, config);
         drives.push(drive);
         registry.register('Drive', path, drive);
+        // Cache node type for fast raycast lookup (avoids parent chain walk)
+        node.userData._rvType = 'Drive';
 
         // Construct DriveBehaviors — mirrors Unity's Drive owning its IDriveBehavior[]
         if (behaviors.includes('Drive_ErraticPosition')) {
@@ -460,6 +514,15 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     if (rv['MU']) {
       validateExtras('MU', rv['MU'] as Record<string, unknown>);
       muTemplateNodes.push(node);
+    }
+
+    // Collect Group components (Group, Group_1, Group_2, ...)
+    for (const key of Object.keys(rv)) {
+      if (key === 'Group' || /^Group_\d+$/.test(key)) {
+        const gData = rv[key] as Record<string, unknown>;
+        validateExtras(key === 'Group' ? 'Group' : 'Group', gData);
+        groupNodes.push({ node, key, data: gData });
+      }
     }
 
     // Register PLC signals in SignalStore and NodeRegistry
@@ -559,6 +622,8 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     manager.sensors.push(sensor);
     const sensorPath = NodeRegistry.computeNodePath(node);
     registry.register('Sensor', sensorPath, sensor);
+    // Cache node type for fast raycast lookup
+    node.userData._rvType = 'Sensor';
 
     // Bind sensor to SignalStore: when occupied state changes, update the signal
     const sensorName = node.name;
@@ -634,6 +699,32 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
   for (const muNode of muTemplateNodes) {
     muNode.visible = false;
     console.log(`  MU template: ${muNode.name} (hidden)`);
+  }
+
+  // Build GroupRegistry from collected Group components
+  let groups: GroupRegistry | null = null;
+  if (groupNodes.length > 0) {
+    groups = new GroupRegistry();
+    for (const { node, data } of groupNodes) {
+      // Skip disabled Group components
+      if (data['_enabled'] === false) continue;
+      const groupName = data['GroupName'] as string | undefined;
+      if (!groupName) continue;
+
+      // Resolve GroupNamePrefix if present
+      const prefix = data['GroupNamePrefix'] as string | undefined;
+      let resolvedName = groupName;
+      if (prefix) {
+        const prefixNode = registry.getNode(prefix);
+        if (prefixNode) {
+          resolvedName = prefixNode.name + groupName;
+        }
+        // If prefix not found, fall back to raw GroupName
+      }
+      groups.register(resolvedName, node);
+    }
+    const groupNames = groups.getGroupNames();
+    console.log(`  Groups: ${groups.groupCount} groups [${groupNames.join(', ')}]`);
   }
 
   // Bind Drive_Simple behaviors: connect Forward/Backward PLCOutputBool signals to drive.jogForward/jogBackward
@@ -777,6 +868,26 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
   // Compute bounding box
   const boundingBox = new Box3().setFromObject(root);
 
+  // Compute BVH (Bounding Volume Hierarchy) for fast raycasting
+  try {
+    const { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } = await import('three-mesh-bvh');
+    // Patch Three.js prototypes for BVH-accelerated raycasting
+    BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+    BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+    Mesh.prototype.raycast = acceleratedRaycast;
+    let bvhCount = 0;
+    root.traverse((node: Object3D) => {
+      const m = node as unknown as { isMesh?: boolean; geometry?: BufferGeometry };
+      if (m.isMesh && m.geometry) {
+        m.geometry.computeBoundsTree();
+        bvhCount++;
+      }
+    });
+    console.log(`[loadGLB] BVH computed for ${bvhCount} meshes`);
+  } catch (e) {
+    console.warn('[loadGLB] BVH computation failed (three-mesh-bvh):', e);
+  }
+
   // Build DrivesPlayback if recording data found
   let playback: RVDrivesPlayback | null = null;
   const rec = recordingData as CompactRecording | null;
@@ -838,5 +949,5 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     `${Math.round(triangleCount / 1000)}K triangles`
   );
 
-  return { drives, transportManager: manager, signalStore, registry, playback, replayRecordings, recorderSettings, logicEngine, boundingBox, triangleCount };
+  return { drives, transportManager: manager, signalStore, registry, playback, replayRecordings, recorderSettings, logicEngine, boundingBox, triangleCount, groups };
 }

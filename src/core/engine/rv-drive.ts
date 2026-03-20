@@ -108,6 +108,12 @@ export class RVDrive {
     return Math.abs(this.currentPosition - this.targetPosition) < 0.01;
   }
 
+  /** Check if drive is completely idle (no motion, no jog, no overwrite, no behaviors). */
+  get isIdle(): boolean {
+    return !this.isRunning && !this.jogForward && !this.jogBackward
+      && !this.positionOverwrite && this.driveBehaviors.length === 0;
+  }
+
   /** Start moving to targetPosition (no argument) or to a specific destination */
   startMove(destination?: number) {
     if (destination !== undefined) {
@@ -123,6 +129,9 @@ export class RVDrive {
 
   /** Update drive physics - called every fixed timestep */
   update(dt: number) {
+    // Early-return for completely idle drives (no motion, no behaviors)
+    if (this.isIdle) return;
+
     if (this.positionOverwrite) {
       this.applyToNode();
       return;

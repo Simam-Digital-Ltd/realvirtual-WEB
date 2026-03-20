@@ -35,19 +35,16 @@ export class RVMovingUnit {
   }
 
   /**
-   * Dispose this MU - remove from scene and dispose geometry.
-   * Does NOT dispose materials — Object3D.clone() shares materials by
-   * reference with the template, so disposing them would break the
-   * template and all other clones.
+   * Dispose this MU - remove from scene and clear references.
+   * Does NOT dispose geometry or materials — Object3D.clone() shares
+   * geometry and materials by reference with the template. Disposing
+   * them here would destroy the shared GPU buffers used by the template
+   * and all other MU clones. Template geometries are disposed in clearModel().
    */
   dispose(): void {
     this.node.parent?.remove(this.node);
-    // Only dispose geometry (owned per clone). Materials are shared with
-    // the template and must NOT be disposed here.
-    this.node.traverse((child) => {
-      const mesh = child as { geometry?: { dispose(): void } };
-      if (mesh.geometry) mesh.geometry.dispose();
-    });
+    // Do NOT dispose geometry here — it is shared by reference with the
+    // template via Object3D.clone(). Disposing would corrupt all clones.
   }
 }
 

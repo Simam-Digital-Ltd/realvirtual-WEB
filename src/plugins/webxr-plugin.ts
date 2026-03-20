@@ -156,7 +156,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     const ua = navigator.userAgent.toLowerCase();
     return ua.includes('oculus') || ua.includes('quest')
         || ua.includes('pico') || ua.includes('vive')
-        || ua.includes('wolvic');
+        || ua.includes('wolvic') || ua.includes('magic leap');
   }
 
   private async initXR(viewer: RVViewer): Promise<void> {

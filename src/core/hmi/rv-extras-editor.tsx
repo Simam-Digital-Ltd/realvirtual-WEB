@@ -42,6 +42,8 @@ export interface ExtrasEditorState {
   selectedNodePath: string | null;
   /** Set by selectAndReveal(), consumed by HierarchyBrowser to expand ancestors and scroll-to. */
   revealPath: string | null;
+  /** Whether the property inspector should be shown (true when selected from hierarchy, false from 3D click). */
+  showInspector: boolean;
 }
 
 // ─── Plugin ──────────────────────────────────────────────────────────────
@@ -56,6 +58,7 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
   private _editableNodes: EditableNodeInfo[] = [];
   private _selectedNodePath: string | null = null;
   private _revealPath: string | null = null;
+  private _showInspector = false;
   private _viewer: RVViewer | null = null;
   private _glbName: string | null = null;
 
@@ -75,6 +78,7 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
       editableNodes: [],
       selectedNodePath: this._selectedNodePath,
       revealPath: null,
+      showInspector: false,
     };
   }
 
@@ -90,6 +94,7 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
     editableNodes: [],
     selectedNodePath: null,
     revealPath: null,
+    showInspector: false,
   };
 
   /** Subscribe for React useSyncExternalStore. */
@@ -109,6 +114,7 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
       editableNodes: this._editableNodes,
       selectedNodePath: this._selectedNodePath,
       revealPath: this._revealPath,
+      showInspector: this._showInspector,
     };
     for (const listener of this._listeners) listener();
   }
@@ -129,14 +135,16 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
     this.notify();
   }
 
-  selectNode(path: string): void {
+  selectNode(path: string, showInspector = false): void {
     this._selectedNodePath = path;
+    this._showInspector = showInspector;
     localStorage.setItem(LS_KEY_SELECTED_NODE, path);
     this.notify();
   }
 
   clearSelection(): void {
     this._selectedNodePath = null;
+    this._showInspector = false;
     localStorage.removeItem(LS_KEY_SELECTED_NODE);
     this.notify();
   }
@@ -146,13 +154,14 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
    * by expanding all ancestor tree nodes and scrolling to it.
    * Opens the panel if currently closed.
    */
-  selectAndReveal(path: string): void {
+  selectAndReveal(path: string, showInspector = true): void {
     if (!this._panelOpen) {
       this._panelOpen = true;
       localStorage.setItem(LS_KEY_PANEL_OPEN, 'true');
     }
     this._selectedNodePath = path;
     this._revealPath = path;
+    this._showInspector = showInspector;
     localStorage.setItem(LS_KEY_SELECTED_NODE, path);
     this.notify();
   }
@@ -394,7 +403,11 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
     // Subscribe to viewer events for loose-coupled scene interaction
     this._eventUnsubs.push(
       viewer.on('object-clicked', ({ path }) => {
-        this.selectAndReveal(path);
+        if (this._panelOpen) {
+          this.selectAndReveal(path, false);
+        } else {
+          this.selectNode(path, false);
+        }
       }),
     );
 
