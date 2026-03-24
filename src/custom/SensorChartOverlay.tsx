@@ -12,7 +12,8 @@ import { Box, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { echarts } from '../core/hmi/echarts-setup';
 import { useViewer } from '../hooks/use-viewer';
 import { useSensorChartOpen } from '../hooks/use-sensor-chart';
-import { BOTTOM_BAR_HEIGHT } from '../core/hmi/BottomBar';
+import { useMaintenanceMode } from '../hooks/use-maintenance-mode';
+import { BOTTOM_BAR_HEIGHT } from '../core/hmi/layout-constants';
 import { ChartPanel } from '../core/hmi/ChartPanel';
 import { SensorRecorderPlugin } from '../plugins/sensor-recorder-plugin';
 
@@ -49,6 +50,8 @@ function ensureSensorRecorder(viewer: ReturnType<typeof useViewer>) {
 export function SensorChartOverlay() {
   const viewer = useViewer();
   const open = useSensorChartOpen();
+  const maintenanceState = useMaintenanceMode();
+  const suppressed = maintenanceState.mode !== 'idle';
 
   const [period, setPeriod] = useState<TimePeriod>(60);
 
@@ -303,7 +306,7 @@ export function SensorChartOverlay() {
 
   return (
     <ChartPanel
-      open={open}
+      open={open && !suppressed}
       onClose={() => viewer.toggleSensorChart(false)}
       title="Sensor Monitor"
       titleColor="#66bb6a"

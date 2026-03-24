@@ -40,6 +40,9 @@ import { CtrlXInterface } from './interfaces/ctrlx-interface';
 // WebXR plugin (immersive VR on Quest 3 and other headsets)
 import { WebXRPlugin } from './plugins/webxr-plugin';
 
+// Maintenance guide plugin (LogicStep-driven step-by-step maintenance wizard)
+import { MaintenancePlugin } from './plugins/maintenance-plugin';
+
 // Performance test plugin (activated via ?perf URL param)
 import { PerfTestPlugin } from './plugins/perf-test-plugin';
 
@@ -113,6 +116,9 @@ async function init() {
   // --- Create Viewer ---
   const viewer = await RVViewer.create(container, { useWebGPU, antialias: wantAntialias });
 
+  // Apply persisted DPR cap (runtime-changeable, no reload needed)
+  viewer.maxDpr = initialSettings.maxDpr;
+
   // Expose viewer globally for console debugging
   (window as unknown as { viewer: RVViewer }).viewer = viewer;
 
@@ -139,6 +145,7 @@ async function init() {
     .use(new CameraEventsPlugin())
     .use(new KpiDemoPlugin())
     .use(new DemoHMIPlugin())
+    .use(new MaintenancePlugin())
     .use(new TestAxesPlugin())
     .use(new RvExtrasEditorPlugin());
 
@@ -213,7 +220,7 @@ async function init() {
     const storagePath = `demo/webviewer/${firebaseDemoName}/demo.glb`;
     const firebaseGlbUrl = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(storagePath)}?alt=media`;
     console.log(`[main] Firebase demo: "${firebaseDemoName}" → ${firebaseGlbUrl}`);
-    document.title = `${firebaseDemoName} - realvirtual Web Viewer`;
+    document.title = `${firebaseDemoName} - realvirtual WEB`;
     loadModel(firebaseGlbUrl);
   } else {
     // Local dev mode: URL param > settings.json defaultModel > localStorage > demo.glb > first model

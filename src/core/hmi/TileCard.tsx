@@ -25,10 +25,12 @@ export interface TileCardProps {
   timestamp: string;
   /** Hierarchy path of the related scene component (enables hover highlight + click focus) */
   componentPath?: string;
+  /** Called on card body click — overrides default componentPath focus when provided. */
+  onAction?: () => void;
   onDismiss?: () => void;
 }
 
-export function TileCard({ title, subtitle, severity, icon, timestamp, componentPath, onDismiss }: TileCardProps) {
+export function TileCard({ title, subtitle, severity, icon, timestamp, componentPath, onAction, onDismiss }: TileCardProps) {
   const color = severityColors[severity];
   const viewer = useViewer();
 
@@ -41,13 +43,17 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
   }, [viewer, componentPath]);
 
   const handleClick = useCallback(() => {
+    if (onAction) {
+      onAction();
+      return;
+    }
     if (componentPath) {
       viewer.focusByPath(componentPath);
       viewer.highlightByPath(componentPath, true);
       const driveName = componentPath.split('/').pop() ?? componentPath;
       viewer.filterDrives(driveName);
     }
-  }, [viewer, componentPath]);
+  }, [viewer, componentPath, onAction]);
 
   return (
     <Paper
@@ -58,7 +64,7 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
       sx={{
         p: 1.5,
         borderLeft: `3px solid ${color}`,
-        cursor: componentPath ? 'pointer' : 'default',
+        cursor: (componentPath || onAction) ? 'pointer' : 'default',
         pointerEvents: 'auto',
         '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
         transition: 'background-color 0.15s',

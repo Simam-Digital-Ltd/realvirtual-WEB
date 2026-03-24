@@ -3,13 +3,43 @@ import { Box } from '@mui/material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useSlot } from '../../hooks/use-slot';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
+import { useMaintenanceMode } from '../../hooks/use-maintenance-mode';
+import { MaintenancePanel } from './MaintenancePanel';
 
-/** Core layout container for messages (right side). Renders 'messages' slot entries. */
+/** Core layout container for messages (right side). Renders 'messages' slot entries.
+ *  When maintenance mode is active, swaps to the MaintenancePanel stepper. */
 export function MessagePanel() {
   const viewer = useViewer();
   const entries = useSlot('messages');
   const isMobile = useMobileLayout();
   const [expandedIdx, setExpandedIdx] = useState(-1);
+  const maintenanceState = useMaintenanceMode();
+
+  const isMaintenanceActive = maintenanceState.mode !== 'idle';
+
+  // ── Maintenance Mode: show MaintenancePanel instead of messages ──
+  if (isMaintenanceActive) {
+    return (
+      <Box
+        data-ar-show
+        sx={{
+          position: 'fixed',
+          right: 8,
+          top: 0,
+          bottom: 0,
+          width: 320,
+          zIndex: 1200,
+          pointerEvents: 'none',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          gap: 1,
+        }}
+      >
+        <MaintenancePanel />
+      </Box>
+    );
+  }
 
   if (entries.length === 0) return null;
 

@@ -14,7 +14,8 @@ import { useViewer } from '../hooks/use-viewer';
 import { useDriveChartOpen } from '../hooks/use-drive-chart';
 import { useDrives } from '../hooks/use-drives';
 import { useDriveFilter } from '../hooks/use-drive-filter';
-import { BOTTOM_BAR_HEIGHT } from '../core/hmi/BottomBar';
+import { useMaintenanceMode } from '../hooks/use-maintenance-mode';
+import { BOTTOM_BAR_HEIGHT } from '../core/hmi/layout-constants';
 import { ChartPanel } from '../core/hmi/ChartPanel';
 import { DriveRecorderPlugin } from '../plugins/drive-recorder-plugin';
 
@@ -51,6 +52,10 @@ export function DriveChartOverlay() {
   const open = useDriveChartOpen();
   const drives = useDrives();
   const { filter, filteredDrives, setFilter } = useDriveFilter();
+  const maintenanceState = useMaintenanceMode();
+
+  // Suppress overlay during maintenance mode
+  const suppressed = maintenanceState.mode !== 'idle';
 
   const activeDrives = filter ? filteredDrives : drives;
 
@@ -381,7 +386,7 @@ export function DriveChartOverlay() {
 
   return (
     <ChartPanel
-      open={open}
+      open={open && !suppressed}
       onClose={() => viewer.toggleDriveChart(false)}
       title="Drive Monitor"
       titleColor="#4fc3f7"

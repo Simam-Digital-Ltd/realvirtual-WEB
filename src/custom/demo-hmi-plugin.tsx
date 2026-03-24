@@ -28,6 +28,7 @@ import { DocViewerOverlay } from '../core/hmi/DocViewerOverlay';
 // Hooks
 import { useDriveChartOpen } from '../hooks/use-drive-chart';
 import { useSensorChartOpen } from '../hooks/use-sensor-chart';
+import { useMaintenanceMode } from '../hooks/use-maintenance-mode';
 
 // ─── KPI Bar Entries ────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ function CycleTimeKpi(_props: UISlotProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <KpiCard label="Cycle Time" value="4.2" unit="s" color="#ffa726" secondary="Avg last hour" onClick={() => setOpen((o) => !o)} />
+      <KpiCard label="Cycle Time" value="129" unit="s" color="#ffa726" secondary="Avg last hour" onClick={() => setOpen((o) => !o)} />
       <CycleTimeChart open={open} onClose={() => setOpen(false)} />
     </>
   );
@@ -92,8 +93,18 @@ function AlarmsButton(_props: UISlotProps) {
   return <NavButton icon={<Warning />} label="Alarms" badge={3} />;
 }
 
-function MaintenanceButton(_props: UISlotProps) {
-  return <NavButton icon={<Build />} label="Maintenance" badge={1} />;
+function MaintenanceButton({ viewer }: UISlotProps) {
+  const maintenanceState = useMaintenanceMode();
+  const isActive = maintenanceState.mode !== 'idle';
+  return (
+    <NavButton
+      icon={<Build />}
+      label="Maintenance"
+      badge={isActive ? undefined : 1}
+      active={isActive}
+      onClick={() => viewer.emit('enter-maintenance' as string, undefined)}
+    />
+  );
 }
 
 function ViewsButton(_props: UISlotProps) {
@@ -115,7 +126,7 @@ function DriveOverloadMessage(_props: UISlotProps) {
   );
 }
 
-function MaintenanceDueMessage(_props: UISlotProps) {
+function MaintenanceDueMessage({ viewer }: UISlotProps) {
   return (
     <TileCard
       title="Maintenance Due"
@@ -124,6 +135,7 @@ function MaintenanceDueMessage(_props: UISlotProps) {
       icon="build"
       timestamp="Today"
       componentPath="ConveyorEntry2"
+      onAction={() => viewer.emit('enter-maintenance' as string, undefined)}
     />
   );
 }

@@ -31,6 +31,21 @@ export class EventEmitter<
     return () => this.off(event, cb);
   }
 
+  /** Subscribe to an event for a single invocation, then auto-unsubscribe. Returns unsubscribe function. */
+  once<K extends string & keyof TEvents>(
+    event: K,
+    cb: (data: TEvents[K]) => void,
+  ): () => void;
+  once(event: string, cb: Listener): () => void;
+  once(event: string, cb: Listener): () => void {
+    const wrapper: Listener = (...args: unknown[]) => {
+      off();
+      cb(...args);
+    };
+    const off = this.on(event, wrapper);
+    return off;
+  }
+
   /** Unsubscribe from an event. */
   off(event: string, cb: Listener): void {
     const set = this.listeners.get(event);
