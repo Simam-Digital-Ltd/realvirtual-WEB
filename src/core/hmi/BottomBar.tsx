@@ -16,9 +16,8 @@ import {
 } from './search-settings-store';
 import type { NodeSearchResult } from '../engine/rv-node-registry';
 import { RvExtrasEditorPlugin } from './rv-extras-editor';
-
-/** Height of the bottom bar area (search + padding) for layout calculations. */
-export const BOTTOM_BAR_HEIGHT = 52;
+export { BOTTOM_BAR_HEIGHT } from './layout-constants';
+import { INSPECTOR_PANEL_WIDTH } from './layout-constants';
 
 const DEBOUNCE_MS = 250;
 const MAX_VISIBLE_RESULTS = 8;
@@ -90,8 +89,8 @@ export function BottomBar() {
     if (!plugin) return undefined;
     const state = plugin.getSnapshot();
     if (!state.panelOpen) return undefined;
-    // Hierarchy panel width + inspector (320px) if a node is selected
-    const leftPx = state.panelWidth + (state.selectedNodePath ? 320 : 0);
+    // Hierarchy panel width + inspector if a node is selected
+    const leftPx = state.panelWidth + (state.selectedNodePath ? INSPECTOR_PANEL_WIDTH : 0);
     return leftPx > 0 ? { left: leftPx } : undefined;
   }, [viewer]);
 

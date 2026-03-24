@@ -21,7 +21,6 @@
 import { useState, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { useSignalTick } from '../../hooks/use-signal-tick';
 import {
-  Paper,
   Box,
   Typography,
   IconButton,
@@ -31,14 +30,14 @@ import {
   LinearProgress,
 } from '@mui/material';
 import {
-  Close,
   RestartAlt,
   FilterList,
 } from '@mui/icons-material';
 import type { RVViewer } from '../rv-viewer';
 import { RvExtrasEditorPlugin } from './rv-extras-editor';
 import { getOverriddenFields } from '../engine/rv-extras-overlay-store';
-import { useMobileLayout } from '../../hooks/use-mobile-layout';
+import { LeftPanel } from './LeftPanel';
+import { INSPECTOR_PANEL_WIDTH } from './layout-constants';
 import {
   isHiddenComponentType,
   isComponentRef,
@@ -295,8 +294,6 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
     plugin.clearSelection();
   }, [plugin]);
 
-  const isMobile = useMobileLayout();
-
   // Consumed-only filter: hide non-consumed (grayed-out) fields
   const [consumedOnly, setConsumedOnly] = useState(loadConsumedOnly);
   const toggleConsumedOnly = useCallback(() => {
@@ -319,35 +316,9 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
   const showRuntimeSection = stepInfo && stepInfo.state !== StepState.Idle;
 
   return (
-    <Paper
-      elevation={4}
-      data-ui-panel
-      sx={{
-        position: 'fixed',
-        left: isMobile ? 0 : state.panelWidth + 16,
-        top: isMobile ? 44 : 44,
-        bottom: isMobile ? 0 : 8,
-        right: isMobile ? 0 : 'auto',
-        width: isMobile ? '100%' : 320,
-        zIndex: 1200,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        pointerEvents: 'auto',
-        borderRadius: isMobile ? 0 : 2,
-      }}
-    >
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          px: 1,
-          py: 0.25,
-          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-        }}
-      >
-        <Box sx={{ flex: 1, overflow: 'hidden' }}>
+    <LeftPanel
+      title={
+        <Box sx={{ overflow: 'hidden' }}>
           <Typography sx={{ fontSize: 11, fontWeight: 600, color: 'text.primary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {nodeName}
           </Typography>
@@ -355,17 +326,84 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
             {selectedPath}
           </Typography>
         </Box>
+      }
+      onClose={handleClose}
+      width={INSPECTOR_PANEL_WIDTH}
+      leftOffset={state.panelWidth + 16}
+      toolbar={
         <Tooltip title={consumedOnly ? 'Showing active fields only \u2014 click to show all' : 'Click to show only active fields'}>
           <IconButton size="small" onClick={toggleConsumedOnly} sx={{ color: consumedOnly ? '#66bb6a' : 'text.secondary', p: 0.25 }}>
             <FilterList sx={{ fontSize: 14 }} />
           </IconButton>
         </Tooltip>
-        <IconButton size="small" onClick={handleClose} sx={{ color: 'text.secondary', p: 0.25 }}>
-          <Close sx={{ fontSize: 14 }} />
-        </IconButton>
-      </Box>
-
-      {/* Scrollable content */}
+      }
+      footer={
+        <>
+          {/* Referenced by section */}
+          {referencedBy.length > 0 && (
+            <Box sx={{ px: 1, py: 0.75, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <Typography sx={{ fontSize: 9, color: 'text.disabled', mb: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>
+                Referenced by
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {referencedBy.map((ref, i) => {
+                  const sourceName = ref.sourcePath.split('/').pop() ?? ref.sourcePath;
+                  const color = componentColor(ref.componentType);
+                  return (
+                    <Tooltip key={i} title={`${ref.sourcePath} \u2192 ${ref.fieldName}\nClick to navigate`} placement="top">
+                      <Chip
+                        label={`${sourceName}.${ref.fieldName}`}
+                        size="small"
+                        onClick={() => navigateToRef(viewer, ref.sourcePath)}
+                        sx={{
+                          height: 16,
+                          fontSize: 9,
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          bgcolor: color + '18',
+                          color: color,
+                          border: `1px solid ${color}44`,
+                          '& .MuiChip-label': { px: 0.5 },
+                          '&:hover': { bgcolor: color + '28' },
+                        }}
+                      />
+                    </Tooltip>
+                  );
+                })}
+              </Box>
+            </Box>
+          )}
+          {/* Override count + Reset */}
+          <Box sx={{ px: 1, py: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography sx={{ fontSize: 10, color: 'text.disabled', flex: 1 }}>
+              {totalOverrides > 0
+                ? `${totalOverrides} override${totalOverrides !== 1 ? 's' : ''}`
+                : 'No overrides'}
+            </Typography>
+            {totalOverrides > 0 && (
+              <Button
+                size="small"
+                variant="text"
+                startIcon={<RestartAlt sx={{ fontSize: 12 }} />}
+                onClick={handleResetAll}
+                sx={{
+                  fontSize: 10,
+                  textTransform: 'none',
+                  color: '#ffa726',
+                  py: 0,
+                  px: 0.5,
+                  minWidth: 0,
+                  '&:hover': { bgcolor: 'rgba(255,167,38,0.1)' },
+                }}
+              >
+                Reset All
+              </Button>
+            )}
+          </Box>
+        </>
+      }
+    >
+      {/* Scrollable content — own scroll container */}
       <Box
         sx={{
           flex: 1,
@@ -405,78 +443,6 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
           })
         )}
       </Box>
-
-      {/* Referenced by section */}
-      {referencedBy.length > 0 && (
-        <Box sx={{ px: 1, py: 0.75, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-          <Typography sx={{ fontSize: 9, color: 'text.disabled', mb: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>
-            Referenced by
-          </Typography>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-            {referencedBy.map((ref, i) => {
-              const sourceName = ref.sourcePath.split('/').pop() ?? ref.sourcePath;
-              const color = componentColor(ref.componentType);
-              return (
-                <Tooltip key={i} title={`${ref.sourcePath} \u2192 ${ref.fieldName}\nClick to navigate`} placement="top">
-                  <Chip
-                    label={`${sourceName}.${ref.fieldName}`}
-                    size="small"
-                    onClick={() => navigateToRef(viewer, ref.sourcePath)}
-                    sx={{
-                      height: 16,
-                      fontSize: 9,
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      bgcolor: color + '18',
-                      color: color,
-                      border: `1px solid ${color}44`,
-                      '& .MuiChip-label': { px: 0.5 },
-                      '&:hover': { bgcolor: color + '28' },
-                    }}
-                  />
-                </Tooltip>
-              );
-            })}
-          </Box>
-        </Box>
-      )}
-
-      {/* Footer */}
-      <Box
-        sx={{
-          px: 1,
-          py: 0.5,
-          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-        }}
-      >
-        <Typography sx={{ fontSize: 10, color: 'text.disabled', flex: 1 }}>
-          {totalOverrides > 0
-            ? `${totalOverrides} override${totalOverrides !== 1 ? 's' : ''}`
-            : 'No overrides'}
-        </Typography>
-        {totalOverrides > 0 && (
-          <Button
-            size="small"
-            variant="text"
-            startIcon={<RestartAlt sx={{ fontSize: 12 }} />}
-            onClick={handleResetAll}
-            sx={{
-              fontSize: 10,
-              textTransform: 'none',
-              color: '#ffa726',
-              py: 0,
-              px: 0.5,
-              minWidth: 0,
-              '&:hover': { bgcolor: 'rgba(255,167,38,0.1)' },
-            }}
-          >
-            Reset All
-          </Button>
-        )}
-      </Box>
-    </Paper>
+    </LeftPanel>
   );
 }

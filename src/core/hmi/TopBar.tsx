@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
-import { Vector3 } from 'three';
 import { Typography, Box, IconButton, Paper, Button, CircularProgress, Tabs, Tab, Switch, Slider, Tooltip, Select, MenuItem, TextField } from '@mui/material';
 import { Settings, Close, PlayArrow, CheckCircle, Error as ErrorIcon, RestartAlt, AccountTree, ViewInAr } from '@mui/icons-material';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { useViewer } from '../../hooks/use-viewer';
 import type { WebXRPlugin } from '../../plugins/webxr-plugin';
-import { loadVisualSettings, saveVisualSettings, LIGHTING_MODES, TONE_MAPPING_OPTIONS, SHADOW_QUALITY_OPTIONS, type VisualSettings, type CameraBookmark, type LightingMode, type ToneMappingType, type ShadowQuality, type ProjectionType } from './visual-settings-store';
+import { loadVisualSettings, saveVisualSettings, LIGHTING_MODES, TONE_MAPPING_OPTIONS, SHADOW_QUALITY_OPTIONS, type VisualSettings, type LightingMode, type ToneMappingType, type ShadowQuality, type ProjectionType } from './visual-settings-store';
 import { loadPhysicsSettings, savePhysicsSettings, type PhysicsSettings } from './physics-settings-store';
 import { loadInterfaceSettings, saveInterfaceSettings, type InterfaceSettings, type InterfaceType, INTERFACE_DEFAULTS } from '../../interfaces/interface-settings-store';
 import { InterfaceManager } from '../../interfaces/interface-manager';
@@ -14,10 +13,11 @@ import { isSettingsLocked, isTabLocked } from './rv-app-config';
 import { RvExtrasEditorPlugin, HIERARCHY_DEFAULT_WIDTH } from './rv-extras-editor';
 import { HierarchyBrowser } from './rv-hierarchy-browser';
 import { PropertyInspector } from './rv-property-inspector';
+import { LeftPanel } from './LeftPanel';
+import { SETTINGS_PANEL_WIDTH } from './layout-constants';
 
 export function TopBar() {
   const viewer = useViewer();
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState(0);
   const [vrOpen, setVrOpen] = useState(false);
 
@@ -25,16 +25,21 @@ export function TopBar() {
   const plugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
   const pluginState = useSyncExternalStore(
     plugin?.subscribe ?? (() => () => {}),
-    plugin?.getSnapshot ?? (() => ({ panelOpen: false, panelWidth: HIERARCHY_DEFAULT_WIDTH, overlay: null, editableNodes: [], selectedNodePath: null, revealPath: null })),
+    plugin?.getSnapshot ?? (() => ({ panelOpen: false, panelWidth: HIERARCHY_DEFAULT_WIDTH, overlay: null, editableNodes: [], selectedNodePath: null, revealPath: null, showInspector: false, settingsOpen: false })),
   );
   const hierarchyOpen = pluginState.panelOpen;
+  const settingsOpen = pluginState.settingsOpen;
+
+  const setSettingsOpen = useCallback((open: boolean) => {
+    plugin?.setSettingsOpen(open);
+  }, [plugin]);
 
   const toggleHierarchy = useCallback(() => {
     if (!plugin) return;
     plugin.togglePanel();
     setSettingsOpen(false);
     setVrOpen(false);
-  }, [plugin]);
+  }, [plugin, setSettingsOpen]);
 
   const isMobile = useMobileLayout();
 
@@ -97,41 +102,12 @@ export function TopBar() {
 
       {/* Settings side panel */}
       {settingsOpen && (
-        <Paper
-          elevation={4}
-          data-ui-panel
-          sx={{
-            position: 'fixed',
-            left: isMobile ? 0 : 8,
-            top: isMobile ? 44 : 44,
-            bottom: isMobile ? 0 : 8,
-            right: isMobile ? 0 : 'auto',
-            width: isMobile ? '100%' : 360,
-            zIndex: 1200,
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            pointerEvents: 'auto',
-            borderRadius: isMobile ? 0 : 2,
-          }}
+        <LeftPanel
+          title={<Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>Settings</Typography>}
+          onClose={() => setSettingsOpen(false)}
+          width={SETTINGS_PANEL_WIDTH}
+          headerSx={{ px: 1.5, py: 0.75 }}
         >
-          {/* Header */}
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              px: 1.5,
-              py: 0.75,
-              borderBottom: '1px solid rgba(255,255,255,0.08)',
-            }}
-          >
-            <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: '0.8rem' }}>Settings</Typography>
-            <IconButton size="small" onClick={() => setSettingsOpen(false)} sx={{ color: 'text.secondary' }}>
-              <Close fontSize="small" />
-            </IconButton>
-          </Box>
-
           {/* Tabs - scrollable for 360px width */}
           <Tabs
             value={settingsTab}
@@ -141,6 +117,7 @@ export function TopBar() {
             sx={{
               borderBottom: '1px solid rgba(255,255,255,0.08)',
               minHeight: 40,
+              flexShrink: 0,
               '& .MuiTab-root': { minHeight: 40, py: 1, textTransform: 'none', fontSize: 13, minWidth: 0, px: { xs: 1.5, sm: 2 } },
             }}
           >
@@ -161,7 +138,7 @@ export function TopBar() {
             {settingsTab === 4 && !isTabLocked('devtools') && <DevToolsTab />}
             {settingsTab === 5 && !isTabLocked('tests') && <TestsTab />}
           </Box>
-        </Paper>
+        </LeftPanel>
       )}
     </>
   );
@@ -377,12 +354,13 @@ function VisualTab() {
   const [shadowOn, setShadowOn] = useState(initMs.shadowEnabled);
   const [shadowInt, setShadowInt] = useState(initMs.shadowIntensity);
   const [shadowQual, setShadowQual] = useState<ShadowQuality>(initMs.shadowQuality);
-  const [cameras, setCameras] = useState<(CameraBookmark | null)[]>(settingsRef.current.cameras);
+
   const [proj, setProj] = useState<ProjectionType>(settingsRef.current.projection);
   const [fov, setFov] = useState(settingsRef.current.fov);
   const [antialiasDesired, setAntialiasDesired] = useState<boolean>(settingsRef.current.antialias);
   const [shadowMapSize, setShadowMapSize] = useState<number>(settingsRef.current.shadowMapSize);
   const [shadowRadiusVal, setShadowRadiusVal] = useState<number>(settingsRef.current.shadowRadius);
+  const [maxDpr, setMaxDpr] = useState<number>(settingsRef.current.maxDpr);
 
   const persist = (patch: Partial<VisualSettings>) => {
     Object.assign(settingsRef.current, patch);
@@ -479,6 +457,12 @@ function VisualTab() {
     viewer.shadowRadius = val;
     persist({ shadowRadius: val });
   };
+  const updateMaxDpr = (_: unknown, v: number | number[]) => {
+    const val = v as number;
+    setMaxDpr(val);
+    viewer.maxDpr = val;
+    persist({ maxDpr: val });
+  };
 
   const updateProj = (v: ProjectionType) => {
     viewer.projection = v; setProj(v); persist({ projection: v });
@@ -487,48 +471,6 @@ function VisualTab() {
     const val = v as number; viewer.fov = val; setFov(val); persist({ fov: val });
   };
 
-  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const didLongPress = useRef(false);
-  const [savedIdx, setSavedIdx] = useState<number | null>(null);
-
-  const saveCamera = (idx: number) => {
-    const p = viewer.camera.position;
-    const t = viewer.controls.target;
-    const bm: CameraBookmark = { px: p.x, py: p.y, pz: p.z, tx: t.x, ty: t.y, tz: t.z };
-    const next = [...cameras];
-    next[idx] = bm;
-    setCameras(next);
-    settingsRef.current.cameras = next;
-    persist({ cameras: next });
-    setSavedIdx(idx);
-    setTimeout(() => setSavedIdx(null), 800);
-  };
-
-  const restoreCamera = (idx: number) => {
-    const bm = cameras[idx];
-    if (!bm) return;
-    viewer.animateCameraTo(
-      new Vector3(bm.px, bm.py, bm.pz),
-      new Vector3(bm.tx, bm.ty, bm.tz),
-    );
-  };
-
-  const handlePointerDown = (idx: number) => {
-    didLongPress.current = false;
-    pressTimer.current = setTimeout(() => {
-      didLongPress.current = true;
-      saveCamera(idx);
-    }, 500);
-  };
-
-  const handlePointerUp = (idx: number) => {
-    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
-    if (!didLongPress.current) restoreCamera(idx);
-  };
-
-  const handlePointerLeave = () => {
-    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
-  };
 
   const antialiasMismatch = antialiasDesired !== viewer.antialiasActive;
 
@@ -582,6 +524,17 @@ function VisualTab() {
           Shadow Radius
         </Typography>
         <Slider size="small" min={1} max={5} step={1} value={shadowRadiusVal} onChange={updateShadowRadius} valueLabelDisplay="auto" sx={{ mt: 1 }} />
+      </Box>
+
+      {/* Render Resolution (DPR) */}
+      <Box>
+        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+          Render Resolution
+        </Typography>
+        <Slider size="small" min={0.5} max={2} step={0.25} value={maxDpr} onChange={updateMaxDpr}
+          valueLabelDisplay="auto" valueLabelFormat={(v) => v >= 2 ? 'Native' : `${v}x`}
+          marks={[{ value: 0.5, label: '0.5x' }, { value: 1, label: '1x' }, { value: 1.5, label: '1.5x' }, { value: 2, label: 'Native' }]}
+          sx={{ mt: 1 }} />
       </Box>
 
       {/* Lighting Mode */}
@@ -775,42 +728,6 @@ function VisualTab() {
         )}
       </Box>
 
-      {/* Camera Bookmarks */}
-      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 2 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, mb: 1, display: 'block' }}>
-          Camera Positions
-        </Typography>
-        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1, fontSize: 11 }}>
-          Click to restore, hold to save current view
-        </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-          {[0, 1, 2].map((i) => {
-            const isSaved = savedIdx === i;
-            const hasBookmark = !!cameras[i];
-            return (
-              <Tooltip key={i} title={hasBookmark ? 'Click: restore | Hold: save' : 'Hold to save current view'} placement="top">
-                <Button
-                  size="small"
-                  variant={hasBookmark ? 'contained' : 'outlined'}
-                  onPointerDown={() => handlePointerDown(i)}
-                  onPointerUp={() => handlePointerUp(i)}
-                  onPointerLeave={handlePointerLeave}
-                  sx={{
-                    minWidth: 0, px: 1.5, py: 0.5,
-                    fontSize: 12, fontWeight: hasBookmark ? 700 : 400, fontFamily: 'monospace',
-                    borderColor: isSaved ? '#66bb6a' : hasBookmark ? undefined : 'rgba(255,255,255,0.2)',
-                    color: isSaved ? '#66bb6a' : undefined,
-                    bgcolor: isSaved ? 'rgba(102,187,106,0.15)' : undefined,
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  {isSaved ? 'Saved' : `CAM ${i + 1}`}
-                </Button>
-              </Tooltip>
-            );
-          })}
-        </Box>
-      </Box>
     </Box>
   );
 }

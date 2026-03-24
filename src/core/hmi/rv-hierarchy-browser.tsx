@@ -17,7 +17,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore, memo } from 'react';
 import { useSignalTick } from '../../hooks/use-signal-tick';
 import {
-  Paper,
   Box,
   Typography,
   TextField,
@@ -27,19 +26,19 @@ import {
   Chip,
 } from '@mui/material';
 import {
-  Close,
   Search,
   ExpandMore,
   ChevronRight,
 } from '@mui/icons-material';
 import type { RVViewer } from '../rv-viewer';
-import { RvExtrasEditorPlugin, type EditableNodeInfo } from './rv-extras-editor';
+import { RvExtrasEditorPlugin, HIERARCHY_MIN_WIDTH, HIERARCHY_MAX_WIDTH, type EditableNodeInfo } from './rv-extras-editor';
+import { LeftPanel } from './LeftPanel';
+import { INSPECTOR_PANEL_WIDTH } from './layout-constants';
 import type { RVExtrasOverlay } from '../engine/rv-extras-overlay-store';
 import type { SignalStore } from '../engine/rv-signal-store';
 import type { RVLogicEngine, StepStateInfo } from '../engine/rv-logic-engine';
 import { StepState } from '../engine/rv-logic-step';
 import { STEP_STATE_COLORS, STEP_STATE_LABELS } from './rv-logic-step-colors';
-import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { componentColor } from './rv-inspector-helpers';
 import { useVirtualizer } from '@tanstack/react-virtual';
 // ─── CSS Pulse Animation ─────────────────────────────────────────────────
@@ -682,9 +681,6 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
   const state = useSyncExternalStore(plugin.subscribe, plugin.getSnapshot);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
-  const [dragging, setDragging] = useState(false);
-  const dragStartX = useRef(0);
-  const dragStartWidth = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const signalStore = viewer.signalStore;
@@ -841,7 +837,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
       const node = viewer.registry.getNode(path);
       if (node) {
         // Compute viewport offset: hierarchy panel + inspector (if node selected)
-        const leftPx = state.panelWidth + (state.selectedNodePath ? 320 : 0);
+        const leftPx = state.panelWidth + (state.selectedNodePath ? INSPECTOR_PANEL_WIDTH : 0);
         viewer.fitToNodes([node], leftPx > 0 ? { left: leftPx } : undefined);
       }
     },
@@ -866,68 +862,32 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     plugin.togglePanel();
   }, [plugin, viewer]);
 
-  // ── Resize handle ──
-  const handleResizeStart = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    setDragging(true);
-    dragStartX.current = e.clientX;
-    dragStartWidth.current = state.panelWidth;
-
-    const onMove = (ev: PointerEvent) => {
-      const delta = ev.clientX - dragStartX.current;
-      plugin.setPanelWidth(dragStartWidth.current + delta);
-    };
-    const onUp = () => {
-      setDragging(false);
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-    };
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
-  }, [plugin, state.panelWidth]);
-
-  const isMobile = useMobileLayout();
   const isFlat = flatFiltered !== null;
 
   return (
-    <Paper
-      elevation={4}
-      data-ui-panel
-      sx={{
-        position: 'fixed',
-        left: isMobile ? 0 : 8,
-        top: isMobile ? 44 : 44,
-        bottom: isMobile ? 0 : 8,
-        right: isMobile ? 0 : 'auto',
-        width: isMobile ? '100%' : state.panelWidth,
-        zIndex: 1200,
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        pointerEvents: 'auto',
-        borderRadius: isMobile ? 0 : 2,
-      }}
+    <LeftPanel
+      title="Hierarchy"
+      onClose={handleClose}
+      width={state.panelWidth}
+      resizable
+      minWidth={HIERARCHY_MIN_WIDTH}
+      maxWidth={HIERARCHY_MAX_WIDTH}
+      onResize={(w) => plugin.setPanelWidth(w)}
+      footer={
+        <Box sx={{ px: 1, py: 0.25, display: 'flex', alignItems: 'center' }}>
+          <Typography sx={{ fontSize: 10, color: 'text.disabled' }}>
+            {isFlat
+              ? `${displayCount} of ${counts.total} node${counts.total !== 1 ? 's' : ''}`
+              : `${counts.total} node${counts.total !== 1 ? 's' : ''}`}
+            {counts.withOverrides > 0 && (
+              <> &middot; {counts.withOverrides} with override{counts.withOverrides !== 1 ? 's' : ''}</>
+            )}
+          </Typography>
+        </Box>
+      }
     >
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          px: 1,
-          py: 0.25,
-          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-        }}
-      >
-        <Typography sx={{ fontSize: 11, fontWeight: 600, flex: 1, color: 'text.primary' }}>
-          Hierarchy
-        </Typography>
-        <IconButton size="small" onClick={handleClose} sx={{ color: 'text.secondary', p: 0.25 }}>
-          <Close sx={{ fontSize: 14 }} />
-        </IconButton>
-      </Box>
-
       {/* Search */}
-      <Box sx={{ px: 0.75, py: 0.5, borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+      <Box sx={{ px: 0.75, py: 0.5, borderBottom: '1px solid rgba(255, 255, 255, 0.05)', flexShrink: 0 }}>
         <TextField
           size="small"
           fullWidth
@@ -956,7 +916,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
       </Box>
 
       {/* Type filter buttons */}
-      <Box sx={{ display: 'flex', gap: 0.25, px: 0.75, py: 0.5, borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+      <Box sx={{ display: 'flex', gap: 0.25, px: 0.75, py: 0.5, borderBottom: '1px solid rgba(255, 255, 255, 0.05)', flexShrink: 0 }}>
         {TYPE_FILTERS.map(({ key, label }) => (
           <Chip
             key={key}
@@ -980,7 +940,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
         ))}
       </Box>
 
-      {/* Tree / Flat list */}
+      {/* Tree / Flat list — own scroll container for useVirtualizer compatibility */}
       <Box
         ref={scrollContainerRef}
         sx={{
@@ -1052,43 +1012,6 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
           )
         )}
       </Box>
-
-      {/* Footer */}
-      <Box
-        sx={{
-          px: 1,
-          py: 0.25,
-          borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-          display: 'flex',
-          alignItems: 'center',
-        }}
-      >
-        <Typography sx={{ fontSize: 10, color: 'text.disabled' }}>
-          {isFlat
-            ? `${displayCount} of ${counts.total} node${counts.total !== 1 ? 's' : ''}`
-            : `${counts.total} node${counts.total !== 1 ? 's' : ''}`}
-          {counts.withOverrides > 0 && (
-            <> &middot; {counts.withOverrides} with override{counts.withOverrides !== 1 ? 's' : ''}</>
-          )}
-        </Typography>
-      </Box>
-
-      {/* Resize handle — right edge */}
-      <Box
-        onPointerDown={handleResizeStart}
-        sx={{
-          position: 'absolute',
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: 5,
-          cursor: 'col-resize',
-          bgcolor: dragging ? 'rgba(79, 195, 247, 0.3)' : 'transparent',
-          '&:hover': { bgcolor: 'rgba(79, 195, 247, 0.2)' },
-          transition: 'background-color 0.15s',
-          zIndex: 1,
-        }}
-      />
-    </Paper>
+    </LeftPanel>
   );
 }

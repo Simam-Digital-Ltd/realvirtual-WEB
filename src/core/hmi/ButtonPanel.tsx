@@ -4,11 +4,12 @@ import { Circle } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useSlot } from '../../hooks/use-slot';
 import { RvExtrasEditorPlugin, HIERARCHY_DEFAULT_WIDTH } from './rv-extras-editor';
+import { SETTINGS_PANEL_WIDTH, INSPECTOR_PANEL_WIDTH } from './layout-constants';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 
 import logoUrl from '/logo.png?url';
 
-const EMPTY_SNAPSHOT = { panelOpen: false, panelWidth: HIERARCHY_DEFAULT_WIDTH, overlay: null, editableNodes: [], selectedNodePath: null, revealPath: null };
+const EMPTY_SNAPSHOT = { panelOpen: false, panelWidth: HIERARCHY_DEFAULT_WIDTH, overlay: null, editableNodes: [], selectedNodePath: null, revealPath: null, showInspector: false, settingsOpen: false };
 const NOOP_UNSUB = () => () => {};
 
 /** Core layout for the left sidebar: logo + status header, slot-driven button group. */
@@ -24,9 +25,11 @@ export function ButtonPanel() {
   );
 
   const isMobile = useMobileLayout();
-  // Shift right for hierarchy panel + property inspector (320px + gap when a node is selected)
-  const inspectorExtra = editorState.panelOpen && editorState.selectedNodePath ? 328 : 0;
-  const buttonLeftOffset = editorState.panelOpen ? 8 + editorState.panelWidth + 8 + inspectorExtra : 8;
+  // Shift right for hierarchy panel, property inspector, or settings panel
+  const inspectorExtra = editorState.panelOpen && editorState.showInspector && editorState.selectedNodePath ? INSPECTOR_PANEL_WIDTH + 8 : 0;
+  const settingsWidth = editorState.settingsOpen ? SETTINGS_PANEL_WIDTH + 8 + 8 : 0; // panel + 8px left + 8px gap
+  const hierarchyWidth = editorState.panelOpen && !editorState.settingsOpen ? 8 + editorState.panelWidth + 8 + inspectorExtra : 0;
+  const buttonLeftOffset = Math.max(settingsWidth, hierarchyWidth) || 8;
 
   return (
     <>
