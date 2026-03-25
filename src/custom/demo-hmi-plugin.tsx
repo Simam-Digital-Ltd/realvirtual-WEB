@@ -5,8 +5,8 @@
  * create your own RVViewerPlugin with a `slots` array.
  */
 
-import { useState } from 'react';
-import { Speed, Sensors, Warning, Build, Visibility } from '@mui/icons-material';
+import { useState, useSyncExternalStore } from 'react';
+import { Speed, Sensors, Warning, Build, Visibility, PrecisionManufacturing } from '@mui/icons-material';
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { UISlotEntry, UISlotProps } from '../core/rv-ui-plugin';
 
@@ -29,6 +29,9 @@ import { DocViewerOverlay } from '../core/hmi/DocViewerOverlay';
 import { useDriveChartOpen } from '../hooks/use-drive-chart';
 import { useSensorChartOpen } from '../hooks/use-sensor-chart';
 import { useMaintenanceMode } from '../hooks/use-maintenance-mode';
+
+// Layout constants
+import { MACHINE_PANEL_WIDTH } from '../core/hmi/layout-constants';
 
 // ─── KPI Bar Entries ────────────────────────────────────────────────────
 
@@ -103,6 +106,20 @@ function MaintenanceButton({ viewer }: UISlotProps) {
       badge={isActive ? undefined : 1}
       active={isActive}
       onClick={() => viewer.emit('enter-maintenance' as string, undefined)}
+    />
+  );
+}
+
+function MachineControlButton({ viewer }: UISlotProps) {
+  const lpm = viewer.leftPanelManager;
+  const panelSnapshot = useSyncExternalStore(lpm.subscribe, lpm.getSnapshot);
+  const isActive = panelSnapshot.activePanel === 'machine-control';
+  return (
+    <NavButton
+      icon={<PrecisionManufacturing />}
+      label="Machine"
+      active={isActive}
+      onClick={() => lpm.toggle('machine-control', MACHINE_PANEL_WIDTH)}
     />
   );
 }
@@ -188,6 +205,7 @@ export class DemoHMIPlugin implements RVViewerPlugin {
     { slot: 'button-group', component: SensorsButton, order: 20 },
     { slot: 'button-group', component: AlarmsButton, order: 30 },
     { slot: 'button-group', component: MaintenanceButton, order: 40 },
+    { slot: 'button-group', component: MachineControlButton, order: 45 },
     { slot: 'button-group', component: ViewsButton, order: 50 },
 
     // Messages (right panel)

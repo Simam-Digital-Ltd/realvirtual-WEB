@@ -15,6 +15,7 @@ import { HierarchyBrowser } from './rv-hierarchy-browser';
 import { PropertyInspector } from './rv-property-inspector';
 import { LeftPanel } from './LeftPanel';
 import { SETTINGS_PANEL_WIDTH } from './layout-constants';
+import { MachineControlPanel } from './MachineControlPanel';
 
 export function TopBar() {
   const viewer = useViewer();
@@ -30,16 +31,41 @@ export function TopBar() {
   const hierarchyOpen = pluginState.panelOpen;
   const settingsOpen = pluginState.settingsOpen;
 
+  const lpm = viewer.leftPanelManager;
+
   const setSettingsOpen = useCallback((open: boolean) => {
     plugin?.setSettingsOpen(open);
-  }, [plugin]);
+    // Sync with leftPanelManager so MachineControlPanel knows to close
+    if (open) {
+      lpm.open('settings', SETTINGS_PANEL_WIDTH);
+    } else if (lpm.isOpen('settings')) {
+      lpm.close('settings');
+    }
+  }, [plugin, lpm]);
 
   const toggleHierarchy = useCallback(() => {
     if (!plugin) return;
     plugin.togglePanel();
     setSettingsOpen(false);
     setVrOpen(false);
-  }, [plugin, setSettingsOpen]);
+    // Sync with leftPanelManager
+    if (!plugin.panelOpen) {
+      // Was closed, now opening (togglePanel already flipped)
+      lpm.open('hierarchy', pluginState.panelWidth);
+    } else {
+      lpm.close('hierarchy');
+    }
+  }, [plugin, setSettingsOpen, lpm, pluginState.panelWidth]);
+
+  // Listen to leftPanelManager changes — if another panel opens, close settings/hierarchy
+  const panelSnapshot = useSyncExternalStore(lpm.subscribe, lpm.getSnapshot);
+  useEffect(() => {
+    if (panelSnapshot.activePanel && panelSnapshot.activePanel !== 'settings' && panelSnapshot.activePanel !== 'hierarchy') {
+      // Another panel opened (e.g. machine-control) — close our panels
+      if (settingsOpen) plugin?.setSettingsOpen(false);
+      if (hierarchyOpen) plugin?.togglePanel();
+    }
+  }, [panelSnapshot.activePanel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isMobile = useMobileLayout();
 
@@ -96,6 +122,9 @@ export function TopBar() {
 
       {/* Property inspector (disabled on mobile, hidden when settings open) */}
       {!isMobile && hierarchyOpen && !settingsOpen && pluginState.showInspector && pluginState.selectedNodePath && <PropertyInspector viewer={viewer} />}
+
+      {/* Machine Control Panel */}
+      <MachineControlPanel />
 
       {/* VR/AR modal */}
       {vrOpen && <VRModal onClose={() => setVrOpen(false)} />}

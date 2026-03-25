@@ -20,3 +20,6 @@ export const SETTINGS_PANEL_WIDTH = 540;
 
 /** Width of the PropertyInspector panel. */
 export const INSPECTOR_PANEL_WIDTH = 320;
+
+/** Width of the Machine Control panel. */
+export const MACHINE_PANEL_WIDTH = 320;

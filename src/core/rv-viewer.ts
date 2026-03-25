@@ -66,6 +66,7 @@ import { loadGLB, type LoadResult } from './engine/rv-scene-loader';
 import { SimulationLoop } from './engine/rv-simulation-loop';
 import { RVHighlightManager } from './engine/rv-highlight-manager';
 import { RaycastManager, type ObjectHoverData, type ObjectUnhoverData, type ObjectClickData } from './engine/rv-raycast-manager';
+import type { RaycastLayerName } from './engine/rv-raycast-layers';
 import type { RVDrive } from './engine/rv-drive';
 import type { RVTransportManager } from './engine/rv-transport-manager';
 import type { SignalStore } from './engine/rv-signal-store';
@@ -78,6 +79,7 @@ import { registerFilterSubscriber, loadSearchSettings, isTypeEnabled } from './h
 import type { RVViewerPlugin } from './rv-plugin';
 import { UIPluginRegistry } from './rv-ui-registry';
 import { isActiveForState } from './engine/rv-active-only';
+import { LeftPanelManager } from './hmi/left-panel-manager';
 
 // ─── Public Types ───────────────────────────────────────────────────────
 
@@ -113,6 +115,7 @@ export interface ViewerEvents {
   'node-filter': { filter: string; filteredNodes: NodeSearchResult[]; tooMany: boolean };
   'sensor-chart-toggle': { open: boolean };
   'groups-overlay-toggle': { open: boolean };
+  'exclusive-hover-mode': { mode: RaycastLayerName | null };
 
   // ── Connection state ──
   'connection-state-changed': { state: 'Connected' | 'Disconnected'; previous: 'Connected' | 'Disconnected' };
@@ -279,6 +282,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   /** UI plugin registry for React slot rendering. */
   readonly uiRegistry = new UIPluginRegistry();
 
+  /** Centralized left-panel coordination (mutual exclusion, ButtonPanel offset). */
+  readonly leftPanelManager = new LeftPanelManager();
+
   /**
    * Register a plugin. Sorted into cached lifecycle lists.
    * If the plugin has `slots`, its UI entries are auto-registered into the HMI.
@@ -323,14 +329,52 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     return this._plugins.find((p) => p.id === id) as T | undefined;
   }
 
+  // ─── Exclusive Hover Mode ──────────────────────────────────────────
+
+  /** The currently active exclusive hover mode (only this type is hoverable). null = all types. */
+  private _exclusiveHoverMode: RaycastLayerName | null = null;
+  get exclusiveHoverMode(): RaycastLayerName | null { return this._exclusiveHoverMode; }
+
+  /**
+   * Set an exclusive hover mode — only the specified type will be hoverable.
+   * Pass null to restore default behavior (all registered types hoverable).
+   * Any existing exclusive mode is automatically deactivated.
+   */
+  setExclusiveHoverMode(mode: RaycastLayerName | null): void {
+    if (mode === this._exclusiveHoverMode) return;
+    this._exclusiveHoverMode = mode;
+
+    if (!this.raycastManager) return;
+    if (mode) {
+      // Enable only the requested type
+      this.raycastManager.enableHoverType('DRIVE', mode === 'DRIVE');
+      this.raycastManager.enableHoverType('SENSOR', mode === 'SENSOR');
+      this.raycastManager.enableHoverType('MU', mode === 'MU');
+    } else {
+      // Default: all registered types hoverable
+      this.raycastManager.enableHoverType('DRIVE', true);
+      this.raycastManager.enableHoverType('SENSOR', true);
+      this.raycastManager.enableHoverType('MU', true);
+    }
+    this.emit('exclusive-hover-mode', { mode });
+  }
+
+  // ─── Drive Chart ──────────────────────────────────────────────────
+
   /** Whether the drive chart overlay is open. */
   private _driveChartOpen = false;
   get driveChartOpen(): boolean { return this._driveChartOpen; }
 
-  /** Toggle the drive chart overlay. Highlights all drives when open. */
+  /** Toggle the drive chart overlay. Exclusive with other chart modes. */
   toggleDriveChart(forceOpen?: boolean): void {
     this._driveChartOpen = forceOpen ?? !this._driveChartOpen;
     if (this._driveChartOpen) {
+      // Close other exclusive modes
+      if (this._sensorChartOpen) {
+        this._sensorChartOpen = false;
+        this.emit('sensor-chart-toggle', { open: false });
+      }
+      this.setExclusiveHoverMode('DRIVE');
       // Highlight filtered drives (or all if no filter)
       const drivesToHighlight = this._driveFilter ? this._filteredDrives : this.drives;
       const nodes = drivesToHighlight.map((d) => d.node);
@@ -339,19 +383,28 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         this.fitToNodes(nodes);
       }
     } else {
+      this.setExclusiveHoverMode(null);
       this.highlighter.clear();
     }
     this.emit('drive-chart-toggle', { open: this._driveChartOpen });
   }
 
+  // ─── Sensor Chart ─────────────────────────────────────────────────
+
   /** Whether the sensor chart overlay is open. */
   private _sensorChartOpen = false;
   get sensorChartOpen(): boolean { return this._sensorChartOpen; }
 
-  /** Toggle the sensor chart overlay. Highlights all sensors when open. */
+  /** Toggle the sensor chart overlay. Exclusive with other chart modes. */
   toggleSensorChart(forceOpen?: boolean): void {
     this._sensorChartOpen = forceOpen ?? !this._sensorChartOpen;
     if (this._sensorChartOpen) {
+      // Close other exclusive modes
+      if (this._driveChartOpen) {
+        this._driveChartOpen = false;
+        this.emit('drive-chart-toggle', { open: false });
+      }
+      this.setExclusiveHoverMode('SENSOR');
       const sensors = this.transportManager?.sensors ?? [];
       const nodes = sensors.map((s) => s.node);
       if (nodes.length > 0) {
@@ -359,6 +412,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         this.fitToNodes(nodes);
       }
     } else {
+      this.setExclusiveHoverMode(null);
       this.highlighter.clear();
     }
     this.emit('sensor-chart-toggle', { open: this._sensorChartOpen });
@@ -634,7 +688,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       window.addEventListener('resize', this.resizeHandler);
     }
 
-    console.log(`realvirtual Web Viewer — Ready (${this.isWebGPU ? 'WebGPU' : 'WebGL'})`);
+    console.log(`realvirtual WEB — Ready (${this.isWebGPU ? 'WebGPU' : 'WebGL'})`);
   }
 
   // ─── Static Factory ──────────────────────────────────────────────────
@@ -676,7 +730,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     if (!useWebGPU) {
       // Standard WebGL: use the proven WebGLRenderer (no init needed)
-      renderer = new WebGLRenderer({ antialias: options?.antialias ?? false, alpha: true }) as unknown as Renderer;
+      renderer = new WebGLRenderer({ antialias: options?.antialias ?? false, alpha: true, powerPreference: 'high-performance' }) as unknown as Renderer;
     }
 
     return RVViewer._configureAndCreate(renderer!, container, isTouchDevice, useWebGPU, options);
@@ -694,7 +748,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       container.clientWidth || window.innerWidth,
       container.clientHeight || window.innerHeight,
     );
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.shadowMap.enabled = false;
     (renderer.shadowMap as unknown as { autoUpdate: boolean }).autoUpdate = false;
     renderer.toneMapping = NoToneMapping;
@@ -739,6 +793,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       result.registry, this.highlighter, this,
     );
     this.raycastManager.registerTargets('DRIVE', this.drives.map(d => d.node));
+    // Pre-register sensor targets so layer bits are set (hover is disabled until sensor mode activates)
+    const sensorNodes = this.transportManager?.sensors?.map(s => s.node) ?? [];
+    if (sensorNodes.length > 0) {
+      this.raycastManager.registerTargets('SENSOR', sensorNodes);
+    }
 
     // LogicEngine
     if (this.logicEngine) {
@@ -1257,6 +1316,13 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     return this.renderer.getPixelRatio();
   }
 
+  /** Set maximum device pixel ratio. Values >= 2 use native DPR. Applies immediately (no reload). */
+  set maxDpr(cap: number) {
+    const effective = cap >= 2 ? window.devicePixelRatio : Math.min(window.devicePixelRatio, cap);
+    this.renderer.setPixelRatio(effective);
+    this._renderDirty = true;
+  }
+
   /** Set shadow map resolution (e.g. 512, 1024, 2048). Disposes old map. */
   set shadowMapSize(size: number) {
     this.dirLight.shadow.mapSize.set(size, size);
@@ -1472,16 +1538,21 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     // ── Core Drive Physics (behaviors + motion, drives[] may be topologically sorted) ──
     for (const drive of this.drives) {
       drive.update(dt);
-      // Mark shadows dirty if any drive is actively running (moving parts cast different shadows)
-      if (drive.isRunning) {
-        this._shadowsDirty = true;
+      if (drive.isRunning || drive.positionOverwrite) {
         this._renderDirty = true;
+        // Conveyor drives (jogForward/jogBackward) don't move geometry — only belt speed
+        // changes. No shadow recompute needed for them.
+        if (!drive.jogForward && !drive.jogBackward) {
+          this._shadowsDirty = true;
+        }
       }
     }
 
-    // Mark shadows + render dirty when MUs exist or MU count changed (spawn/despawn)
+    // Mark shadows + render dirty only when MU count changes (spawn/despawn),
+    // not when MUs merely exist. MU position changes already trigger render via
+    // drive.isRunning on the transport surface drive.
     const muCount = this.transportManager ? this.transportManager.mus.length : 0;
-    if (muCount > 0 || muCount !== this._prevMuCount) {
+    if (muCount !== this._prevMuCount) {
       this._shadowsDirty = true;
       this._renderDirty = true;
     }
@@ -1490,6 +1561,18 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     // ── Core Transport (kinematic — skipped when physics plugin is active) ──
     if (this.transportManager && !this._physicsPluginActive) {
       this.transportManager.update(dt);
+    }
+
+    // ── Texture animation (always runs, even when physics plugin handles transport) ──
+    if (this.transportManager) {
+      this.transportManager.updateTextureAnimations(dt);
+      // Mark render dirty when any surface is actively animating its belt texture
+      for (const surface of this.transportManager.surfaces) {
+        if (surface.isActive) {
+          this._renderDirty = true;
+          break;
+        }
+      }
     }
 
     // ── Plugins Post (recorder, sensor monitor, interface readback) ──
@@ -1668,6 +1751,13 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
       if (hoveredDrive && this._driveChartOpen) {
         this.filterDrives(hoveredDrive.name);
+      } else if (hoveredNode && hoveredType === 'Sensor' && this._sensorChartOpen) {
+        const path = this.registry?.getPathForNode(hoveredNode);
+        if (path) {
+          this.highlighter.highlight(hoveredNode, true, { includeSensorViz: true });
+          this.filterNodes(hoveredNode.name);
+          this.emit('object-clicked', { path, node: hoveredNode });
+        }
       } else if (hoveredDrive) {
         const path = this.registry?.getPathForNode(hoveredDrive.node);
         if (path) {

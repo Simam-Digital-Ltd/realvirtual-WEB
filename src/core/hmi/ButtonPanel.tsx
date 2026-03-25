@@ -25,11 +25,19 @@ export function ButtonPanel() {
   );
 
   const isMobile = useMobileLayout();
+
+  // Read leftPanelManager for panels managed outside of the extras-editor plugin
+  const lpm = viewer.leftPanelManager;
+  const panelSnapshot = useSyncExternalStore(lpm.subscribe, lpm.getSnapshot);
+
   // Shift right for hierarchy panel, property inspector, or settings panel
   const inspectorExtra = editorState.panelOpen && editorState.showInspector && editorState.selectedNodePath ? INSPECTOR_PANEL_WIDTH + 8 : 0;
   const settingsWidth = editorState.settingsOpen ? SETTINGS_PANEL_WIDTH + 8 + 8 : 0; // panel + 8px left + 8px gap
   const hierarchyWidth = editorState.panelOpen && !editorState.settingsOpen ? 8 + editorState.panelWidth + 8 + inspectorExtra : 0;
-  const buttonLeftOffset = Math.max(settingsWidth, hierarchyWidth) || 8;
+  // Also account for panels managed by leftPanelManager (e.g. machine-control)
+  const lpmWidth = (panelSnapshot.activePanel && panelSnapshot.activePanel !== 'settings' && panelSnapshot.activePanel !== 'hierarchy')
+    ? 8 + panelSnapshot.activePanelWidth + 8 : 0;
+  const buttonLeftOffset = Math.max(settingsWidth, hierarchyWidth, lpmWidth) || 8;
 
   return (
     <>

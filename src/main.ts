@@ -43,6 +43,9 @@ import { WebXRPlugin } from './plugins/webxr-plugin';
 // Maintenance guide plugin (LogicStep-driven step-by-step maintenance wizard)
 import { MaintenancePlugin } from './plugins/maintenance-plugin';
 
+// Machine control panel plugin (demo HMI with PackML-inspired state machine)
+import { MachineControlPlugin } from './plugins/machine-control-plugin';
+
 // Performance test plugin (activated via ?perf URL param)
 import { PerfTestPlugin } from './plugins/perf-test-plugin';
 
@@ -146,6 +149,7 @@ async function init() {
     .use(new KpiDemoPlugin())
     .use(new DemoHMIPlugin())
     .use(new MaintenancePlugin())
+    .use(new MachineControlPlugin())
     .use(new TestAxesPlugin())
     .use(new RvExtrasEditorPlugin());
 
