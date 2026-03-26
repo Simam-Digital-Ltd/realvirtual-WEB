@@ -57,6 +57,9 @@ export class SignalStore {
 
   /** Set value by name — only notifies listeners if value actually changes. */
   set(name: string, value: boolean | number): void {
+    if (name.includes('/') && !this.byName.has(name)) {
+      console.warn(`[SignalStore] set() called with path "${name}" — use setByPath() for hierarchy paths`);
+    }
     const old = this.byName.get(name);
     if (old === value) return;
     this.byName.set(name, value);
@@ -219,6 +222,36 @@ export class SignalStore {
     }
     this.pathToName.set(path, name);
     debug('signal', `register "${name}" path="${path}" initial=${initialValue}`);
+  }
+
+  // ── Indexing ──
+
+  /**
+   * Pre-build path index after all signals are registered.
+   * Registers all proper suffix variants of each path into `pathToName`,
+   * so `_resolvePath()` always hits on the direct `Map.get()` call
+   * without needing runtime suffix scans.
+   * Call once after loading completes.
+   */
+  buildIndex(): void {
+    const additions = new Map<string, string>();
+    for (const [registeredPath, name] of this.pathToName) {
+      const parts = registeredPath.split('/');
+      for (let i = 1; i < parts.length; i++) {
+        const suffix = parts.slice(i).join('/');
+        // First-wins: skip if suffix already claimed by another signal
+        if (!this.pathToName.has(suffix) && !additions.has(suffix)) {
+          additions.set(suffix, name);
+        }
+      }
+    }
+    for (const [path, name] of additions) {
+      this.pathToName.set(path, name);
+    }
+    this.resolveCache.clear();
+    if (additions.size > 0) {
+      debug('signal', `buildIndex: added ${additions.size} suffix entries (${this.pathToName.size} total path mappings)`);
+    }
   }
 
   // ── Utility ──

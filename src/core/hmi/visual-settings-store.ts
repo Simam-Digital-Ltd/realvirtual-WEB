@@ -46,6 +46,8 @@ export interface VisualSettings {
   shadowMapSize: number;
   /** Shadow softness radius (1-5). */
   shadowRadius: number;
+  /** Maximum device pixel ratio (1.0 = performance, 1.5 = balanced, native = quality). */
+  maxDpr: number;
 }
 
 const MODE_DEFAULTS: Record<LightingMode, LightingModeSettings> = {
@@ -56,15 +58,15 @@ const MODE_DEFAULTS: Record<LightingMode, LightingModeSettings> = {
     shadowEnabled: false, shadowIntensity: 0.5, shadowQuality: 'medium',
   },
   default: {
-    lightIntensity: 1.0, toneMapping: 'neutral', toneMappingExposure: 1.0,
+    lightIntensity: 0.4, toneMapping: 'neutral', toneMappingExposure: 1.0,
     ambientColor: '#ffffff', ambientIntensity: 0.3,
     dirLightEnabled: true, dirLightColor: '#ffffff', dirLightIntensity: 1.5,
-    shadowEnabled: true, shadowIntensity: 0.5, shadowQuality: 'medium',
+    shadowEnabled: true, shadowIntensity: 0.95, shadowQuality: 'medium',
   },
 };
 
 const DEFAULTS: VisualSettings = {
-  lightingMode: 'simple',
+  lightingMode: 'default',
   modeSettings: {
     simple:  { ...MODE_DEFAULTS.simple },
     default: { ...MODE_DEFAULTS.default },
@@ -75,6 +77,7 @@ const DEFAULTS: VisualSettings = {
   antialias: true,
   shadowMapSize: 1024,
   shadowRadius: 2,
+  maxDpr: 1.5,
 };
 
 function migrateToneMapping(raw: unknown, mode: LightingMode): ToneMappingType {
@@ -124,6 +127,7 @@ export function loadVisualSettings(): VisualSettings {
     antialias: fromStorage.antialias,
     shadowMapSize: fromStorage.shadowMapSize,
     shadowRadius: fromStorage.shadowRadius,
+    maxDpr: fromStorage.maxDpr,
   };
 }
 
@@ -146,6 +150,9 @@ function loadFromLocalStorage(): VisualSettings {
     const shadowRadiusRaw = (parsed as Record<string, unknown>).shadowRadius;
     const shadowRadius = (typeof shadowRadiusRaw === 'number' && shadowRadiusRaw >= 1 && shadowRadiusRaw <= 5)
       ? shadowRadiusRaw : DEFAULTS.shadowRadius;
+    const maxDprRaw = (parsed as Record<string, unknown>).maxDpr;
+    const maxDpr = (typeof maxDprRaw === 'number' && maxDprRaw >= 0.5 && maxDprRaw <= 4)
+      ? maxDprRaw : DEFAULTS.maxDpr;
     return {
       lightingMode: mode,
       modeSettings,
@@ -155,6 +162,7 @@ function loadFromLocalStorage(): VisualSettings {
       antialias,
       shadowMapSize,
       shadowRadius,
+      maxDpr,
     };
   } catch {
     return { ...DEFAULTS, modeSettings: { simple: { ...MODE_DEFAULTS.simple }, default: { ...MODE_DEFAULTS.default } }, cameras: [...DEFAULTS.cameras] };

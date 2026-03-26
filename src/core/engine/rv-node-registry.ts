@@ -84,6 +84,26 @@ export class NodeRegistry {
   }
 
   /**
+   * Register an alias path for a node (e.g. original GLTF name before Three.js dedup).
+   * Adds to path→node and suffixMap but does NOT update nodePaths (reverse lookup),
+   * so the canonical path remains the primary identifier for the node.
+   */
+  registerAlias(aliasPath: string, node: Object3D): void {
+    const existing = this.nodes.get(aliasPath);
+    if (existing) return; // Don't overwrite an existing node registration
+
+    this.nodes.set(aliasPath, node);
+
+    const suffix = aliasPath.substring(aliasPath.lastIndexOf('/') + 1);
+    let arr = this.suffixMap.get(suffix);
+    if (!arr) {
+      arr = [];
+      this.suffixMap.set(suffix, arr);
+    }
+    arr.push(aliasPath);
+  }
+
+  /**
    * Register a typed component instance at a path (Phase 2).
    * A single path can have multiple component types (Drive + TransportSurface, etc.)
    */

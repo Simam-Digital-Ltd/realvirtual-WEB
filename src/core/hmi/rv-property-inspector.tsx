@@ -44,6 +44,8 @@ import {
   componentColor,
   pathsMatch,
   getSignalDisplayValue,
+  getDriveDisplayValue,
+  getLiveDriveFields,
   type ReverseReference,
 } from './rv-inspector-helpers';
 import { navigateToRef } from './rv-reference-display';
@@ -424,15 +426,21 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
             const overriddenFields = new Set(
               state.overlay ? getOverriddenFields(selectedPath, type, state.overlay) : [],
             );
+            // Merge live runtime values for Drive components (position, speed, status)
+            const liveFields = getLiveDriveFields(viewer.registry, selectedPath, type);
+            const displayData = liveFields ? { ...data, ...liveFields } : data;
+            // Header value: signal value OR drive position
+            const headerValue = getSignalDisplayValue(signalStore, selectedPath, type, data)
+              ?? getDriveDisplayValue(viewer.registry, selectedPath, type);
             return (
               <ComponentSection
                 key={type}
                 nodePath={selectedPath}
                 componentType={type}
-                data={data}
+                data={displayData}
                 overriddenFields={overriddenFields}
                 consumedOnly={consumedOnly}
-                signalValue={getSignalDisplayValue(signalStore, selectedPath, type, data)}
+                signalValue={headerValue}
                 onFieldEdit={(fieldName, value) => handleFieldEdit(type, fieldName, value)}
                 onFieldReset={(fieldName) => handleFieldReset(type, fieldName)}
                 onResetComponent={() => handleComponentReset(type)}

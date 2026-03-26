@@ -1,44 +1,12 @@
-import { useState, useEffect } from 'react';
 import { Box, Paper, Typography, Button } from '@mui/material';
-import { useViewer } from '../../hooks/use-viewer';
-import { getAppConfig } from './rv-app-config';
 
-const LS_KEY = 'rv-welcome-shown';
+interface WelcomeModalProps {
+  open: boolean;
+  onClose: () => void;
+}
 
-export function WelcomeModal() {
-  const viewer = useViewer();
-  const shouldShow = !getAppConfig().hideWelcomeModal && !localStorage.getItem(LS_KEY);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (!shouldShow) return;
-    const show = () => {
-      const timer = setTimeout(() => setVisible(true), 2000);
-      return () => clearTimeout(timer);
-    };
-    // If a model is already loaded, start the 2s timer immediately
-    if (viewer.currentModelUrl && viewer.scene.children.length > 0) {
-      return show();
-    }
-    // Otherwise wait for model-loaded event
-    const handler = () => {
-      const timer = setTimeout(() => setVisible(true), 2000);
-      cleanup = () => clearTimeout(timer);
-    };
-    let cleanup: (() => void) | undefined;
-    viewer.on('model-loaded', handler);
-    return () => {
-      viewer.off('model-loaded', handler);
-      cleanup?.();
-    };
-  }, [shouldShow, viewer]);
-
-  if (!visible) return null;
-
-  const handleClose = () => {
-    localStorage.setItem(LS_KEY, '1');
-    setVisible(false);
-  };
+export function WelcomeModal({ open, onClose }: WelcomeModalProps) {
+  if (!open) return null;
 
   return (
     <Box
@@ -52,6 +20,7 @@ export function WelcomeModal() {
         bgcolor: 'rgba(0,0,0,0.6)',
         pointerEvents: 'auto',
       }}
+      onClick={onClose}
     >
       <Paper
         elevation={12}
@@ -66,9 +35,13 @@ export function WelcomeModal() {
           maxHeight: '90dvh',
           overflow: 'auto',
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         <Typography variant="h6" sx={{ fontWeight: 700, color: '#4fc3f7' }}>
-          realvirtual Web — 3D HMI
+          realvirtual WEB
+        </Typography>
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', letterSpacing: 2, textTransform: 'uppercase', fontSize: 10, mt: -1 }}>
+          Open. Light. Industrial. Anywhere.
         </Typography>
 
         <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
@@ -80,7 +53,7 @@ export function WelcomeModal() {
 
         <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
           Exports in seconds from Unity Editor — using modern web standards like
-          Three.js, React and glTF/GLB. realvirtual Web includes WebSocket, MQTT,
+          Three.js, React and glTF/GLB. realvirtual WEB includes WebSocket, MQTT,
           Beckhoff, Bosch Rexroth and KEBA interfaces out of the box.
           Robot kinematics may not move correctly in this preview.
         </Typography>
@@ -96,7 +69,7 @@ export function WelcomeModal() {
         </Typography>
 
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
-          <Button variant="contained" size="small" onClick={handleClose} sx={{ textTransform: 'none', fontWeight: 600 }}>
+          <Button variant="contained" size="small" onClick={onClose} sx={{ textTransform: 'none', fontWeight: 600 }}>
             Got it
           </Button>
         </Box>

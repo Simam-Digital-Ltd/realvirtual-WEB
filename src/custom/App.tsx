@@ -10,7 +10,7 @@ import { KpiBar } from '../core/hmi/KpiBar';
 import { ButtonPanel } from '../core/hmi/ButtonPanel';
 import { MessagePanel } from '../core/hmi/MessagePanel';
 import { BottomBar } from '../core/hmi/BottomBar';
-import { WelcomeModal } from '../core/hmi/WelcomeModal';
+
 import { loadVisualSettings } from '../core/hmi/visual-settings-store';
 import { useHmiVisible } from '../core/hmi/hmi-visibility-store';
 
@@ -76,7 +76,6 @@ export function App() {
       </HMIShell>
       <DriveTooltipController />
       <DriveChartOverlay />
-      <WelcomeModal />
     </ThemeProvider>
   );
 }

@@ -12,17 +12,12 @@ import {
   Quaternion,
 } from 'three';
 import { AABB } from './rv-aabb';
-import type { RVMovingUnit } from './rv-mu';
+import type { RVMovingUnit, InstancedMovingUnit, IMUAccessor } from './rv-mu';
+import type { ComponentSchema, ComponentContext, RVComponent } from './rv-component-registry';
+import { registerComponent } from './rv-component-registry';
+import { NodeRegistry } from './rv-node-registry';
+import { unityPositionToGltf } from './rv-coordinate-utils';
 import { debug } from './rv-debug';
-
-export interface SensorConfig {
-  invertSignal: boolean;
-  mode: 'Collision' | 'Raycast';
-  /** Local-space ray direction (glTF coords). Only for Raycast mode. */
-  rayCastDirection?: { x: number; y: number; z: number };
-  /** Ray length in mm. Only for Raycast mode. */
-  rayCastLength?: number;
-}
 
 // Shared materials (reused across all sensors to save GPU resources)
 const YELLOW = 0xffcc00;
@@ -119,15 +114,38 @@ function rayIntersectsAABB(
  * - Collision: semi-transparent box (yellow = idle, red = occupied)
  * - Raycast: line from origin to ray end/hit (yellow = idle, red = occupied)
  */
-export class RVSensor {
+export class RVSensor implements RVComponent {
+  static readonly schema: ComponentSchema = {
+    UseRaycast: { type: 'boolean', default: false },
+    RayCastDirection: { type: 'vector3', unityCoords: true },
+    RayCastLength: { type: 'number', default: 1000 },
+    SensorOccupied: { type: 'componentRef' },
+    SensorNotOccupied: { type: 'componentRef' },
+  };
+
   readonly node: Object3D;
-  readonly config: SensorConfig;
   readonly aabb: AABB;
+
+  // Properties — exact C# Inspector field names
+  UseRaycast = false;
+  RayCastDirection: Vector3 | { x: number; y: number; z: number } = { x: -1, y: 0, z: 0 };
+  RayCastLength = 1000;
+
+  // Derived mode for backward compat with callers checking mode
+  get mode(): 'Raycast' | 'Collision' { return this.UseRaycast ? 'Raycast' : 'Collision'; }
+
+  /** Resolved signal address for SensorOccupied PLCInputBool (null if not connected) */
+  SensorOccupied: string | null = null;
+  /** Resolved signal address for SensorNotOccupied PLCInputBool (null if not connected) */
+  SensorNotOccupied: string | null = null;
+
+  /** InvertSignal — not in C# Sensor.cs, but needed for internal logic */
+  invertSignal = false;
 
   /** Current occupied state */
   occupied = false;
   /** The MU currently occupying this sensor (first one found) */
-  occupiedMU: RVMovingUnit | null = null;
+  occupiedMU: (RVMovingUnit | InstancedMovingUnit) | null = null;
 
   /** Callback for state change (for UI/visualization updates) */
   onChanged?: (occupied: boolean, sensor: RVSensor) => void;
@@ -140,10 +158,74 @@ export class RVSensor {
   /** Ray tube visualization — Raycast mode (added to scene, world-space) */
   private rayTube: Mesh | null = null;
 
-  constructor(node: Object3D, config: SensorConfig, aabb: AABB) {
+  /** BoxCollider data from GLB extras, stored during construction for use in init() */
+  boxColliderData: { center: { x: number; y: number; z: number }; size: { x: number; y: number; z: number } } | null = null;
+
+  constructor(node: Object3D, aabb: AABB) {
     this.node = node;
-    this.config = config;
     this.aabb = aabb;
+  }
+
+  /**
+   * Wire sensor into SignalStore and create visualization.
+   * Called after applySchema + resolveComponentRefs.
+   */
+  init(context: ComponentContext): void {
+    // Read raw extras from node for legacy Mode conversion and BoxCollider data
+    const rv = this.node.userData?.realvirtual as Record<string, unknown> | undefined;
+    if (rv) {
+      const sensorData = rv['Sensor'] as Record<string, unknown> | undefined;
+      if (sensorData) {
+        const modeStr = sensorData['Mode'] as string | undefined;
+        if (modeStr && sensorData['UseRaycast'] === undefined) {
+          this.UseRaycast = modeStr === 'Raycast';
+        }
+      }
+      const bc = rv['BoxCollider'] as { center?: { x: number; y: number; z: number }; size?: { x: number; y: number; z: number } } | undefined;
+      if (bc?.center && bc?.size) {
+        this.boxColliderData = { center: bc.center, size: bc.size };
+      }
+    }
+
+    const sensorPath = NodeRegistry.computeNodePath(this.node);
+    const sensorName = this.node.name;
+
+    // Register sensor signal in SignalStore
+    context.signalStore.register(sensorName, sensorPath, false);
+
+    // Resolve SensorOccupied/SensorNotOccupied signal addresses
+    const sensorOccupiedAddr = typeof this.SensorOccupied === 'string' ? this.SensorOccupied : null;
+    const sensorNotOccupiedAddr = typeof this.SensorNotOccupied === 'string' ? this.SensorNotOccupied : null;
+
+    this.onChanged = (occupied) => {
+      context.signalStore.set(sensorName, occupied);
+      // Mirror C# Sensor.cs: write to connected PLC signals
+      if (sensorOccupiedAddr) {
+        context.signalStore.setByPath(sensorOccupiedAddr, occupied);
+      }
+      if (sensorNotOccupiedAddr) {
+        context.signalStore.setByPath(sensorNotOccupiedAddr, !occupied);
+      }
+    };
+
+    // Create sensor visualization
+    if (this.UseRaycast) {
+      this.createRayVisualization();
+    } else if (this.boxColliderData) {
+      const bc = this.boxColliderData;
+      const gltfCenter = unityPositionToGltf(bc.center.x, bc.center.y, bc.center.z);
+      const halfSize = {
+        x: Math.abs(bc.size.x) / 2,
+        y: Math.abs(bc.size.y) / 2,
+        z: Math.abs(bc.size.z) / 2,
+      };
+      this.createVisualization(gltfCenter, halfSize);
+    }
+
+    // Register in transport manager
+    context.transportManager.sensors.push(this);
+
+    console.log(`  Sensor: ${this.node.name} mode=${this.mode} dir=${this.UseRaycast ? JSON.stringify(this.RayCastDirection) : 'N/A'} len=${this.RayCastLength}mm${sensorOccupiedAddr ? ` → ${sensorOccupiedAddr}` : ''}`);
   }
 
   // ─── Collision-mode visualization (box) ────────────────────────────
@@ -186,9 +268,9 @@ export class RVSensor {
 
   /** Create the ray tube visualization for Raycast mode. */
   createRayVisualization(): void {
-    if (this.config.mode !== 'Raycast') return;
+    if (!this.UseRaycast) return;
 
-    const maxDist = (this.config.rayCastLength ?? 1000) / 1000;
+    const maxDist = this.RayCastLength / 1000;
     const radius = 0.002; // 2mm radius — visible but not obtrusive
     const indexedGeo = new CylinderGeometry(radius, radius, maxDist, 6, 1);
     // CylinderGeometry is along Y by default; we'll orient it per-frame
@@ -215,9 +297,8 @@ export class RVSensor {
 
   /** Compute world-space ray origin and direction. */
   private computeRay(): { origin: Vector3; dir: Vector3; maxDist: number } {
-    const cfg = this.config;
-    const d = cfg.rayCastDirection ?? { x: -1, y: 0, z: 0 };
-    const maxDist = (cfg.rayCastLength ?? 1000) / 1000; // mm → meters
+    const d = this.RayCastDirection;
+    const maxDist = this.RayCastLength / 1000; // mm → meters
 
     this.node.updateWorldMatrix(true, false);
     _origin.setFromMatrixPosition(this.node.matrixWorld);
@@ -262,10 +343,10 @@ export class RVSensor {
   /**
    * Check for MU presence and update occupied state.
    * Called once per fixed timestep.
-   * Dispatches to collision (AABB) or raycast check based on config mode.
+   * Dispatches to collision (AABB) or raycast check based on mode.
    */
-  checkOverlap(mus: RVMovingUnit[]): void {
-    if (this.config.mode === 'Raycast') {
+  checkOverlap(mus: (RVMovingUnit | InstancedMovingUnit)[]): void {
+    if (this.UseRaycast) {
       this.checkRaycast(mus);
     } else {
       this.checkCollision(mus);
@@ -273,8 +354,8 @@ export class RVSensor {
   }
 
   /** Collision mode: AABB overlap check. */
-  private checkCollision(mus: RVMovingUnit[]): void {
-    let foundMU: RVMovingUnit | null = null;
+  private checkCollision(mus: (RVMovingUnit | InstancedMovingUnit)[]): void {
+    let foundMU: (RVMovingUnit | InstancedMovingUnit) | null = null;
 
     for (const mu of mus) {
       if (mu.markedForRemoval) continue;
@@ -288,10 +369,10 @@ export class RVSensor {
   }
 
   /** Raycast mode: ray-AABB intersection against all MUs. */
-  private checkRaycast(mus: RVMovingUnit[]): void {
+  private checkRaycast(mus: (RVMovingUnit | InstancedMovingUnit)[]): void {
     const { origin, dir, maxDist } = this.computeRay();
 
-    let foundMU: RVMovingUnit | null = null;
+    let foundMU: (RVMovingUnit | InstancedMovingUnit) | null = null;
     let hitDist = maxDist;
 
     for (const mu of mus) {
@@ -313,17 +394,17 @@ export class RVSensor {
   }
 
   /** Apply detection result and fire callback if state changed. */
-  private applyResult(foundMU: RVMovingUnit | null): void {
+  private applyResult(foundMU: (RVMovingUnit | InstancedMovingUnit) | null): void {
     const rawOccupied = foundMU !== null;
-    const newOccupied = this.config.invertSignal ? !rawOccupied : rawOccupied;
+    const newOccupied = this.invertSignal ? !rawOccupied : rawOccupied;
 
     if (newOccupied !== this.occupied) {
       this.occupied = newOccupied;
       this.occupiedMU = foundMU;
-      debug('sensor', `Sensor "${this.node.name}" → ${newOccupied ? 'OCCUPIED' : 'CLEARED'}${foundMU ? ` by "${foundMU.node.name}"` : ''}`);
+      debug('sensor', `Sensor "${this.node.name}" → ${newOccupied ? 'OCCUPIED' : 'CLEARED'}${foundMU ? ` by "${foundMU.getName()}"` : ''}`);
       this.updateVisualization();
       this.onChanged?.(this.occupied, this);
-    } else if (this.config.mode === 'Raycast') {
+    } else if (this.UseRaycast) {
       // Still update ray line even if state didn't change (MU might be moving)
       // updateRayTube is called from checkRaycast already
     }
@@ -334,3 +415,12 @@ export class RVSensor {
     this.aabb.update();
   }
 }
+
+// Self-register for auto-discovery by scene loader
+registerComponent({
+  type: 'Sensor',
+  schema: RVSensor.schema,
+  needsAABB: true,
+  create: (node, aabb) => new RVSensor(node, aabb!),
+  afterCreate: (_inst, node) => { node.userData._rvType = 'Sensor'; },
+});

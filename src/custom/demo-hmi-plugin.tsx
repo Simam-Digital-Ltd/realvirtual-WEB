@@ -6,7 +6,7 @@
  */
 
 import { useState, useSyncExternalStore } from 'react';
-import { Speed, Sensors, Warning, Build, Visibility, PrecisionManufacturing } from '@mui/icons-material';
+import { Speed, Sensors, Warning, Build, PrecisionManufacturing } from '@mui/icons-material';
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { UISlotEntry, UISlotProps } from '../core/rv-ui-plugin';
 
@@ -124,10 +124,6 @@ function MachineControlButton({ viewer }: UISlotProps) {
   );
 }
 
-function ViewsButton(_props: UISlotProps) {
-  return <NavButton icon={<Visibility />} label="Views" />;
-}
-
 // ─── Message Panel Entries ──────────────────────────────────────────────
 
 function DriveOverloadMessage(_props: UISlotProps) {
@@ -201,12 +197,11 @@ export class DemoHMIPlugin implements RVViewerPlugin {
     { slot: 'kpi-bar', component: PowerKpi, order: 40 },
 
     // Button group (left sidebar)
+    { slot: 'button-group', component: MachineControlButton, order: 5 },
     { slot: 'button-group', component: DrivesButton, order: 10 },
     { slot: 'button-group', component: SensorsButton, order: 20 },
     { slot: 'button-group', component: AlarmsButton, order: 30 },
     { slot: 'button-group', component: MaintenanceButton, order: 40 },
-    { slot: 'button-group', component: MachineControlButton, order: 45 },
-    { slot: 'button-group', component: ViewsButton, order: 50 },
 
     // Messages (right panel)
     { slot: 'messages', component: DriveOverloadMessage, order: 10 },

@@ -221,4 +221,54 @@ describe('SignalStore', () => {
     unsub(); // should not throw
     expect(cb).not.toHaveBeenCalled();
   });
+
+  // ── Suffix-based path resolution (GLB root prefix mismatch) ──
+
+  it('should resolve path via suffix when GLB root prefix is missing', () => {
+    const store = new SignalStore();
+    // Signal registered with full GLB path (root/Robot/Grip)
+    store.register('Grip', 'demoglb/Robot/Grip', false);
+
+    // Inspector uses raw ComponentRef path without GLB root prefix
+    expect(store.getByPath('Robot/Grip')).toBe(false);
+    expect(store.getBoolByPath('Robot/Grip')).toBe(false);
+  });
+
+  it('should setByPath work via suffix match', () => {
+    const store = new SignalStore();
+    store.register('Grip', 'demoglb/Robot/Grip', false);
+
+    store.setByPath('Robot/Grip', true);
+    expect(store.getBool('Grip')).toBe(true);
+  });
+
+  it('should subscribeByPath work via suffix match', () => {
+    const store = new SignalStore();
+    store.register('Grip', 'demoglb/Robot/Grip', false);
+
+    const cb = vi.fn();
+    store.subscribeByPath('Robot/Grip', cb);
+
+    store.set('Grip', true);
+    expect(cb).toHaveBeenCalledWith(true);
+  });
+
+  it('should cache suffix resolution for fast repeated lookups', () => {
+    const store = new SignalStore();
+    store.register('Grip', 'demoglb/Robot/Grip', false);
+
+    // First call: suffix scan
+    expect(store.getByPath('Robot/Grip')).toBe(false);
+    // Second call: cached
+    store.set('Grip', true);
+    expect(store.getByPath('Robot/Grip')).toBe(true);
+  });
+
+  it('should resolve suffix match with space normalization', () => {
+    const store = new SignalStore();
+    store.register('ConvStart', 'demoglb/Robot/Entry_Conveyor/Start', false);
+
+    // C# path has spaces, Three.js sanitizes to underscores
+    expect(store.getByPath('Robot/Entry Conveyor/Start')).toBe(false);
+  });
 });

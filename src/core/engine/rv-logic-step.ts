@@ -413,8 +413,8 @@ export class RVDriveTo extends RVLogicStep {
       : this.destination;
 
     // Clamp to drive limits
-    if (this.drive.config.useLimits) {
-      dest = Math.max(this.drive.config.lowerLimit, Math.min(this.drive.config.upperLimit, dest));
+    if (this.drive.UseLimits) {
+      dest = Math.max(this.drive.LowerLimit, Math.min(this.drive.UpperLimit, dest));
     }
 
     this.targetPosition = dest;

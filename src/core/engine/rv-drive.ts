@@ -1,25 +1,10 @@
 import { Object3D, Vector3, Quaternion, Euler, MathUtils } from 'three';
 import { DriveDirection, directionToGltfAxis, isRotation } from './rv-coordinate-utils';
+import type { ComponentSchema, ComponentContext, RVComponent } from './rv-component-registry';
+import { registerComponentSchema } from './rv-component-registry';
 
 // Re-export for backward compatibility
 export { DriveDirection } from './rv-coordinate-utils';
-
-export interface DriveConfig {
-  direction: DriveDirection;
-  reverseDirection: boolean;
-  offset: number;
-  startPosition: number;
-  targetSpeed: number;
-  acceleration: number;
-  useAcceleration: boolean;
-  useLimits: boolean;
-  lowerLimit: number;
-  upperLimit: number;
-  /** DriveBehaviour component type names found on this node (e.g. "Drive_ErraticPosition") */
-  behaviors: string[];
-  /** Raw extras data for each DriveBehaviour, keyed by behavior name */
-  behaviorExtras: Record<string, Record<string, unknown>>;
-}
 
 /**
  * IDriveBehavior - mirrors Unity's IDriveBehavior interface.
@@ -45,11 +30,50 @@ const _axisScaled = new Vector3();
  * Controller scale is hardcoded to 1000 (mm->m) for the PoC.
  * In the GLB, positions are already in meters, so we divide by 1000.
  */
-export class RVDrive {
-  readonly config: DriveConfig;
+export class RVDrive implements RVComponent {
+  static readonly schema: ComponentSchema = {
+    Direction: { type: 'enum', enumMap: {
+      'LinearX': DriveDirection.LinearX,
+      'LinearY': DriveDirection.LinearY,
+      'LinearZ': DriveDirection.LinearZ,
+      'RotationX': DriveDirection.RotationX,
+      'RotationY': DriveDirection.RotationY,
+      'RotationZ': DriveDirection.RotationZ,
+      'Virtual': DriveDirection.Virtual,
+    }},
+    ReverseDirection: { type: 'boolean', default: false },
+    Offset: { type: 'number', default: 0 },
+    StartPosition: { type: 'number', default: 0 },
+    TargetSpeed: { type: 'number', default: 100 },
+    Acceleration: { type: 'number', default: 100 },
+    UseAcceleration: { type: 'boolean', default: false },
+    UseLimits: { type: 'boolean', default: false },
+    LowerLimit: { type: 'number', default: -180 },
+    UpperLimit: { type: 'number', default: 180 },
+  };
+
   readonly node: Object3D;
   readonly name: string;
-  readonly isRotary: boolean;
+
+  // Properties — exact C# Inspector field names
+  Direction: DriveDirection = DriveDirection.LinearX;
+  ReverseDirection = false;
+  Offset = 0;
+  StartPosition = 0;
+  TargetSpeed = 100;
+  Acceleration = 100;
+  UseAcceleration = false;
+  UseLimits = false;
+  LowerLimit = -180;
+  UpperLimit = 180;
+
+  /** DriveBehaviour component type names found on this node (e.g. "Drive_ErraticPosition") */
+  Behaviors: string[] = [];
+  /** Raw extras data for each DriveBehaviour, keyed by behavior name */
+  BehaviorExtras: Record<string, Record<string, unknown>> = {};
+
+  /** Derived from Direction */
+  isRotary = false;
 
   // Base transform (rest position from GLB)
   private basePosition = new Vector3();
@@ -69,34 +93,49 @@ export class RVDrive {
 
   /** When true, update() skips physics and only applies transform (for DrivesPlayback) */
   positionOverwrite = false;
+  /** Previous position for computing speed in overwrite mode */
+  private _prevOverwritePos = 0;
 
   /** Drive behaviors called before physics, mirroring Unity's IDriveBehavior pattern */
   readonly driveBehaviors: IDriveBehavior[] = [];
+
+  /** Optional callback invoked after each update tick (used by Drive_Cylinder for feedback signals) */
+  onAfterUpdate: ((drive: RVDrive) => void) | null = null;
 
   // Direction axis (in local space)
   private axis = new Vector3();
   private controllerScale = 1000; // mm -> m, hardcoded for PoC
 
-  constructor(node: Object3D, config: DriveConfig) {
+  constructor(node: Object3D) {
     this.node = node;
-    this.config = config;
     this.name = node.name;
-    this.isRotary = isRotation(config.direction);
+  }
+
+  init(_context: ComponentContext): void {
+    // Drive behavior wiring is handled by the loader (Drive_Simple, Drive_Cylinder, etc.)
+  }
+
+  /**
+   * Initialize drive internals after properties are set.
+   * Called by the loader after applySchema (or by tests after setting properties manually).
+   */
+  initDrive(): void {
+    this.isRotary = isRotation(this.Direction);
 
     // Store base transform
-    this.basePosition.copy(node.position);
-    this.baseQuaternion.copy(node.quaternion);
+    this.basePosition.copy(this.node.position);
+    this.baseQuaternion.copy(this.node.quaternion);
 
     // Compute axis
-    const rawAxis = directionToGltfAxis(config.direction);
+    const rawAxis = directionToGltfAxis(this.Direction);
     this.axis.copy(rawAxis);
-    if (config.reverseDirection) {
+    if (this.ReverseDirection) {
       this.axis.negate();
     }
 
     // Set initial position (matches Unity Drive.Start(): CurrentPosition = StartPosition)
-    this.currentPosition = config.startPosition;
-    this.targetSpeed = config.targetSpeed;
+    this.currentPosition = this.StartPosition;
+    this.targetSpeed = this.TargetSpeed;
 
     // Apply initial transform so StartPosition + Offset take effect immediately
     // (In Unity this happens on first FixedUpdate after Start())
@@ -133,7 +172,13 @@ export class RVDrive {
     if (this.isIdle) return;
 
     if (this.positionOverwrite) {
+      // Derive speed from position change so charts show meaningful data
+      if (dt > 0) {
+        this.currentSpeed = Math.abs(this.currentPosition - this._prevOverwritePos) / dt;
+        this._prevOverwritePos = this.currentPosition;
+      }
       this.applyToNode();
+      this.onAfterUpdate?.(this);
       return;
     }
 
@@ -160,15 +205,16 @@ export class RVDrive {
       this.isRunning = false;
       this.currentSpeed = 0;
       this.applyToNode();
+      this.onAfterUpdate?.(this);
       return;
     }
 
     const dir = Math.sign(dist);
     const speed = this.targetSpeed;
 
-    if (this.config.useAcceleration && this.config.acceleration > 0) {
+    if (this.UseAcceleration && this.Acceleration > 0) {
       // Acceleration/deceleration
-      const accel = this.config.acceleration;
+      const accel = this.Acceleration;
       const stoppingDist = (this.currentSpeed * this.currentSpeed) / (2 * accel);
 
       if (stoppingDist >= Math.abs(dist)) {
@@ -189,19 +235,20 @@ export class RVDrive {
     if (dir < 0 && nextPos < this.targetPosition) nextPos = this.targetPosition;
 
     // Apply limits
-    if (this.config.useLimits) {
-      nextPos = Math.max(this.config.lowerLimit, Math.min(this.config.upperLimit, nextPos));
+    if (this.UseLimits) {
+      nextPos = Math.max(this.LowerLimit, Math.min(this.UpperLimit, nextPos));
     }
 
     this.currentPosition = nextPos;
     this.applyToNode();
+    this.onAfterUpdate?.(this);
   }
 
   /** Apply current position to Three.js node transform */
   applyToNode() {
-    const pos = this.currentPosition + this.config.offset;
+    const pos = this.currentPosition + this.Offset;
 
-    if (this.config.direction === DriveDirection.Virtual) return;
+    if (this.Direction === DriveDirection.Virtual) return;
 
     if (this.isRotary) {
       // Rotation: localRotation = baseQuat * Quaternion.Euler(axis * angle)
@@ -221,3 +268,6 @@ export class RVDrive {
     }
   }
 }
+
+// Register schema for auto-derivation of CONSUMED fields
+registerComponentSchema('Drive', RVDrive.schema);

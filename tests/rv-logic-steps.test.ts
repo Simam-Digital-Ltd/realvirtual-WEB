@@ -25,19 +25,19 @@ import type { RVSensor } from '../src/core/engine/rv-sensor';
 function makeDrive(name: string, startPos = 0): RVDrive {
   const node = new Object3D();
   node.name = name;
-  return new RVDrive(node, {
-    direction: DriveDirection.LinearX,
-    reverseDirection: false,
-    offset: 0,
-    startPosition: startPos,
-    targetSpeed: 100,
-    acceleration: 0,
-    useAcceleration: false,
-    useLimits: false,
-    lowerLimit: 0,
-    upperLimit: 1000,
-    behaviors: [],
-  });
+  const drive = new RVDrive(node);
+  drive.Direction = DriveDirection.LinearX;
+  drive.ReverseDirection = false;
+  drive.Offset = 0;
+  drive.StartPosition = startPos;
+  drive.TargetSpeed = 100;
+  drive.Acceleration = 0;
+  drive.UseAcceleration = false;
+  drive.UseLimits = false;
+  drive.LowerLimit = 0;
+  drive.UpperLimit = 1000;
+  drive.initDrive();
+  return drive;
 }
 
 function makeSensor(occupied = false): RVSensor {
@@ -212,19 +212,14 @@ describe('RVDriveTo', () => {
   it('should clamp to drive limits', () => {
     const node = new Object3D();
     node.name = 'd1';
-    const drive = new RVDrive(node, {
-      direction: DriveDirection.LinearX,
-      reverseDirection: false,
-      offset: 0,
-      startPosition: 0,
-      targetSpeed: 100,
-      acceleration: 0,
-      useAcceleration: false,
-      useLimits: true,
-      lowerLimit: 0,
-      upperLimit: 200,
-      behaviors: [],
-    });
+    const drive = new RVDrive(node);
+    drive.Direction = DriveDirection.LinearX;
+    drive.StartPosition = 0;
+    drive.TargetSpeed = 100;
+    drive.UseLimits = true;
+    drive.LowerLimit = 0;
+    drive.UpperLimit = 200;
+    drive.initDrive();
 
     const step = new RVDriveTo(drive, 500, false, 'Automatic');
     step.start();

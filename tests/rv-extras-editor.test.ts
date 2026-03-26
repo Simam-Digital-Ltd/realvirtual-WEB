@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { RvExtrasEditorPlugin, type EditableNodeInfo } from '../src/core/hmi/rv-extras-editor';
+import { LeftPanelManager } from '../src/core/hmi/left-panel-manager';
 
 // ─── Minimal mocks ──────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ function makeMockViewer(scene: any, registry: any) {
     getPlugin: <T>(id: string): T | undefined => plugins.get(id) as T | undefined,
     _registerPlugin: (p: any) => plugins.set(p.id, p),
     on: (_event: string, _handler: (...args: any[]) => void) => () => {},
+    leftPanelManager: new LeftPanelManager(),
   };
 }
 

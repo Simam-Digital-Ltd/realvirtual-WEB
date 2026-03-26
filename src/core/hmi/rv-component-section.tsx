@@ -19,6 +19,7 @@ import {
   baseComponentType,
   classifyField,
   componentColor,
+  getSignalHeaderColor,
   inferFieldType,
   isComponentRef,
   isScriptableObject,
@@ -148,7 +149,7 @@ export function ComponentSection({ nodePath, componentType, data, overriddenFiel
               fontWeight: 600,
               fontFamily: 'monospace',
               ml: 'auto',
-              color: signalValue === 'true' ? '#66bb6a' : signalValue === 'false' ? '#ef5350' : '#4fc3f7',
+              color: getSignalHeaderColor(componentType, String(signalValue)),
             }}
           >
             {signalValue}

@@ -1,10 +1,10 @@
-# realvirtual Web Viewer — Gesamtkonzept
+# realvirtual WEB — Gesamtkonzept
 
-## Technische Spezifikation für den Browser-basierten 3D-HMI Viewer
+## Technische Spezifikation für den Browser-basierten 3D-HMI
 
-**Version:** 1.0  
-**Stand:** März 2025  
-**Status:** Konzeptphase
+**Version:** 2.0
+**Stand:** März 2026
+**Status:** Produktion — Kernfunktionalität implementiert und im Einsatz
 
 ---
 
@@ -14,12 +14,12 @@
 
 ## 1. Vision
 
-Der realvirtual Web Viewer erweitert die realvirtual-Plattform um einen browserbasierten 3D-HMI. Während Unity das Werkzeug für Engineering und Virtual Commissioning bleibt, bietet der Web-Viewer eine Zero-Install-Lösung für Monitoring, Präsentation, Schulung und Remote-Zugriff.
+Der realvirtual WEB erweitert die realvirtual-Plattform um einen browserbasierten 3D-HMI. Während Unity das Werkzeug für Engineering und Virtual Commissioning bleibt, bietet der realvirtual WEB eine Zero-Install-Lösung für Monitoring, Präsentation, Schulung und Remote-Zugriff.
 
 ### Zwei-Plattform-Strategie
 
 - **Unity** = Engineering, Virtual Commissioning, PLC-Test, hochperformante Simulation
-- **Three.js Web Viewer** = Monitoring, Präsentation, Remote-Zugriff, Zero Install
+- **Three.js realvirtual WEB** = Monitoring, Präsentation, Remote-Zugriff, Zero Install
 
 Diese Plattformen sind komplementär, nicht konkurrierend. Sie teilen dieselbe Datenbasis (GLB mit rv_extras) und dieselben Konzepte (Drives, Sensoren, Logic Steps).
 
@@ -72,7 +72,7 @@ Der 3D-Core ist framework-agnostisch — kein React, keine Abhängigkeit. Die Re
 | Threading | Web Worker möglich | Single-threaded |
 | Mobile | Gut | Problematisch |
 
-Three.js ist für den Web-Viewer in jeder Hinsicht überlegen. Unity WebGL wäre nur sinnvoll, wenn die Unity-Szene 1:1 im Browser gezeigt werden soll — was hier nicht der Fall ist.
+Three.js ist für den realvirtual WEB in jeder Hinsicht überlegen. Unity WebGL wäre nur sinnvoll, wenn die Unity-Szene 1:1 im Browser gezeigt werden soll — was hier nicht der Fall ist.
 
 ---
 
@@ -82,15 +82,15 @@ Three.js ist für den Web-Viewer in jeder Hinsicht überlegen. Unity WebGL wäre
 
 | Variante | Server | Datenquelle | Anwendung |
 |----------|--------|------------|-----------|
-| **Web Viewer Live** | realvirtual Core | WebSocket (Transforms + Signale) | Monitoring, HMI, Full Simulation |
-| **Web Viewer Standalone** | Keiner (statisches Hosting) | Recording-Datei oder Eigenberechnung | Vertrieb, Schulung, Demos |
-| **Web Viewer Direct** | Nur MQTT-Broker (optional) | REST an S7 Web API oder MQTT | Monitoring ohne Server |
+| **realvirtual WEB Live** | realvirtual Core | WebSocket (Transforms + Signale) | Monitoring, HMI, Full Simulation |
+| **realvirtual WEB Standalone** | Keiner (statisches Hosting) | Recording-Datei oder Eigenberechnung | Vertrieb, Schulung, Demos |
+| **realvirtual WEB Direct** | Nur MQTT-Broker (optional) | REST an S7 Web API oder MQTT | Monitoring ohne Server |
 
-Alle drei Varianten nutzen denselben Viewer-Code. Nur die Datenquelle unterscheidet sich.
+Alle drei Varianten nutzen denselben realvirtual WEB Code. Nur die Datenquelle unterscheidet sich.
 
 ### Stabilität des Core
 
-Für den Live-Modus muss der Core als Dienst laufen — Docker-Container oder Windows-Service. Automatischer Neustart, PLC-Reconnect, Health-Check-Endpoints. Der Core ist das Produkt, der Browser-Viewer ist die Oberfläche.
+Für den Live-Modus muss der Core als Dienst laufen — Docker-Container oder Windows-Service. Automatischer Neustart, PLC-Reconnect, Health-Check-Endpoints. Der Core ist das Produkt, realvirtual WEB ist die Oberfläche.
 
 ---
 
@@ -98,17 +98,17 @@ Für den Live-Modus muss der Core als Dienst laufen — Docker-Container oder Wi
 
 ### Open Source (AGPL)
 
-Der Web-Viewer-Core wird unter AGPL veröffentlicht. AGPL schließt die SaaS-Lücke: Wenn Nutzer über ein Netzwerk mit der Software interagieren, gilt das als Verteilung — der gesamte darauf aufbauende Code muss ebenfalls unter AGPL veröffentlicht werden.
+Der realvirtual WEB-Core wird unter AGPL veröffentlicht. AGPL schließt die SaaS-Lücke: Wenn Nutzer über ein Netzwerk mit der Software interagieren, gilt das als Verteilung — der gesamte darauf aufbauende Code muss ebenfalls unter AGPL veröffentlicht werden.
 
-Für einen Web-Viewer greift die AGPL praktisch immer im kommerziellen Kontext — er wird per Definition über ein Netzwerk genutzt.
+Für einen realvirtual WEB greift die AGPL praktisch immer im kommerziellen Kontext — er wird per Definition über ein Netzwerk genutzt.
 
 ### Commercial License (kostenpflichtig)
 
-Unternehmen, die den Viewer in geschlossene, proprietäre Produkte einbauen wollen, kaufen die kommerzielle Lizenz. Kein Zwang zur Offenlegung.
+Unternehmen, die realvirtual WEB in geschlossene, proprietäre Produkte einbauen wollen, kaufen die kommerzielle Lizenz. Kein Zwang zur Offenlegung.
 
 ### Was Open Source ist (AGPL)
 
-Three.js Viewer Core, GLB Loader mit rv_extras Parsing, Drive/Sensor/Transport als TypeScript-Komponenten, SimulationLoop, Scene Registry und Volltext-Suche, Highlight-System, MQTT und REST Signal-Adapter, Basis-UI-Komponenten, Recording-Playback, Dokumentation und Beispiel-GLBs.
+Three.js realvirtual WEB Core, GLB Loader mit rv_extras Parsing, Drive/Sensor/Transport als TypeScript-Komponenten, SimulationLoop, Scene Registry und Volltext-Suche, Highlight-System, MQTT und REST Signal-Adapter, Basis-UI-Komponenten, Recording-Playback, Dokumentation und Beispiel-GLBs.
 
 ### Was kommerziell bleibt
 
@@ -435,7 +435,7 @@ Unity (linkshändig, Y-up) → glTF (rechtshändig, Y-up): Z-Achse spiegeln. Sta
 
 ---
 
-# Teil III — Three.js Viewer-Core
+# Teil III — Three.js realvirtual WEB Core
 
 ---
 
@@ -461,234 +461,350 @@ Perspektive: C# als WebAssembly (WASM) via .NET Native AOT. Kein TypeScript-Port
 
 ## 12. Komponentensystem
 
-Jede realvirtual-Komponente existiert als TypeScript-Klasse mit identischem Namen wie in C#:
+> **Implementierungsstand:** Vollständig implementiert mit deklarativem Schema-System und zwei-Phasen-Initialisierung.
+
+Jede realvirtual-Komponente existiert als TypeScript-Klasse:
 
 ```typescript
-interface RVComponent {
-  readonly type: string;
-  update(dt: number): void;
-}
-
-class Drive implements RVComponent { }
-class Sensor implements RVComponent { }
-class TransportSurface implements RVComponent { }
-class Source implements RVComponent { }
-class Sink implements RVComponent { }
-class Gripper implements RVComponent { }
-class LogicStep implements RVComponent { }
-class MU implements RVComponent { }
-class Cam implements RVComponent { }
+// Implementierte Komponenten (Stand März 2026)
+class RVDrive            // Antrieb mit Physik und Behavior-System
+class RVSensor           // AABB-Collision + Raycast Modi
+class RVTransportSurface // Linear + Radial (Drehtisch) mit Textur-Animation
+class RVSource           // Dual-Rendering: InstancedMesh + Clone-Fallback
+class RVSink             // Deferred MU-Removal
+class RVGrip             // Pick/Place mit Sensor- und Range-Erkennung
+class RVGripTarget       // Platzierungs-Ziel mit Occupancy-Tracking
+class RVLogicStep        // Composite Pattern: Serial/Parallel Container + Leaf Steps
+class RVMovingUnit       // Clone-basiert
+class InstancedMovingUnit // InstancedMesh-basiert (Performance)
+class RVConnectSignal    // Signal-Brücke (Port von ConnectSignal.cs)
+class RVErratic          // Drive Behavior: zufällige Positionierung
+class RVDriveSimple      // Drive Behavior: einfache Geschwindigkeitssteuerung
+class RVDriveCylinder    // Drive Behavior: Zylinder mit Signalsteuerung
 ```
 
-Components werden über `userData` an Three.js Nodes gehängt — konzeptionell identisch zu Unity's Component-System:
+### Schema-basierte Komponentenerstellung (ComponentRegistry)
+
+Components werden **nicht** manuell verdrahtet, sondern über ein **deklaratives Schema-System** automatisch konfiguriert:
 
 ```typescript
-// Wie AddComponent<Drive>()
-node.userData.rvComponent = new Drive(extras, node);
-
-// Wie GetComponent<Drive>()
-const drive = node.userData.rvComponent as Drive;
+// Jede Komponente definiert ihr Schema
+static readonly schema = {
+  TargetSpeed:    { type: 'number', default: 100 },
+  Acceleration:   { type: 'number', default: 100 },
+  UseLimits:      { type: 'boolean', default: false },
+  Direction:      { type: 'enum', enumMap: { LinearX: 0, RotationZ: 5 } },
+  DriveReference: { type: 'componentRef' },   // Referenz auf andere Komponente
+  Axis:           { type: 'vector3', unityCoords: true },  // Auto-Konvertierung
+};
 ```
 
-### Factory
+**Zwei-Phasen-Initialisierung (Awake/Start-Pattern):**
+
+1. **Phase 1 "Awake":** GLB-Traverse erstellt alle Komponenten, wendet Schemas an, registriert Nodes
+2. **Phase 2 "Start":** Zweiter Pass löst ComponentRefs auf und ruft `init()` auf allen Komponenten auf
+
+Dies erlaubt zirkuläre Referenzen zwischen Komponenten (z.B. Drive → Sensor → Drive).
+
+### NodeRegistry als Unity-ähnliches Component-System
+
+Components werden über die `NodeRegistry` an Three.js Nodes gebunden:
 
 ```typescript
-class ComponentFactory {
-  static create(extras: any, node: THREE.Object3D): RVComponent | null {
-    switch (extras.rv_type) {
-      case "Kinematic":        return new Drive(extras, node);
-      case "Drive":            return new Drive(extras, node);
-      case "Sensor":           return new Sensor(extras, node);
-      case "TransportSurface": return new TransportSurface(extras, node);
-      case "Source":           return new Source(extras, node);
-      case "Sink":             return new Sink(extras, node);
-      case "Gripper":          return new Gripper(extras, node);
-      case "LogicStep":        return new LogicStep(extras, node);
-      case "MU":               return new MU(extras, node);
-      case "Cam":              return new Cam(extras, node);
-      default:                 return null;
-    }
-  }
-}
+// FindObjectsOfType<RVDrive>()
+const drives = registry.getAll<RVDrive>('Drive');
+
+// GetComponent<RVSensor>(path)
+const sensor = registry.getByPath<RVSensor>('Sensor', 'Robot/EntrySensor');
+
+// GetComponentInParent<RVDrive>(node)
+const drive = registry.findInParent<RVDrive>(node, 'Drive');
+
+// GetComponentInChildren<RVSensor>(node)
+const sensors = registry.findAllInChildren<RVSensor>(node, 'Sensor');
 ```
 
 ---
 
 ## 13. Scene-Boot und Ladereihenfolge
 
+> **Implementierungsstand:** Vollständig implementiert in `rv-scene-loader.ts` (~680 Zeilen).
+
 ```
-1. GLB laden
-2. Node-Map aufbauen (rv_id → THREE.Object3D)
-3. Basis-Transforms speichern (Ruhezustand)
-4. Components anhängen (Drive, Sensor, etc. aus rv_extras)
-5. Referenzen auflösen (TransportSurface-Ketten, Sensor-Zonen, Sequencer)
-6. Scene-Registry aufbauen (Typ-Index, Such-Index)
-7. Szene in Three.js einhängen
-8. Datenquelle verbinden (WebSocket / MQTT / REST / Recording)
-9. Simulation-Loop starten
+1. GLB laden (DRACO-komprimiert, ~2-8 MB typisch)
+2. Phase 1 "Awake" — Einzelner GLB-Traverse:
+   a. Node-Map aufbauen (Pfad → Object3D, reverse: Object3D → Pfad)
+   b. Name-Deduplizierung (Three.js Spaces → Underscores, Alias-Registrierung)
+   c. Signale in SignalStore registrieren (VOR Komponenten)
+   d. Components per Schema instanziieren und konfigurieren
+   e. Drive Behaviors zuweisen (ErraticPosition, Simple, Cylinder)
+   f. BVH-Berechnung für Raycasting
+3. Phase 2 "Start" — Zweiter Pass:
+   a. ComponentRefs auflösen (zirkuläre Referenzen möglich)
+   b. init() auf allen Komponenten aufrufen
+   c. TransportSurface-Ketten verketten
+   d. Sensor-Signal-Registrierung
+4. Szene in Three.js Scene einhängen
+5. Kamera auf Bounding Box einpassen
+6. Plugin-Hooks aufrufen (onModelLoaded)
+7. Simulation-Loop läuft bereits (gestartet im Constructor)
 ```
+
+**Rückgabe:** `LoadResult` mit `drives[]`, `signalStore`, `registry`, `playback`, `logicEngine`, `boundingBox`, `triangleCount`, `groups`.
 
 Die kinematische Hierarchie ist im GLB bereits korrekt (durch den Unity-Exporter). Der Browser muss kein Reparenting durchführen.
 
 ---
 
-## 14. Scene-Registry und Volltext-Suche
+## 14. NodeRegistry und Suche
 
-### Registry
+> **Implementierungsstand:** Vollständig implementiert in `rv-node-registry.ts` (~394 Zeilen).
 
-Einmalig beim Laden aufgebaut — O(1)-Lookups danach:
+### NodeRegistry
+
+Multi-Layer-Lookup mit O(1)-Zugriff:
 
 ```typescript
-class RVScene {
-  // Wie FindObjectsOfType<Drive>()
-  findByType(type: string): THREE.Object3D[] { }
+class NodeRegistry {
+  // Datenstrukturen
+  nodes: Map<path, Object3D>           // Primär: Pfad → Node
+  nodePaths: Map<Object3D, path>       // Reverse: Node → Pfad
+  components: Map<path, Map<type, T>>  // Typisierte Komponenten
+  typeIndex: Map<type, Set<path>>      // Typ → alle Pfade (für getAll)
+  suffixMap: Map<segment, paths[]>     // Letztes Segment → Pfade (O(1) Suffix-Match)
 
-  // Wie GetComponent auf spezifischem Objekt
-  findById(id: string): THREE.Object3D | undefined { }
+  // Unity-ähnliche API
+  getNode(path): Object3D                          // Pfad-Lookup + Normalisierung + Suffix-Fallback
+  getPathForNode(node): string                     // Reverse-Lookup
+  getByPath<T>(type, path): T                      // Typisierter Pfad-Lookup
+  getAll<T>(type): T[]                             // FindObjectsOfType<T>()
+  findInParent<T>(node, type): T                   // GetComponentInParent<T>()
+  findInChildren<T>(node, type): T                 // GetComponentInChildren<T>()
+  findAllInChildren<T>(node, type): T[]            // GetComponentsInChildren<T>()
+  resolve(ref): { drive?, sensor?, signalAddress? } // ComponentRef auflösen
 }
 ```
 
-### Volltext-Suche
+### Suche
 
-Alle suchbaren Felder (rv_id, rv_name, rv_type, rv_group, rv_tags, Signal-Adressen) werden in einen Lowercase-String pro Node zusammengefasst. Suche prüft ob alle Suchbegriffe enthalten sind. Bei 1000 Nodes unter einer Millisekunde.
-
-Suchergebnisse werden im 3D-Raum visualisiert: Treffer highlighten, Rest abdunkeln, Kamera fokussieren.
+Implementiert über `viewer.filterNodes(term)`:
+- Case-insensitive Substring-Match über alle registrierten Node-Pfade
+- Ergebnisse als `filteredNodes[]` und `filteredDrives[]` auf realvirtual WEB
+- Treffer werden im 3D-Raum gehighlightet (bis `MAX_HIGHLIGHT_RESULTS = 20`)
+- Kamera kann per Klick auf Ergebnis fokussieren
 
 ---
 
 ## 15. Simulations-Loop: FixedUpdate im Browser
 
-### Das Problem
+> **Implementierungsstand:** Vollständig implementiert. 50 Hz FixedUpdate + Render-on-Demand.
 
-`requestAnimationFrame` ist nicht garantiert regelmäßig. Garbage Collection, Tab-Wechsel, CPU-Last — alles stört das Timing. Drive-Berechnungen mit variablem deltaTime führen zu Sprüngen.
-
-### Die Lösung: Accumulator-Pattern
+### Accumulator-Pattern (implementiert)
 
 ```typescript
 class SimulationLoop {
-  private fixedTimeStep = 1 / 60;  // 16.6ms
+  private fixedTimeStep = 1 / 50;  // 20ms = 50 Hz (wie Unity)
   private accumulator = 0;
-
-  onFixedUpdate: ((dt: number) => void) | null = null;  // Drives, Logik
-  onUpdate: ((dt: number) => void) | null = null;        // Kamera, UI
-  onRender: (() => void) | null = null;                   // Three.js
-
-  private tick = (): void => {
-    const frameTime = Math.min(elapsed, 0.1);  // Cap bei 100ms
-    this.accumulator += frameTime;
-
-    while (this.accumulator >= this.fixedTimeStep) {
-      this.onFixedUpdate?.(this.fixedTimeStep);  // Immer gleiches dt
-      this.accumulator -= this.fixedTimeStep;
-    }
-
-    this.onUpdate?.(frameTime);
-    this.onRender?.();
-    requestAnimationFrame(this.tick);
-  };
 }
 ```
 
+### fixedUpdate() Reihenfolge (tatsächlich implementiert)
+
+```
+1. Recording Playback       — DrivesRecorder (wenn aktiv)
+2. LogicStep Engine          — Sequencer (wenn aktiv)
+3. ReplayRecording           — einzelne Replays (wenn aktiv)
+4. Plugin Pre Hooks          — Interface-Signale, CAM-Input
+5. Core Drive Physics        — drive.update(dt) für alle Drives
+6. MU Spawn/Despawn Check    — Shadow-Dirty-Flag setzen
+7. Core Transport            — transportManager.update(dt) (übersprungen bei Physics-Plugin)
+8. Texture Animation         — Band-Textur-Scrolling (immer)
+9. Plugin Post Hooks         — Recorder, Sensor-Monitor, Interface-Readback
+```
+
+### render() Reihenfolge (tatsächlich implementiert)
+
+```
+1. FPS-Counter Update (alle 500ms)
+2. Kamera-Animation (Cubic Ease-Out)
+3. Damping: 60 Frames nach User-Input weiterrendern
+4. OrbitControls Update
+5. Highlighter Update (Tracked-Modus)
+6. Render-on-Demand: GPU-Render überspringen wenn _renderDirty=false
+7. Plugin Render Hooks
+8. Hover-Events emittieren
+9. Stats-GL Update
+```
+
+### Render-on-Demand (Performance-Feature)
+
+Anstatt jeden Frame zu rendern, nutzt realvirtual WEB ein **Dirty-Flag-System**:
+- `_renderDirty` — nur rendern wenn sich etwas Sichtbares ändert
+- `_shadowsDirty` — Shadow Map nur neu berechnen wenn Geometrie sich bewegt
+- `_dampingFramesRemaining` — nach User-Input 60 Frames weiterrendern (Smooth Decay)
+- Ergebnis: **0% GPU-Last bei statischer Szene**
+
 | Callback | Unity-Pendant | Verwendung |
 |----------|--------------|------------|
-| `onFixedUpdate(dt)` | `FixedUpdate()` | Drive-Berechnung, Signal-Verarbeitung |
-| `onUpdate(dt)` | `Update()` | Kamera, UI-Overlays, LOD |
+| `onFixedUpdate(dt)` | `FixedUpdate()` | Drive-Berechnung, Transport, LogicSteps |
 | `onRender()` | Internes Rendering | `renderer.render(scene, camera)` |
-
-Standalone-Modus: FixedUpdate essentiell. Live-Modus: Einfaches Lerp im Update reicht.
 
 ---
 
 ## 16. Drive-Modell
 
-### Berechnung pro Tick
+> **Implementierungsstand:** Vollständig implementiert in `rv-drive.ts` (~274 Zeilen) mit Behavior-System.
 
-1. Bremsweg: `s = v² / (2 * a)`
-2. Entscheidung: Beschleunigen oder Bremsen basierend auf Restdistanz vs. Bremsweg
-3. Geschwindigkeit anpassen mit Rampe
-4. Position aktualisieren: `position += speed * deltaTime`
-5. Limits prüfen
-6. Zielerkennung
-
-Identisch zur C#-Version — gleiche Formeln, gleiche Reihenfolge. Unit Tests können dieselben Ein-/Ausgabe-Paare verwenden.
-
-### Steuerung
+### Properties (identisch zu C#-Namensgebung)
 
 ```typescript
-drive.moveToPosition(1.5);    // Positionierung
-drive.moveAtSpeed(0.5);       // Endlosfahrt (Förderband)
-drive.stop();                  // Verzögerung bis Stillstand
+class RVDrive {
+  Direction: DriveDirection;        // LinearX/Y/Z, RotationX/Y/Z, Virtual
+  TargetSpeed: number;              // mm/s oder °/s
+  Acceleration: number;             // mm/s² oder °/s²
+  UseAcceleration: boolean;
+  UseLimits: boolean;
+  LowerLimit: number;
+  UpperLimit: number;
+  Offset: number;
+  ReverseDirection: boolean;
+
+  // Laufzeit-Status
+  currentPosition: number;
+  currentSpeed: number;
+  isRunning: boolean;
+  jogForward: boolean;              // Endlosfahrt (Förderbänder)
+  jogBackward: boolean;
+  positionOverwrite: boolean;       // Für Recording-Playback
+}
 ```
+
+### Drive Behaviors (datengetrieben)
+
+Drives können durch **Behaviors** erweitert werden — identisch zum C#-Pattern:
+
+```typescript
+// Automatisch per Schema aus rv_extras instanziiert
+const DRIVE_BEHAVIOR_MAP = {
+  'Drive_ErraticPosition': RVErratic,    // Zufällige Positionierung
+  'Drive_Simple':          RVDriveSimple, // Geschwindigkeitssteuerung per Signal
+  'Drive_Cylinder':        RVDriveCylinder, // Zylinder mit Endlagensignalen
+};
+```
+
+Behaviors werden VOR der Physik aufgerufen und können `targetSpeed`, `targetPosition` etc. setzen.
+
+### Berechnung pro Tick
+
+1. Idle-Check (Early Return)
+2. Jog-Modus: Nur Geschwindigkeit setzen (Förderbänder)
+3. Standard: `position += speed * dt` mit Beschleunigung/Verzögerung
+4. Limits anwenden
+5. Rotation: Quaternion-Komposition über Euler-Achse
+6. `onAfterUpdate` Callback (für Feedback-Signale wie Endlagenschalter)
 
 ---
 
 ## 17. TransportSurface
 
-Die komplexeste Komponente — verwaltet Teile (MUs) auf einer Transportstrecke.
+> **Implementierungsstand:** Vollständig implementiert in `rv-transport-surface.ts` (~299 Zeilen).
 
-### Kernlogik
+### Zwei Transport-Modi
 
-- Liste von MUs mit Position auf der Strecke
-- Pro Tick: Alle MUs um `speed * dt` entlang der Transportrichtung bewegen
-- 3D-Position aus Streckenstart + Richtung × Position berechnen
-- Stau-Logik: MU darf nicht in vorheriges MU reinfahren
-- Übergabe: MU am Streckenende → nächste TransportSurface via `next_surface`
-- Sensor-Zonen: Positionsbasierte Erkennung der passierenden MUs
-- Band-Animation: Textur-Offset auf dem Belt-Mesh
+**Linear:** Position += Richtung × Geschwindigkeit × dt (Standard-Förderbänder)
 
-### Verkettung
+**Radial:** MU wird um das Zentrum der Surface rotiert (Drehtische, Kurven). Unterstützt Turntable-Rotation für Rundtaktmaschinen.
 
-TransportSurfaces werden über `next_surface` im rv_extras verknüpft. Beim Laden werden die Referenzen aufgelöst und die Nachbar-Surfaces verlinkt.
+### Textur-Animation (implementiert)
+
+- Texturen werden geklont für unabhängige Offset-Steuerung pro Surface
+- Linear: UV scrollt entlang der lokalen Transportrichtung
+- Radial: UV-U rotiert basierend auf Winkelgeschwindigkeit
+- Unabhängig vom MU-Transport — Animation läuft auch ohne MUs
+
+### Auto-Start
+
+Wenn ein Drive `targetSpeed > 0` hat aber nicht joggt, wird automatisch `drive.jogForward = true` gesetzt. Dies ermöglicht sofortigen Start beim Laden eines Modells.
+
+### Verkettung und MU-Management
+
+- TransportSurfaces über `next_surface` in rv_extras verknüpft
+- Referenzen werden in Phase 2 (Start) aufgelöst
+- MU-Übergabe: MU am Streckenende → nächste TransportSurface
+- Drive-Referenz: Explizit per `DriveReference` oder Parent-Walk-Up
 
 ---
 
-## 18. Sensor mit Raycast
+## 18. Sensor
 
-Three.js hat einen eingebauten Raycaster — keine Physik-Engine nötig.
+> **Implementierungsstand:** Vollständig implementiert in `rv-sensor.ts` (~402 Zeilen) mit zwei Erkennungsmodi.
 
-### Prinzip
+### Zwei Erkennungsmodi
 
-Der Sensor schießt pro Tick einen Strahl in die konfigurierte Richtung. Trifft der Strahl ein MU oder ein detektierbares Objekt, wird der Sensor aktiv. Flanken-Erkennung (Aktivierung/Deaktivierung) löst Callbacks aus.
+**Collision (AABB-Overlap):** Sensor hat eine BoxCollider-Geometrie aus dem GLB. Prüft Overlap mit MU-AABBs. O(1) pro Test.
 
-### Visualisierung
+**Raycast (Slab-Methode):** Ray-AABB-Intersection mit konfigurierter Richtung und Länge. Kein Mesh-Traversal, O(1) pro Test. Gibt nächsten Treffer zurück.
 
-Der Sensorstrahl wird als Three.js Line gerendert — rot bei Treffer, grün bei frei. Ein kleiner Sphere-Marker zeigt den Trefferpunkt.
+### Visualisierung (implementiert)
 
-### Performance-Optimierung
+**Collision-Modus:** Semi-transparente Box — gelb = frei, rot = belegt.
 
-- **Layer-Filter:** Sensoren raycasten nur gegen Layer 2 (MUs und detektierbare Objekte). Maschinengeometrie wird ignoriert.
-- **Intervall-Drosselung:** Nicht jeden Frame raycasten — alle 2–3 Frames reicht.
-- **Bounding-Box Vorprüfung:** Ist überhaupt ein MU in der Nähe?
+**Raycast-Modus:** Tube-Geometry orientiert entlang der Ray-Richtung, farbcodiert nach Status.
 
-Mit diesen Maßnahmen laufen auch 50 Raycast-Sensoren problemlos im Browser.
+### Signal-Integration
+
+- Sensor-Name wird im SignalStore registriert
+- `onChanged` Callback bei Zustandsänderung
+- `occupiedMU` Referenz für Grip-Erkennung (welches MU ist im Sensor?)
+- Flanken-Erkennung für Event-basierte Abläufe
 
 ---
 
 ## 19. LogicStep / Sequencer
 
-LogicSteps definieren Abläufe: Warte auf Bedingung → führe Aktionen aus → gehe zum nächsten Step.
+> **Implementierungsstand:** Vollständig implementiert in `rv-logic-step.ts` (~490 Zeilen) mit Composite Pattern.
 
-### Bedingungstypen
+### Architektur: Composite Pattern (wie Unity)
 
-| Typ | Beschreibung |
-|-----|-------------|
-| `signal_equals` | Signal hat bestimmten Wert |
-| `drive_at_target` | Drive hat Zielposition erreicht |
-| `sensor_active` | Sensor ist belegt |
-| `delay` | Zeitverzögerung abgelaufen |
+LogicSteps verwenden ein Container/Leaf-Pattern — identisch zum Unity-Konzept:
 
-### Aktionstypen
+**Container:**
 
-| Typ | Beschreibung |
-|-----|-------------|
-| `drive_to_position` | Drive auf Position fahren |
-| `drive_at_speed` | Drive mit Geschwindigkeit fahren |
-| `drive_stop` | Drive stoppen |
-| `set_signal` | Signalwert setzen |
+| Typ | Verhalten |
+|-----|-----------|
+| `SerialContainer` | Kinder sequenziell ausführen, optional Loop. Trackt Cycle-Times (min/max/median) |
+| `ParallelContainer` | Alle Kinder gleichzeitig starten, warten bis alle fertig |
 
-LogicSteps laufen im FixedUpdate und werden sowohl im Standalone-Modus (Eigenberechnung) als auch im Live-Modus (als Animationssequenzer getriggert durch PLC-Signale) verwendet.
+**Leaf Steps:**
 
-Mehrere parallele Sequencer sind möglich — jede Station ihren eigenen Ablauf.
+| Typ | Verhalten | Blockierend? |
+|-----|-----------|-------------|
+| `Delay` | Warten für Duration (elapsed += dt) | Ja |
+| `SetSignalBool` | Signal sofort setzen | Nein |
+| `WaitForSignalBool` | Signal pollen bis Wert passt | Ja |
+| `WaitForSensor` | Sensor-Occupied-Status pollen | Ja |
+| `DriveTo` | Drive auf Position fahren, fertig wenn erreicht | Ja |
+| `SetDriveSpeed` | Geschwindigkeit setzen | Nein |
+| `RVEnable` | Sichtbarkeit togglen | Nein |
+
+### State Machine pro Step
+
+Jeder Step hat einen Zustand: `Idle → Active → Waiting → Finished`
+
+### Cycle-Time Tracking (SerialContainer)
+
+SerialContainer tracken automatisch Zykluszeiten:
+- Minimale, maximale und mediane Zykluszeit
+- Angezeigt in der Hierarchy-Browser UI mit Live-Status
+
+### HMI Integration
+
+Die HierarchyBrowser-Komponente zeigt LogicStep-Status live:
+- Active = grüner Puls-Punkt
+- Waiting = orangener Puls-Punkt
+- Container zeigt Fortschritt (z.B. "3/7 Steps")
+
+Mehrere parallele Sequencer möglich — jede Station ihren eigenen Ablauf.
 
 ---
 
@@ -721,14 +837,23 @@ Three.js Raycaster für Klick-Interaktion. Bei 500–2000 Meshes unter einer Mil
 
 ## 22. Highlight-System
 
-Vier Modi, alle basierend auf `depthTest: false` — auch durch Gehäuse sichtbar:
+> **Implementierungsstand:** Implementiert in `rv-highlight-manager.ts` mit orangem Overlay.
+
+### Implementierte API
+
+```typescript
+viewer.highlightByPath(path, tracked?)  // Oranges Overlay auf Node-Hierarchie
+viewer.clearHighlight()                  // Highlight entfernen
+```
+
+- **tracked = true:** Overlays folgen bewegten Teilen jeden Frame (für laufende Drives)
+- **Sensor-Erkennung:** Automatisch inkl. Sensor-Visualisierung im Highlight
+- **depthTest: false** — auch durch Gehäuse sichtbar
 
 | Modus | Beschreibung | Einsatz |
 |-------|-------------|---------|
-| X-Ray | Halbtransparent durch alles | Suchergebnisse |
-| Outline | Leuchtkontur per Shader | Selektion |
-| Pulse | Periodisch pulsierend | Aktive Alarme |
-| Bounding Box | Wireframe-Kasten | Gruppenauswahl |
+| Orange Overlay | Halbtransparentes Material über Mesh-Hierarchy | Selektion, Suche, Hover |
+| Tracked | Overlay-Position wird per-Frame aktualisiert | Laufende Drives/MUs |
 
 ---
 
@@ -750,7 +875,7 @@ OrbitControls als Standard. Kamera-Presets mit Smooth-Transition (Ease-Out Cubic
 Browser ←HTTPS/REST 2–5 Hz→ S7-1500
 ```
 
-Siemens bietet ein offizielles npm-Paket: `@siemens/simatic-s7-webserver-api` (TypeScript). Kein Server nötig. Polling alle 200–500ms. Für Status, KPIs, Alarme ausreichend. GLB plus Viewer können direkt auf der PLC als Web-App gehostet werden.
+Siemens bietet ein offizielles npm-Paket: `@siemens/simatic-s7-webserver-api` (TypeScript). Kein Server nötig. Polling alle 200–500ms. Für Status, KPIs, Alarme ausreichend. GLB plus realvirtual WEB können direkt auf der PLC als Web-App gehostet werden.
 
 Einschränkung: Kein Push, kein WebSocket. Nicht geeignet für flüssige 3D-Animation.
 
@@ -784,11 +909,11 @@ Volle Power: Alle PLC-Protokolle, Drive-Simulation, Sensor-Emulation, Alarm-Mana
 
 ### Prinzip
 
-Der realvirtual Web Viewer definiert ein offenes, dokumentiertes WebSocket-Protokoll. Jeder kann eine eigene Bridge bauen — der Viewer ist agnostisch gegenüber der Datenquelle. Ob die Daten von einer Siemens S7, einer Beckhoff CX, einer Codesys-Runtime, einer Rockwell ControlLogix oder einem komplett proprietären System kommen, ist dem Viewer egal. Solange die Nachrichten dem Protokoll entsprechen, funktioniert alles.
+Der realvirtual WEB definiert ein offenes, dokumentiertes WebSocket-Protokoll. Jeder kann eine eigene Bridge bauen — realvirtual WEB ist agnostisch gegenüber der Datenquelle. Ob die Daten von einer Siemens S7, einer Beckhoff CX, einer Codesys-Runtime, einer Rockwell ControlLogix oder einem komplett proprietären System kommen, ist realvirtual WEB egal. Solange die Nachrichten dem Protokoll entsprechen, funktioniert alles.
 
-Das heißt: Der Endkunde, der Maschinenbauer oder der Systemintegrator kann seine eigene Bridge in jeder beliebigen Sprache entwickeln — Python, Node.js, C#, Go, C++, Rust — und den Viewer damit verbinden. Die Bridge liest Daten aus dem eigenen System und sendet sie im rv-Protokoll per WebSocket.
+Das heißt: Der Endkunde, der Maschinenbauer oder der Systemintegrator kann seine eigene Bridge in jeder beliebigen Sprache entwickeln — Python, Node.js, C#, Go, C++, Rust — und realvirtual WEB damit verbinden. Die Bridge liest Daten aus dem eigenen System und sendet sie im rv-Protokoll per WebSocket.
 
-### Nachrichtentypen: Bridge → Viewer
+### Nachrichtentypen: Bridge → realvirtual WEB
 
 **Signal-Update (hochfrequent):**
 
@@ -880,7 +1005,7 @@ Das heißt: Der Endkunde, der Maschinenbauer oder der Systemintegrator kann sein
 }
 ```
 
-### Nachrichtentypen: Viewer → Bridge
+### Nachrichtentypen: realvirtual WEB → Bridge
 
 ```json
 { "type": "sync_request" }
@@ -893,11 +1018,11 @@ Das heißt: Der Endkunde, der Maschinenbauer oder der Systemintegrator kann sein
 
 ### Zwei Modi der Bridge
 
-**Signal-Modus (einfach):** Die Bridge sendet nur rohe Signalwerte (`type: "signals"`). Der Viewer hat die Drive-Modelle in TypeScript und berechnet Transforms selbst aus den empfangenen Signalwerten. Die Bridge muss nichts über Kinematik wissen — sie liest PLC-Variablen und schickt sie weiter.
+**Signal-Modus (einfach):** Die Bridge sendet nur rohe Signalwerte (`type: "signals"`). realvirtual WEB hat die Drive-Modelle in TypeScript und berechnet Transforms selbst aus den empfangenen Signalwerten. Die Bridge muss nichts über Kinematik wissen — sie liest PLC-Variablen und schickt sie weiter.
 
-**Transform-Modus (vollständig):** Die Bridge berechnet auch die Transforms und sendet fertige Positionen/Rotationen (`type: "transforms"`). Der Viewer setzt sie direkt auf die Nodes. Das ist der Modus, den der realvirtual Core nutzt.
+**Transform-Modus (vollständig):** Die Bridge berechnet auch die Transforms und sendet fertige Positionen/Rotationen (`type: "transforms"`). realvirtual WEB setzt sie direkt auf die Nodes. Das ist der Modus, den der realvirtual Core nutzt.
 
-Der Signal-Modus ist für Kunden einfacher zu implementieren — sie müssen nur Variablen lesen und als JSON senden. Der Viewer erledigt den Rest. Das senkt die Einstiegshürde massiv.
+Der Signal-Modus ist für Kunden einfacher zu implementieren — sie müssen nur Variablen lesen und als JSON senden. realvirtual WEB erledigt den Rest. Das senkt die Einstiegshürde massiv.
 
 ### Beispiel: Minimale Bridge in Python
 
@@ -938,7 +1063,7 @@ async def main():
 asyncio.run(main())
 ```
 
-Das sind 25 Zeilen für eine funktionierende Bridge von S7 zum Web-Viewer. In Node.js, Go oder C# wäre es ähnlich kompakt.
+Das sind 25 Zeilen für eine funktionierende Bridge von S7 zum realvirtual WEB. In Node.js, Go oder C# wäre es ähnlich kompakt.
 
 ### Beispiel: Minimale Bridge in Node.js
 
@@ -973,11 +1098,11 @@ wss.on('connection', (ws) => {
 
 ### Vorteile des offenen Protokolls
 
-- **Keine Vendor-Lock-in:** Der Viewer ist nicht an realvirtual Core gebunden. Kunden können ihre eigene Infrastruktur nutzen.
+- **Keine Vendor-Lock-in:** realvirtual WEB ist nicht an realvirtual Core gebunden. Kunden können ihre eigene Infrastruktur nutzen.
 - **Niedrige Einstiegshürde:** Eine minimale Bridge ist 25–30 Zeilen Code. Das schafft jeder Automatisierungsingenieur mit Basis-Programmierkenntnissen.
 - **Jede SPS, jedes System:** Siemens, Beckhoff, Codesys, Rockwell, Mitsubishi, Fanuc, OPC UA Server, MQTT Broker, proprietäre Systeme — alles was Daten liefern kann, kann angebunden werden.
-- **Community-Bridges:** Mit dem AGPL-Viewer können Community-Mitglieder Bridges für verschiedene Systeme beitragen und teilen.
-- **Testbarkeit:** Das Protokoll ist JSON-basiert. Man kann mit einem einfachen WebSocket-Client (z.B. Browser-DevTools) Testdaten an den Viewer senden.
+- **Community-Bridges:** Mit dem AGPL-lizenzierten realvirtual WEB können Community-Mitglieder Bridges für verschiedene Systeme beitragen und teilen.
+- **Testbarkeit:** Das Protokoll ist JSON-basiert. Man kann mit einem einfachen WebSocket-Client (z.B. Browser-DevTools) Testdaten an realvirtual WEB senden.
 
 ### Protokoll-Dokumentation
 
@@ -989,7 +1114,7 @@ Das WebSocket-Protokoll wird als eigenes Dokument veröffentlicht — inklusive 
 
 ### Prinzip
 
-Der SignalStore im Browser ist die universelle Drehscheibe. Zwischen SignalStore und der Außenwelt sitzen austauschbare Signal-Adapter — jeder Adapter implementiert dasselbe Interface, spricht aber ein anderes Protokoll. Der Viewer weiß nicht, woher die Daten kommen. Er kennt nur den SignalStore.
+Der SignalStore im Browser ist die universelle Drehscheibe. Zwischen SignalStore und der Außenwelt sitzen austauschbare Signal-Adapter — jeder Adapter implementiert dasselbe Interface, spricht aber ein anderes Protokoll. realvirtual WEB weiß nicht, woher die Daten kommen. Er kennt nur den SignalStore.
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -1165,7 +1290,7 @@ class RecordingAdapter implements ISignalAdapter {
 
 ### Adapter-Auswahl und Konfiguration
 
-Der Viewer wählt den Adapter basierend auf der Konfiguration — entweder aus dem GLB Root-Node, aus URL-Parametern, oder aus einem Verbindungsdialog:
+realvirtual WEB wählt den Adapter basierend auf der Konfiguration — entweder aus dem GLB Root-Node, aus URL-Parametern, oder aus einem Verbindungsdialog:
 
 ```typescript
 function createAdapter(config: ViewerConfig): ISignalAdapter {
@@ -1204,7 +1329,7 @@ mqttAdapter.onSignals = (values) => signalStore.setMany(values);
 
 ### Eigene Adapter entwickeln
 
-Kunden und Integratoren können eigene Adapter entwickeln, die das `ISignalAdapter`-Interface implementieren. Der Adapter wird als npm-Paket oder als lokale TypeScript-Datei eingebunden. Das ist der erweiterbare Punkt des Systems — neue Steuerungen anbinden, ohne den Viewer-Core zu ändern.
+Kunden und Integratoren können eigene Adapter entwickeln, die das `ISignalAdapter`-Interface implementieren. Der Adapter wird als npm-Paket oder als lokale TypeScript-Datei eingebunden. Das ist der erweiterbare Punkt des Systems — neue Steuerungen anbinden, ohne realvirtual WEB-Core zu ändern.
 
 ---
 
@@ -1236,7 +1361,7 @@ Der Browser ist stateless. Bei Reload, Tab-Wechsel oder Verbindungsabbruch:
 1. WebSocket Reconnect mit exponentiellem Backoff (1s, 2s, 4s, max 30s)
 2. `sync_request` an Core → Antwort mit aktuellem Gesamtzustand
 3. URL-Parameter auslesen für Kamera-Position und Selektion
-4. Viewer-Zustand aus IndexedDB wiederherstellen (Watchlist, Panel-Layout)
+4. realvirtual WEB-Zustand aus localStorage wiederherstellen (Watchlist, Panel-Layout)
 5. GLB aus Browser-Cache (ETag) — kein Re-Download
 
 Der Core ist die Wahrheit. Der Browser ist eine Ansicht, die jederzeit komplett neu aufgebaut werden kann.
@@ -1248,6 +1373,8 @@ Der Core ist die Wahrheit. Der Browser ist eine Ansicht, die jederzeit komplett 
 ---
 
 ## 29. Drei UI-Ebenen
+
+> **Status:** Konzeptionell — noch nicht implementiert. Aktuell nur Ebene 3 (Screen-Space fest) realisiert.
 
 ### Ebene 1 — World-Space (im 3D-Raum)
 
@@ -1267,11 +1394,13 @@ Alle drei Ebenen sind durchlässig: Klick in Ebene 3 navigiert zu Ebene 1 und ö
 
 ## 30. Meldungssystem
 
+> **Status:** Konzeptionell — noch nicht implementiert. Grundlage (SignalStore + Events) vorhanden.
+
 Jede Meldung hat eine `rv_ref` — die Referenz auf einen Node im GLB. Klick auf Meldung → Kamera fährt zum Node, Node wird highlighted, Detail-Panel öffnet sich.
 
 Meldungsquellen: PLC-Alarme (über Core), Schwellwert-Überwachung, Zustandsänderungen, manuelle Notizen.
 
-Meldungsfluss: Signal ändert sich → Core erkennt Alarm → WebSocket sendet Meldung → Viewer: Alarm-Liste + Marker + Highlight + optionaler Sound.
+Meldungsfluss: Signal ändert sich → Core erkennt Alarm → WebSocket sendet Meldung → realvirtual WEB: Alarm-Liste + Marker + Highlight + optionaler Sound.
 
 ---
 
@@ -1281,25 +1410,42 @@ Meldungsfluss: Signal ändert sich → Core erkennt Alarm → WebSocket sendet M
 
 ## 31. SignalStore
 
-Zentraler, framework-agnostischer Wert-Speicher. Alle Daten fließen hindurch — egal ob WebSocket, MQTT, REST oder lokale Simulation.
+> **Implementierungsstand:** Vollständig implementiert in `rv-signal-store.ts` (~252 Zeilen).
+
+Zentraler, framework-agnostischer Wert-Speicher mit **Dual-Adressierung** (Name + Pfad):
 
 ```typescript
 class SignalStore {
-  set(address: string, value: any): void { }          // Einzelwert oder Array
-  get(address: string): any { }
-  subscribe(address: string, cb: (v: any) => void): () => void { }
-  setMany(updates: Record<string, any>): void { }     // Bulk für WebSocket
-  write(address: string, value: any): boolean { }     // Mit Schreibschutz
+  // Primär: By Name
+  set(name: string, value: boolean | number): void { }
+  get(name: string): boolean | number | undefined { }
+  getBool(name: string): boolean { }
+  getFloat(name: string): number { }
+  getInt(name: string): number { }
+  subscribe(name: string, cb: (v) => void): () => void { }
+
+  // Sekundär: By Hierarchy Path (mit Lazy-Caching)
+  setByPath(path: string, value): void { }
+  getByPath(path: string): boolean | number | undefined { }
+  subscribeByPath(path: string, cb): () => void { }
+
+  // Bulk (WebSocket/Interface)
+  setMany(updates: Record<string, any>): void { }     // Single Version Bump
+
+  // Version Tracking (für React Dirty-Checks)
+  _version: number;  // Monotonisch steigend
 }
 ```
 
-### Arrays im SignalStore
-
-Signale können Arrays sein — Achspositionen (6 Werte), Temperaturprofile (20 Messpunkte), Cam-Tabellen (360 Werte). Für große Arrays TypedArrays (Float32Array) verwenden — schnellerer Vergleich, weniger Speicher.
+- **Zwei Adressierungen:** `byName` Map (primär) + `pathToName` Map (Pfad-zu-Name Resolution)
+- **Lazy Resolution:** Pfad-Lookups werden gecacht (`resolveCache`)
+- **Version Tracking:** Monotonisch steigende `_version` für React useSyncExternalStore
 
 ---
 
 ## 32. React Hooks
+
+> **Status:** Konzeptionell — noch nicht als dedizierte Hooks implementiert. Signal-Zugriff erfolgt aktuell direkt über `viewer.signalStore` mit `subscribe()` / `subscribeByPath()`.
 
 ```typescript
 function useSignal(address: string): any { }            // Wert lesen
@@ -1312,6 +1458,8 @@ Die Hooks sind die einzige Brücke zwischen SignalStore und React. Jede Komponen
 ---
 
 ## 33. UI-Komponentenbibliothek
+
+> **Status:** Konzeptionell — noch nicht implementiert. Aktuelle HMI-Komponenten: TopBar, BottomBar, LeftPanel, PropertyInspector, HierarchyBrowser, KpiCard, ChartPanel, ButtonPanel, MessagePanel, TileCard (siehe Abschnitt 39).
 
 ### Anzeige-Komponenten (Lesen)
 
@@ -1355,11 +1503,15 @@ function AutoPanel({ rvId }) {
 
 ## 34. Schreib-Schutz
 
+> **Status:** Konzeptionell — noch nicht implementiert.
+
 Signal-Richtung wird aus rv_extras gelesen (`direction: "read"` oder `"write"`). Eingabe-Komponenten prüfen Schreibbarkeit. Nicht-schreibbare Signale werden automatisch als reine Anzeige dargestellt.
 
 ---
 
 ## 35. Performance-Richtlinien
+
+> **Status:** Teilweise implementiert — Render-on-Demand, Raycasting-Throttling und Highlight-Pooling sind umgesetzt (siehe Abschnitt 45). World-Space-UI und ECharts-Optimierungen sind konzeptionell.
 
 ### UI-Rendering
 - Max. 50 World-Space-Elemente gleichzeitig sichtbar (LOD)
@@ -1384,42 +1536,55 @@ Signal-Richtung wird aus rv_extras gelesen (`direction: "read"` oder `"write"`).
 
 ---
 
-## 36. Phasen
+## 36. Phasen und Implementierungsstand
 
-### Phase 1 — Minimal Viable Viewer (4–6 Wochen)
+### Phase 1 — Minimal Viable Product ✅ FERTIG
 
-- GLB-Export mit korrekter Kinematik und Drive-Parametern
-- Three.js Viewer: GLB laden, Scene-Boot, Drive-Komponenten
-- SimulationLoop mit FixedUpdate
-- Basis-Kamerasteuerung (OrbitControls)
-- WebSocket-Anbindung für Live-Modus
-- Einfache Signal-Anzeige
+- ✅ GLB-Export mit korrekter Kinematik und Drive-Parametern
+- ✅ Three.js: GLB laden, Scene-Boot, Drive-Komponenten
+- ✅ SimulationLoop mit FixedUpdate (50 Hz Accumulator)
+- ✅ Basis-Kamerasteuerung (OrbitControls)
+- ✅ WebSocket-Anbindung für Live-Modus
+- ✅ Signal-Anzeige und SignalStore
 
-### Phase 2 — HMI Features (6–8 Wochen)
+### Phase 2 — HMI Features ✅ FERTIG
 
-- Vollständige rv_extras (Sensoren, TransportSurface, Gruppen)
-- Alarm/Meldungssystem mit 3D-Referenzen
-- React UI: Panels, Alarm-Liste, Signal-Charts
-- Volltext-Suche mit 3D-Highlighting
-- Kamera-Presets
-- MQTT und REST Signal-Adapter
+- ✅ Vollständige rv_extras (Sensoren, TransportSurface, Gruppen, Grip, Source, Sink)
+- ✅ React UI: TopBar, BottomBar, ButtonPanel, HierarchyBrowser, PropertyInspector
+- ✅ Volltext-Suche mit 3D-Highlighting
+- ✅ Kamera-Presets und Animation
+- ✅ Plugin-System mit Lifecycle-Hooks
+- ✅ Visual Settings (Lighting, Shadows, Tone Mapping)
+- ⬜ Alarm/Meldungssystem (konzeptionell)
+- ⬜ MQTT und REST Signal-Adapter (konzeptionell)
 
-### Phase 3 — Standalone und Extended (8–10 Wochen)
+### Phase 3 — Standalone und Extended ✅ GROßTEILS FERTIG
 
-- LogicStep/Sequencer für eigenständige Simulation
-- TransportSurface mit MU-Management
-- Sensor-Raycasting
-- Recording/Playback
-- Binary WebSocket Protocol
-- Docker-Deployment für Core
+- ✅ LogicStep/Sequencer mit Composite Pattern (Serial/Parallel Container)
+- ✅ TransportSurface mit MU-Management (Linear + Radial)
+- ✅ Sensor: AABB-Collision + Raycast mit Visualisierung
+- ✅ Recording/Playback (DrivesPlayback mit Sequenzen)
+- ✅ Source mit Dual-Rendering (InstancedMesh + Clone)
+- ✅ Grip/GripTarget mit Pick/Place
+- ✅ Rapier WASM Physics Plugin (optional)
+- ⬜ Binary WebSocket Protocol (noch JSON)
+- ⬜ Docker-Deployment für Core
 
-### Phase 4 — Polish und Release (4–6 Wochen)
+### Phase 4 — Polish und Release 🔄 IN ARBEIT
 
-- S7 Direct-Modus (REST + MQTT)
-- Mobile-Optimierung
-- AGPL-Veröffentlichung des Viewer-Core
-- Dokumentation und Beispiel-GLBs
-- Performance-Optimierung
+- ✅ Render-on-Demand (Dirty-Flag-System)
+- ✅ WebGPU-Unterstützung (Auto-Detection mit WebGL-Fallback)
+- ✅ WebXR VR/AR Support (Quest 3)
+- ✅ Groups mit Visibility/Isolation
+- ✅ Maintenance Panel (Step-by-Step Guide)
+- ✅ Machine Control Panel (PackML-Demo)
+- ✅ KPI Cards und Demo-HMI
+- ✅ LeftPanelManager für skalierbare Panel-Koordination
+- ✅ Debug-System mit Kategorien
+- ✅ Mobile-Responsive Layout
+- ✅ Firebase Demo-Hosting
+- ⬜ AGPL-Veröffentlichung (vorbereitet)
+- ⬜ Vollständige Dokumentation
 
 ---
 
@@ -1458,3 +1623,299 @@ Signal-Richtung wird aus rv_extras gelesen (`direction: "read"` oder `"write"`).
                             │
                   PLC / Robot Controller
 ```
+
+---
+
+# Teil VIII — Implementierte Systeme (nicht im Originalkonzept)
+
+Die folgenden Systeme wurden während der Implementierung entwickelt und sind produktiv im Einsatz. Sie waren im Originalkonzept nicht enthalten.
+
+---
+
+## 38. Plugin-System
+
+realvirtual WEB verwendet ein erweiterbares Plugin-System für modulare Funktionalität.
+
+### Plugin Interface
+
+```typescript
+interface RVViewerPlugin {
+  id: string;                               // Eindeutige Plugin-ID
+  order?: number;                           // Ausführungsreihenfolge (Default: 100)
+  slots?: UISlotEntry[];                    // UI-Slot-Registrierungen für React
+  handlesTransport?: boolean;               // Physics-Plugin übernimmt Transport
+
+  // Lifecycle Hooks
+  onModelLoaded?(result: LoadResult, viewer: RVViewer): void;
+  onModelCleared?(viewer: RVViewer): void;
+  onFixedUpdatePre?(dt: number): void;      // Vor Drive-Physik
+  onFixedUpdatePost?(dt: number): void;     // Nach Drive/Transport
+  onRender?(frameDt: number): void;         // Letztes im Render-Pass
+  onConnectionStateChanged?(state, viewer): void;
+  dispose?(): void;
+}
+```
+
+### Registrierung
+
+```typescript
+viewer
+  .use(new InterfaceManager())      // WebSocket/MQTT/ctrlX Adapter
+  .use(new RapierPhysicsPlugin())   // WASM Physik (optional)
+  .use(new WebXRPlugin())           // VR/AR für Quest 3
+  .use(new DriveOrderPlugin())      // Topologische Drive-Sortierung
+  .use(new SensorMonitorPlugin())   // Sensor-Zustandsänderungen
+  .use(new TransportStatsPlugin())  // MU/Surface Statistiken
+  .use(new KpiDemoPlugin())         // KPI-Berechnungen
+  .use(new DemoHMIPlugin())         // Demo-HMI (KPI Cards, Buttons, Overlays)
+  .use(new MaintenancePlugin())     // Wartungs-Wizard
+  .use(new MachineControlPlugin())  // PackML Machine Control Demo
+  .use(new RvExtrasEditorPlugin()); // Hierarchy Browser + Property Inspector
+```
+
+### Plugin-Caching
+
+Plugins werden bei Registrierung in gecachte Listen einsortiert (nach `order`). Nur Plugins mit relevanten Hooks werden pro Frame aufgerufen — O(1) statt O(n).
+
+### UI-Slot-System
+
+Plugins registrieren React-Komponenten in benannten Slots:
+
+```typescript
+const slots: UISlotEntry[] = [
+  { slot: 'kpi-bar',      component: OeeKpi,        order: 10 },
+  { slot: 'button-group', component: DrivesButton,   order: 10 },
+  { slot: 'button-group', component: SensorsButton,  order: 20 },
+  { slot: 'button-group', component: MaintenanceBtn, order: 40 },
+];
+```
+
+---
+
+## 39. HMI-Implementierung
+
+### Implementierte UI-Komponenten
+
+| Komponente | Beschreibung | Status |
+|------------|-------------|--------|
+| **TopBar** | Rechts oben: Hierarchy/VR/Settings Buttons, Settings-Panel mit 6 Tabs | ✅ |
+| **BottomBar** | Zentrierte Suche mit Live-Dropdown, Kamera-Presets | ✅ |
+| **ButtonPanel** | Linke Sidebar mit Plugin-Buttons, Logo, Status-Indikator | ✅ |
+| **HierarchyBrowser** | Vollständiger Szenenbaum mit Live-Signal-Werten und LogicStep-Status | ✅ |
+| **PropertyInspector** | Komponentenfelder mit Editoren, Override-System, Live-Drive-Daten | ✅ |
+| **GroupsOverlay** | Draggbare Gruppe-Visibility-Steuerung mit Isolationsmodus | ✅ |
+| **MaintenancePanel** | Step-by-Step Wartungsanleitung mit ISA-101 Farben | ✅ |
+| **MachineControlPanel** | PackML-Demo: State Machine, Mode Selector, 3D-Integration | ✅ |
+| **KpiCards** | OEE, Parts/h, Cycle Time, Power mit Sparklines | ✅ |
+| **WelcomeModal** | Onboarding-Dialog mit Feature-Highlights | ✅ |
+| **DriveTooltip** | Hover/Pinned Tooltip mit Drive-Position und Speed | ✅ |
+| **ChartPanel** | Wiederverwendbare draggbare/resizable Panel-Basis | ✅ |
+
+### Settings-Tabs (TopBar)
+
+1. **Model** — Modell-Auswahl, Renderer (WebGL/WebGPU)
+2. **Visual** — Lighting, Tone Mapping, Shadows, Antialiasing
+3. **Physics** — Rapier.js Toggle, Gravity, Friction, Substeps
+4. **Interfaces** — WebSocket, ctrlX, MQTT, TwinCAT Konfiguration
+5. **Dev Tools** — FPS Overlay, GPU Benchmark, Performance Budgets
+6. **Tests** — Feature Test Runner
+
+### LeftPanelManager (Panel-Koordination)
+
+Koordiniert alle linken Panels — nur ein Panel gleichzeitig geöffnet ("Last One Wins"):
+
+```typescript
+viewer.leftPanelManager.toggle('hierarchy', 350);        // Hierarchy Browser
+viewer.leftPanelManager.toggle('settings', 540);          // Settings Panel
+viewer.leftPanelManager.toggle('machine-control', 320);   // Machine Control
+```
+
+ButtonPanel liest den aktiven Panel-Offset und verschiebt sich automatisch.
+
+---
+
+## 40. Moving Units (MU) — Hybrid-Rendering
+
+### Zwei Rendering-Pfade
+
+**InstancedMesh (Performance):** Für einfache Single-Mesh MUs (Boxen, Zylinder).
+- Pre-allocated InstancedMesh mit Parallel-Float32Arrays für Positionen/Quaternions
+- Swap-and-Pop Release für O(1) Entfernung
+- Auto-Growth bei Pool-Erschöpfung (2x)
+- IMUAccessor Interface für einheitlichen Zugriff
+
+**Object3D Clone (Qualität):** Für komplexe Multi-Mesh MUs.
+- Standard Three.js `clone()` mit Visibility-Wiederherstellung
+- Flexibler, aber langsamer bei hoher MU-Anzahl
+
+### Source (Spawner)
+
+- Template-Analyse: `analyzeTemplate()` prüft ob Single-Mesh
+- Single-Mesh → InstancedMesh Pool
+- Multi-Mesh → Clone Fallback
+- **Spawn-Modi:** Interval (Timer), Distance (Abstand zum letzten MU), OnSignal
+
+### Sink
+
+- Markiert MUs als `markedForRemoval = true`
+- Tatsächliche Entfernung im Transport-Loop (deferred)
+- Übersprungen für gegriffene MUs und instanced MUs
+
+---
+
+## 41. Grip-System (Pick & Place)
+
+### Zwei Pick-Modi
+
+**Sensor-basiert:** Verwendet `PartToGrip` Sensor's `occupiedMU` Referenz
+
+**Range-basiert:** Sphere-AABB Overlap mit `GripRange` (mm)
+
+### Zwei Place-Modi
+
+**Auto:** Findet nächstes freies GripTarget innerhalb `GripTargetSearchRadius`
+
+**Statisch:** Release an aktueller Position
+
+### Signal-Steuerung
+
+- `SignalPick` / `SignalPlace` als ComponentRefs
+- Rising-Edge Detection (Flankenerkennung)
+- `OneBitControl`: PlaceObjects = !PickObjects
+
+### GripTarget
+
+Einfacher Zustandscontainer: `occupiedBy: MU | null`, `isFree` Property, `AlignPosition`/`AlignRotation` Flags.
+
+---
+
+## 42. DrivesPlayback (Recording)
+
+Frame-basiertes Recording-Playback System:
+
+- **Format:** Flat Array (`positions[frame * driveCount + driveIndex]`)
+- **Sequences:** Benannte Frame-Bereiche für Teilwiedergabe
+- **Modi:** `play()` (Loop), `playSequence(name)` (Einmal), `seekToPercent(pct)`
+- Setzt `drive.positionOverwrite = true` um Physics zu überspringen
+- Deferred Release: Behält Overwrite einen extra Tick für `onAfterUpdate` Callbacks
+
+---
+
+## 43. Debug-System
+
+Strukturiertes Logging mit Per-Kategorie Toggles:
+
+```
+?debug=all                  // Alle aktivieren
+?debug=playback,loader      // Spezifische Kategorien
+localStorage.setItem('rv-debug', 'loader,transport')
+```
+
+| Kategorie | Beschreibung |
+|-----------|-------------|
+| `loader` | GLB Loading, Node-Registrierung |
+| `playback` | DrivesPlayback, ReplayRecording |
+| `drive` | Drive Updates, positionOverwrite |
+| `transport` | TransportSurface, MU-Bewegung |
+| `sensor` | Sensor Collision, Occupancy |
+| `logic` | LogicStep Execution |
+| `signal` | Signal Store Changes |
+| `erratic` | Erratic Driver |
+| `grip` | Grip Pick/Place |
+| `parity` | GLB Extras Parity Validation |
+
+**Zero Overhead in Produktion:** Alle Debug-Ausgaben werden im Build eliminiert.
+
+---
+
+## 44. WebGPU und WebXR
+
+### WebGPU
+
+- Auto-Detection beim Start: WebGPU wenn Browser unterstützt, sonst WebGL Fallback
+- Touch-Geräte verwenden immer WebGL (WebGPU auf Mobile noch instabil)
+- `viewer.isWebGPU` Property zum Abfragen des aktiven Backends
+
+### WebXR (VR/AR)
+
+- Quest 3 Support via WebXR Plugin
+- VR-Modus: Immersive Szenenansicht
+- AR-Modus: Hit-Test für Platzierung
+- Controller-Input: Select-Events
+- QR-Code Modal für schnellen Mobile-Zugriff
+
+---
+
+## 45. Performance-Optimierungen (implementiert)
+
+### Render-on-Demand
+
+- `_renderDirty` Flag: GPU-Render nur wenn sich etwas ändert
+- `_shadowsDirty` Flag: Shadow Map nur bei Geometrie-Änderung
+- `_dampingFramesRemaining`: 60 Frames nach User-Input (Smooth Decay)
+- **Ergebnis:** 0% GPU-Last bei statischer Szene
+
+### InstancedMesh für MUs
+
+- Hohe MU-Anzahlen (100+) mit nur einem Draw Call
+- Parallel Float32Arrays für CPU-effiziente Position-Updates
+- Swap-and-Pop für O(1) Allocation/Deallocation
+
+### Sensor-Optimierung
+
+- AABB-basierte Collision statt Mesh-Raycasting
+- Slab-Methode für Ray-AABB (O(1) pro Test)
+- Kein Mesh-Traversal nötig
+
+### Plugin-Caching
+
+- Plugins werden bei Registrierung in gecachte Lifecycle-Listen sortiert
+- Pro Frame: Nur relevante Hooks aufgerufen (nicht alle Plugins iteriert)
+
+### Extras-Validator (Dev-Only)
+
+- Parity-Check zwischen C# Export und TypeScript Parser
+- CONSUMED + IGNORED Listen pro Komponententyp
+- Zeigt unbekannte Felder im GLB → hilft bei neuen Features
+- Zero Overhead in Produktion
+
+---
+
+## 46. Implementierte Event-Liste
+
+Das Event-System unterstützt typisierte Events:
+
+| Event | Payload | Beschreibung |
+|-------|---------|-------------|
+| `model-loaded` | `{ result: LoadResult }` | GLB geladen und geparst |
+| `model-cleared` | — | Modell entfernt |
+| `drive-hover` | `{ drive, clientX, clientY }` | Drive-Hover (Backward-Compat) |
+| `drive-focus` | `{ drive, node }` | Drive fokussiert (Tooltip gepinnt) |
+| `sensor-changed` | `{ sensorPath, occupied }` | Sensor Zustandsänderung |
+| `mu-spawned` | `{ totalSpawned }` | MU erzeugt |
+| `mu-consumed` | `{ totalConsumed }` | MU vernichtet |
+| `drive-at-target` | `{ drivePath, position }` | Drive hat Ziel erreicht |
+| `object-hover` | `{ node, path }` | Generisches Objekt-Hover |
+| `object-clicked` | `{ path }` | Klick auf 3D-Objekt |
+| `object-focus` | `{ path }` | Doppelklick auf 3D-Objekt |
+| `connection-state-changed` | `{ state, previous }` | Verbindungsstatus |
+| `camera-animation-done` | `{ targetPath? }` | Kamera-Animation abgeschlossen |
+| `machine-control-changed` | `{ state, mode, components }` | Machine Control Status |
+| `xr-session-start/end` | — | WebXR Session |
+
+---
+
+## 47. Technologie-Stack (aktuell, März 2026)
+
+| Schicht | Technologie | Version | Zweck |
+|---------|-----------|---------|-------|
+| Sprache | TypeScript | 5.x | Typsicher, C#-nah |
+| 3D-Engine | Three.js | 0.172+ | Rendering, Szenegraph |
+| GPU Backend | WebGPU / WebGL | Auto-Detection | Rendering |
+| UI-Framework | React + MUI | 18.x + MUI 6 | HMI-Panels, Overlays |
+| Charts | SVG Sparklines | — | Signal-Visualisierung |
+| Physik | Rapier.js (WASM) | Optional | Kollision, Schwerkraft |
+| VR/AR | WebXR API | — | Quest 3 Support |
+| Build | Vite | 6.x | Schnelles Dev und Build |
+| Test | Vitest | — | Unit Tests |
+| Kommunikation | WebSocket, MQTT | — | Live-Daten |

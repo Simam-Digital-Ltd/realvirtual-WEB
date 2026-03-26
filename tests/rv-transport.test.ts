@@ -8,8 +8,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Object3D, Vector3, Scene } from 'three';
 import { AABB } from '../src/core/engine/rv-aabb';
 import { RVMovingUnit } from '../src/core/engine/rv-mu';
-import { RVTransportSurface, type TransportSurfaceConfig } from '../src/core/engine/rv-transport-surface';
-import { RVSensor, type SensorConfig } from '../src/core/engine/rv-sensor';
+import { RVTransportSurface } from '../src/core/engine/rv-transport-surface';
+import { RVSensor } from '../src/core/engine/rv-sensor';
 import { RVSink } from '../src/core/engine/rv-sink';
 import { RVTransportManager } from '../src/core/engine/rv-transport-manager';
 
@@ -31,15 +31,13 @@ function createSurface(
   const node = new Object3D();
   node.position.set(x, y, z);
 
-  const config: TransportSurfaceConfig = {
-    transportDirection: direction,
-    isRadial: false,
-    textureScale: 1,
-    heightOffset: 0,
-  };
-
   const aabb = AABB.fromHalfSize(node, halfSize);
-  const surface = new RVTransportSurface(node, config, aabb);
+  const surface = new RVTransportSurface(node, aabb);
+  surface.TransportDirection.copy(direction);
+  surface.Radial = false;
+  surface.TextureScale = 1;
+  surface.HeightOffsetOverride = 0;
+  surface.initTransport();
 
   // Mock drive with configurable speed (currentSpeed is what TransportSurface reads)
   surface.drive = {
@@ -53,9 +51,11 @@ function createSurface(
 function createSensor(x: number, y: number, z: number, halfSize: Vector3): RVSensor {
   const node = new Object3D();
   node.position.set(x, y, z);
-  const config: SensorConfig = { invertSignal: false, mode: 'Collision' };
   const aabb = AABB.fromHalfSize(node, halfSize);
-  return new RVSensor(node, config, aabb);
+  const sensor = new RVSensor(node, aabb);
+  sensor.invertSignal = false;
+  sensor.UseRaycast = false;
+  return sensor;
 }
 
 function createSink(x: number, y: number, z: number, halfSize: Vector3): RVSink {
@@ -72,7 +72,7 @@ describe('RVTransportSurface', () => {
     const surface = createSurface(0, 0, 0, new Vector3(2, 0.1, 0.5), new Vector3(1, 0, 0), 1000);
     const mu = createMU('part1', 0, 0, 0);
 
-    const startX = mu.node.position.x;
+    const startX = mu.getPosition().x;
 
     // Simulate 1 second at 1000 mm/s = 1 m/s
     const dt = 1 / 60;
@@ -81,7 +81,7 @@ describe('RVTransportSurface', () => {
     }
 
     // Should have moved ~1 meter in X
-    const movedX = mu.node.position.x - startX;
+    const movedX = mu.getPosition().x - startX;
     expect(movedX).toBeCloseTo(1.0, 1);
   });
 
@@ -123,9 +123,10 @@ describe('RVSensor', () => {
   it('should invert signal when configured', () => {
     const node = new Object3D();
     node.position.set(0, 0, 0);
-    const config: SensorConfig = { invertSignal: true, mode: 'Collision' };
     const aabb = AABB.fromHalfSize(node, new Vector3(0.5, 0.5, 0.5));
-    const sensor = new RVSensor(node, config, aabb);
+    const sensor = new RVSensor(node, aabb);
+    sensor.invertSignal = true;
+    sensor.UseRaycast = false;
 
     // MU is inside, but signal is inverted
     const mu = createMU('part1', 0, 0, 0);
@@ -206,10 +207,10 @@ describe('RVTransportManager', () => {
     const mu = createMU('part1', 0, 0, 0);
     manager.mus.push(mu);
 
-    const startX = mu.node.position.x;
+    const startX = mu.getPosition().x;
     manager.update(1 / 60);
 
-    expect(mu.node.position.x).toBeGreaterThan(startX);
+    expect(mu.getPosition().x).toBeGreaterThan(startX);
   });
 
   it('should detect sensor overlap after transport', () => {
@@ -237,7 +238,7 @@ describe('RVTransportManager', () => {
 
     // mu1 should be removed, mu2 should remain
     expect(manager.mus.length).toBe(1);
-    expect(manager.mus[0].node.name).toBe('part2');
+    expect(manager.mus[0].getName()).toBe('part2');
     expect(manager.totalConsumed).toBe(1);
   });
 
@@ -256,7 +257,7 @@ describe('RVTransportManager', () => {
     manager.update(1 / 60);
 
     expect(manager.mus.length).toBe(1);
-    expect(manager.mus[0].node.name).toBe('c');
+    expect(manager.mus[0].getName()).toBe('c');
     expect(manager.totalConsumed).toBe(3);
   });
 

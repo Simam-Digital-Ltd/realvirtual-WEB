@@ -13,19 +13,19 @@ import { NodeRegistry } from '../src/core/engine/rv-node-registry';
 function makeDrive(name: string): RVDrive {
   const node = new Object3D();
   node.name = name;
-  return new RVDrive(node, {
-    direction: DriveDirection.LinearX,
-    reverseDirection: false,
-    offset: 0,
-    startPosition: 0,
-    targetSpeed: 100,
-    acceleration: 100,
-    useAcceleration: false,
-    useLimits: false,
-    lowerLimit: 0,
-    upperLimit: 1000,
-    behaviors: [],
-  });
+  const drive = new RVDrive(node);
+  drive.Direction = DriveDirection.LinearX;
+  drive.ReverseDirection = false;
+  drive.Offset = 0;
+  drive.StartPosition = 0;
+  drive.TargetSpeed = 100;
+  drive.Acceleration = 100;
+  drive.UseAcceleration = false;
+  drive.UseLimits = false;
+  drive.LowerLimit = 0;
+  drive.UpperLimit = 1000;
+  drive.initDrive();
+  return drive;
 }
 
 function makeRecording(frames: number, driveCount: number, positions: number[]): CompactRecording {

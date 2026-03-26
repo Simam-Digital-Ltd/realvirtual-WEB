@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Box, Paper, Typography } from '@mui/material';
 import { Circle } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
@@ -6,6 +6,7 @@ import { useSlot } from '../../hooks/use-slot';
 import { RvExtrasEditorPlugin, HIERARCHY_DEFAULT_WIDTH } from './rv-extras-editor';
 import { SETTINGS_PANEL_WIDTH, INSPECTOR_PANEL_WIDTH } from './layout-constants';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
+import { WelcomeModal } from './WelcomeModal';
 
 import logoUrl from '/logo.png?url';
 
@@ -16,6 +17,7 @@ const NOOP_UNSUB = () => () => {};
 export function ButtonPanel() {
   const viewer = useViewer();
   const entries = useSlot('button-group');
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   // Check if hierarchy panel is open (and its width) to shift the button group right
   const plugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
@@ -57,7 +59,10 @@ export function ButtonPanel() {
           py: 0.5,
           borderRadius: 2,
           pointerEvents: 'auto',
+          cursor: 'pointer',
+          '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
         }}
+        onClick={() => setAboutOpen(true)}
       >
         <img src={logoUrl} alt="realvirtual" style={{ height: 18, width: 18 }} />
         {!isMobile && (
@@ -119,6 +124,9 @@ export function ButtonPanel() {
           </Paper>
         </Box>
       )}
+
+      {/* About dialog — opened by clicking the logo */}
+      <WelcomeModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </>
   );
 }

@@ -19,9 +19,7 @@ export interface RVAppConfig {
   lockSettings?: boolean;
   /** Selectively lock individual tabs (settings gear still visible). */
   lockedTabs?: SettingsTabId[];
-  /** Suppress the welcome modal on first visit. */
-  hideWelcomeModal?: boolean;
-  /** Default model URL or filename (priority: URL param > defaultModel > localStorage > demo.glb). */
+/** Default model URL or filename (priority: URL param > defaultModel > localStorage > demo.glb). */
   defaultModel?: string;
 
   /** Partial overrides merged on top of localStorage values. */

@@ -18,6 +18,7 @@
  *   GET  /__api/debug/errors       Browser console errors/warnings
  *   GET  /__api/debug/changelog    Recent signal changes
  *   GET  /__api/debug/stateHistory Connection state transitions
+ *   GET  /__api/debug/logs         Structured log buffer (filterable: ?level=warn&category=signal&limit=20)
  *   POST /__api/debug/cmd          Push command (setSignal, jogDrive, etc.)
  *
  * Dev-mode only — not included in production builds.
@@ -26,6 +27,7 @@
 import { RVBehavior } from '../core/rv-behavior';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
 import type { RVLogicStep } from '../core/engine/rv-logic-step';
+import { getLastLogs } from '../core/engine/rv-debug';
 
 /** Serialize any object's own enumerable properties (primitives + shallow objects). */
 function serializeProps(obj: unknown, maxDepth = 2): Record<string, unknown> {
@@ -59,6 +61,7 @@ interface ErrorEntry {
   level: 'error' | 'warning';
   message: string;
   timestamp: number;
+  stack?: string;
 }
 
 interface ChangelogEntry {
@@ -168,10 +171,16 @@ export class DebugEndpointPlugin extends RVBehavior {
   }
 
   private _bufferError(level: 'error' | 'warning', args: unknown[]): void {
+    const message = args.map(a => {
+      if (a instanceof Error) return `${a.message}\n${a.stack ?? ''}`;
+      return typeof a === 'object' ? JSON.stringify(a) : String(a);
+    }).join(' ');
+
     this._errors.push({
       level,
-      message: args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '),
+      message,
       timestamp: Date.now(),
+      stack: new Error().stack?.split('\n').slice(3, 6).join('\n'),
     });
     if (this._errors.length > DebugEndpointPlugin.MAX_ERRORS) this._errors.shift();
   }
@@ -306,7 +315,7 @@ export class DebugEndpointPlugin extends RVBehavior {
       drives: this.drives.map(d => ({
         name: d.name,
         ...serializeProps(d),
-        direction: d.config.direction,
+        direction: d.Direction,
       })),
       sensors: this.sensors.map(s => ({
         name: s.node.name,
@@ -319,13 +328,28 @@ export class DebugEndpointPlugin extends RVBehavior {
         consumed: this.transportManager?.totalConsumed ?? 0,
         activeMUs: this.transportManager?.mus.length ?? 0,
         mus: this.transportManager?.mus.map(mu => ({
-          name: mu.node.name,
+          name: mu.getName(),
           ...serializeProps(mu),
         })) ?? [],
       },
+      playback: this._collectPlayback(),
+      logs: getLastLogs(100),
       errors: this._errors,
       changelog: this._changelog,
       stateHistory: this._stateHistory,
+    };
+  }
+
+  private _collectPlayback() {
+    const pb = this.playback;
+    if (!pb) return null;
+    return {
+      isPlaying: pb.isPlaying,
+      frame: pb.frame,
+      totalFrames: pb.totalFrames,
+      progress: +(pb.progress * 100).toFixed(1),
+      loop: pb.loop,
+      sequences: pb.sequences,
     };
   }
 

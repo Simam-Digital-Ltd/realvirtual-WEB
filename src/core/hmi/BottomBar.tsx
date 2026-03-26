@@ -49,6 +49,7 @@ export function BottomBar() {
   const isMobile = useMobileLayout();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
+  const [dropdownVisible, setDropdownVisible] = useState(true);
   const listRef = useRef<HTMLUListElement>(null);
   const programmaticScroll = useRef(false);
 
@@ -70,6 +71,7 @@ export function BottomBar() {
       const val = e.target.value;
       setInputValue(val);
       setSelectedIdx(-1);
+      setDropdownVisible(true);
       applyFilter(val);
     },
     [applyFilter],
@@ -102,7 +104,7 @@ export function BottomBar() {
     }
   }, [viewer, filteredNodes, tooMany, getViewportOffset]);
 
-  // Click/select result → focus by path, select in hierarchy, close dropdown
+  // Click/select result → focus by path, select in hierarchy, hide dropdown
   const handleResultClick = useCallback(
     (result: NodeSearchResult) => {
       // Focus camera on the result
@@ -110,10 +112,11 @@ export function BottomBar() {
       // Select and reveal in hierarchy (opens panel if needed, expands ancestors, scrolls)
       const editorPlugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
       if (editorPlugin) editorPlugin.selectAndReveal(result.path);
-      // Close search dropdown
-      handleClear();
+      // Hide dropdown (keep search text)
+      setDropdownVisible(false);
+      setSelectedIdx(-1);
     },
-    [viewer, getViewportOffset, handleClear],
+    [viewer, getViewportOffset],
   );
 
   const visibleCount = filteredNodes.length;
@@ -145,6 +148,8 @@ export function BottomBar() {
           handleResultClick(filteredNodes[selectedIdx]);
         } else {
           handleFocus();
+          setDropdownVisible(false);
+          setSelectedIdx(-1);
         }
       }
     },
@@ -186,7 +191,7 @@ export function BottomBar() {
   }, []);
 
   const subscribers = getFilterSubscribers();
-  const showResults = filter && !tooMany && filteredNodes.length > 0;
+  const showResults = filter && !tooMany && filteredNodes.length > 0 && dropdownVisible;
   const resultCount = filteredNodes.length;
 
   // Count badge text

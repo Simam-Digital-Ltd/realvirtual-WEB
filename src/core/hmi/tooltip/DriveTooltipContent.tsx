@@ -105,7 +105,6 @@ export function DriveTooltipContent({ data, viewer }: TooltipContentProps<DriveT
   if (!driveState) return null;
 
   const { drive, speed } = driveState;
-  const { config } = drive;
   const unit = drive.isRotary ? '\u00B0' : 'mm';
 
   return (
@@ -120,7 +119,7 @@ export function DriveTooltipContent({ data, viewer }: TooltipContentProps<DriveT
 
       {/* Direction */}
       <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block', mb: 0.5 }}>
-        {config.direction}{config.reverseDirection ? ' (rev)' : ''}
+        {drive.Direction}{drive.ReverseDirection ? ' (rev)' : ''}
       </Typography>
 
       {/* Position & Speed */}
@@ -133,10 +132,10 @@ export function DriveTooltipContent({ data, viewer }: TooltipContentProps<DriveT
       )}
 
       {/* Limits (if enabled) */}
-      {config.useLimits && (
+      {drive.UseLimits && (
         <Row
           label="Limits"
-          value={`${config.lowerLimit.toFixed(0)} \u2026 ${config.upperLimit.toFixed(0)}${unit}`}
+          value={`${drive.LowerLimit.toFixed(0)} \u2026 ${drive.UpperLimit.toFixed(0)}${unit}`}
         />
       )}
     </>

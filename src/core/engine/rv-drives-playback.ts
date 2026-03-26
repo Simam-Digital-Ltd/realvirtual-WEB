@@ -34,6 +34,7 @@ export class RVDrivesPlayback {
   private _loop = true;
   private _startFrame = 0;
   private _endFrame = 0;
+  private _pendingRelease = false;
 
   /** ActiveOnly mode parsed from DrivesRecorder GLB extras. */
   activeOnly: ActiveOnly = 'Always';
@@ -86,10 +87,15 @@ export class RVDrivesPlayback {
       : 0;
   }
 
+  get sequences() {
+    return this.recording.sequences ?? [];
+  }
+
   /** Start playback — enables positionOverwrite on all bound drives */
   play(): void {
     if (this.recording.numberFrames <= 0) return;
     this._isPlaying = true;
+    this._pendingRelease = false;
     this.currentFrame = this._startFrame;
     for (const drive of this.driveBindings) {
       if (drive) drive.positionOverwrite = true;
@@ -106,6 +112,7 @@ export class RVDrivesPlayback {
   /** Stop and reset to frame 0 */
   stop(): void {
     this._isPlaying = false;
+    this._pendingRelease = false;
     this.currentFrame = 0;
     this.accumulator = 0;
     for (const drive of this.driveBindings) {
@@ -131,6 +138,7 @@ export class RVDrivesPlayback {
     this._endFrame = Math.min(seq.endFrame, this.recording.numberFrames - 1);
     this._loop = false;
     this._isPlaying = true;
+    this._pendingRelease = false;
     this.currentFrame = this._startFrame;
     this.accumulator = 0;
     for (const drive of this.driveBindings) {
@@ -155,6 +163,17 @@ export class RVDrivesPlayback {
    * to advance frames at the correct rate.
    */
   update(dt: number): void {
+    // Deferred release: positionOverwrite was kept alive for one extra tick so that
+    // drive.update() → onAfterUpdate could evaluate the final frame (e.g. Drive_Cylinder
+    // sets IsOut/IsIn feedback signals). Now release it.
+    if (this._pendingRelease) {
+      this._pendingRelease = false;
+      for (const drive of this.driveBindings) {
+        if (drive) drive.positionOverwrite = false;
+      }
+      return;
+    }
+
     if (!this._isPlaying || this.recording.numberFrames <= 0) return;
 
     this.accumulator += dt;
@@ -169,17 +188,19 @@ export class RVDrivesPlayback {
         } else {
           this.currentFrame = this._endFrame;
           this._isPlaying = false;
-          debug('playback', `Reached end frame ${this._endFrame}, stopping (non-loop). Releasing positionOverwrite.`);
-          // Release positionOverwrite so other systems (erratic, logic) can control these drives
-          for (const drive of this.driveBindings) {
-            if (drive) drive.positionOverwrite = false;
-          }
+          debug('playback', `Reached end frame ${this._endFrame}, stopping (non-loop). Deferring positionOverwrite release.`);
           break;
         }
       }
     }
 
     this.applyFrame(this.currentFrame);
+
+    // Don't release positionOverwrite immediately — defer by one tick so drive.update()
+    // can still evaluate the final frame's position via onAfterUpdate this tick.
+    if (!this._isPlaying && !this._loop) {
+      this._pendingRelease = true;
+    }
   }
 
   /** Apply a specific frame's positions to all bound drives */

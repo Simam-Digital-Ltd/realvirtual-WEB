@@ -80,6 +80,7 @@ import type { RVViewerPlugin } from './rv-plugin';
 import { UIPluginRegistry } from './rv-ui-registry';
 import { isActiveForState } from './engine/rv-active-only';
 import { LeftPanelManager } from './hmi/left-panel-manager';
+import { isMobileDevice } from '../hooks/use-mobile-layout';
 
 // ─── Public Types ───────────────────────────────────────────────────────
 
@@ -703,7 +704,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     container: HTMLElement,
     options?: RVViewerOptions,
   ): Promise<RVViewer> {
-    const isTouchDevice = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    const isTouchDevice = isMobileDevice();
 
     let useWebGPU = !!options?.useWebGPU;
     if (useWebGPU && !navigator.gpu) {
@@ -849,6 +850,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       }
     }
 
+    // Re-evaluate _physicsPluginActive — plugins may have changed handlesTransport in onModelLoaded
     // Re-evaluate _physicsPluginActive — plugins may have changed handlesTransport in onModelLoaded
     this._physicsPluginActive = this._plugins.some(p => p.handlesTransport);
 

@@ -21,6 +21,7 @@ import { type FieldType, ENUM_FIELDS } from './rv-inspector-helpers';
 const DIRECTION_OPTIONS = [
   'LinearX', 'LinearY', 'LinearZ',
   'RotationX', 'RotationY', 'RotationZ',
+  'Virtual',
 ];
 
 // ── Field Editor Props ────────────────────────────────────────────────────

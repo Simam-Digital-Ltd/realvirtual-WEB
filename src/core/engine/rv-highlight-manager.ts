@@ -24,8 +24,10 @@ import {
   LineSegments,
   Object3D,
   DoubleSide,
+  Matrix4,
 } from 'three';
 import type { Scene, BufferGeometry } from 'three';
+import type { InstancedMovingUnit } from './rv-mu';
 
 // ─── Constants ────────────────────────────────────────────────────────
 
@@ -125,6 +127,62 @@ export class RVHighlightManager {
 
       this.pairs.push({ source: mesh, fill: overlay, edge: edgeLines });
     }
+  }
+
+  /**
+   * Highlight an instanced MU by creating temporary overlay meshes
+   * positioned at the instance's world-space matrix.
+   *
+   * Since InstancedMesh has no per-instance Object3D, we create a
+   * temporary overlay using the pool's shared geometry and the instance's
+   * matrix from the pool.
+   */
+  highlightInstancedMU(mu: InstancedMovingUnit): void {
+    this.clear();
+    this.tracked = false;
+
+    const pool = mu.node.userData?._muPool;
+    if (!pool || mu.slotIndex < 0) return;
+
+    const geometry = mu.node.geometry;
+    if (!geometry) return;
+
+    // Get the instance's world matrix from the pool
+    const mat = new Matrix4();
+    mu.node.getMatrixAt(mu.slotIndex, mat);
+
+    // Semi-transparent fill overlay
+    const overlay = new Mesh(geometry, overlayMat);
+    overlay.name = `__imu_hlOverlay`;
+    overlay.userData._highlightOverlay = true;
+    overlay.renderOrder = 1000;
+    overlay.raycast = () => {};
+    overlay.matrixAutoUpdate = false;
+    overlay.matrixWorldAutoUpdate = false;
+    overlay.matrix.copy(mat);
+    overlay.matrixWorld.copy(mat);
+    this.scene.add(overlay);
+
+    // Edge outline
+    const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
+    let edgeGeo = edgeGeometryCache.get(geometry);
+    if (!edgeGeo) {
+      edgeGeo = new EdgesGeometry(geometry, thresholdRad);
+      edgeGeometryCache.set(geometry, edgeGeo);
+    }
+    const edgeLines = new LineSegments(edgeGeo, edgeMat);
+    edgeLines.name = `__imu_hlEdge`;
+    edgeLines.userData._highlightOverlay = true;
+    edgeLines.renderOrder = 1001;
+    edgeLines.raycast = () => {};
+    edgeLines.matrixAutoUpdate = false;
+    edgeLines.matrixWorldAutoUpdate = false;
+    edgeLines.matrix.copy(mat);
+    edgeLines.matrixWorld.copy(mat);
+    this.scene.add(edgeLines);
+
+    // Use a dummy source mesh (overlay itself) — not tracked, so update() won't be called
+    this.pairs.push({ source: overlay, fill: overlay, edge: edgeLines });
   }
 
   /**

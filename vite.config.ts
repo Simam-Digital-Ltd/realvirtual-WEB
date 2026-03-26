@@ -164,6 +164,23 @@ function debugApiPlugin() {
               return;
             }
 
+            // Log buffer: /__api/debug/logs?level=warn&category=signal&limit=20
+            if (sub === 'logs') {
+              const LEVELS = ['trace', 'debug', 'info', 'warn', 'error'];
+              let logs: unknown[] = data.logs ?? [];
+              const level = query?.get('level');
+              const category = query?.get('category');
+              const limit = query?.get('limit');
+              if (level) {
+                const minIdx = LEVELS.indexOf(level);
+                if (minIdx >= 0) logs = logs.filter((e: any) => LEVELS.indexOf(e.level) >= minIdx);
+              }
+              if (category) logs = logs.filter((e: any) => e.category === category);
+              if (limit) logs = logs.slice(-parseInt(limit, 10));
+              json(res, logs);
+              return;
+            }
+
             if (sub in data) {
               json(res, data[sub]);
               return;

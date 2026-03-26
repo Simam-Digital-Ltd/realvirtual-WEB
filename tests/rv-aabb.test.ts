@@ -95,6 +95,22 @@ describe('AABB', () => {
     expect(aabb.halfSize.y).toBeCloseTo(0.5);
   });
 
+  it('should detect XZ overlap even when Y does not overlap', () => {
+    // Simulates MU sitting ON a transport surface belt — Y gap but XZ overlap
+    const surface = new Object3D();
+    surface.position.set(2, 0.38, -2);
+    const surfaceAABB = AABB.fromHalfSize(surface, new Vector3(0.25, 0.025, 0.8));
+
+    const mu = new Object3D();
+    mu.position.set(2, 0.53, -2);
+    const muAABB = AABB.fromHalfSize(mu, new Vector3(0.19, 0.12, 0.19));
+
+    // Full 3D overlap fails (Y gap)
+    expect(surfaceAABB.overlaps(muAABB)).toBe(false);
+    // XZ overlap succeeds (MU is above the belt)
+    expect(surfaceAABB.overlapsXZ(muAABB)).toBe(true);
+  });
+
   it('should correctly overlap after both AABBs move', () => {
     const nodeA = new Object3D();
     nodeA.position.set(0, 0, 0);

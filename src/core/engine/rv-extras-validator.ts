@@ -7,44 +7,41 @@
  *
  * Only active in dev mode (import.meta.env.DEV). Zero overhead in production.
  *
+ * Component types with registered schemas (Drive, TransportSurface, Sensor, Source,
+ * Sink, Grip, GripTarget, ConnectSignal) auto-derive their CONSUMED fields from the
+ * schema keys + aliases. Manual entries are only needed for non-schema components.
+ *
  * Usage:
  *   validateExtras('Drive', driveData);
  *   // Logs: [Parity] Unhandled Drive field: "SpeedOverride" (value: 0)
  */
 
-/** Fields consumed by each TypeScript parser (actively read and used). */
+import { getConsumedFieldsFromSchema } from './rv-component-registry';
+
+/**
+ * Fields consumed by each TypeScript parser (actively read and used).
+ *
+ * For schema-based components, the CONSUMED list is auto-derived from the schema.
+ * Manual entries below are for additional fields consumed outside the schema
+ * (e.g., DriveReference in TransportSurface loader, legacy aliases in Source).
+ * Non-schema components (signals, recorders, LogicSteps, etc.) are fully manual.
+ */
 const CONSUMED: Record<string, string[]> = {
-  // parseDriveExtras() — C# source: Drive.cs (Packages/io.realvirtual.starter/Runtime/Components/Drive.cs)
-  Drive: [
-    'Direction', 'ReverseDirection', 'Offset', 'StartPosition',
-    'TargetSpeed', 'Acceleration', 'UseAcceleration',
-    'UseLimits', 'LowerLimit', 'UpperLimit',
-  ],
+  // Schema-based components: additional fields consumed outside schema
+  // (schema fields are auto-merged at validation time)
+  Drive: [],      // all fields in RVDrive.schema
+  TransportSurface: ['DriveReference'],  // consumed by loader, not in schema
+  Sensor: ['Mode'],  // Mode handled in init() (legacy → UseRaycast conversion)
+  Source: ['Spawn', 'SpawnInterval', 'SpawnDistance'],  // legacy aliases consumed by computeSpawnConfig
+  Sink: [],       // all fields in RVSink.schema (empty)
+  Grip: [],       // all fields in RVGrip.schema
+  GripTarget: [], // all fields in RVGripTarget.schema
+  ConnectSignal: [], // all fields in RVConnectSignal.schema
 
-  // parseTransportSurfaceExtras() — C# source: TransportSurface.cs
-  TransportSurface: [
-    'TransportDirection', 'Radial', 'TextureScale', 'HeightOffsetOverride',
-  ],
-
-  // parseSensorExtras() — C# source: Sensor.cs
-  Sensor: [
-    'UseRaycast',        // C# field — maps to mode 'Raycast' vs 'Collision'
-    'RayCastDirection',  // Vector3 — local-space ray direction (Raycast mode)
-    'RayCastLength',     // float — max detection distance in mm (Raycast mode)
-    // NOTE: 'InvertSignal' and 'Mode' do NOT exist in C# Sensor.cs.
-    // They were legacy WebViewer fields. C# uses 'UseRaycast' instead.
-  ],
-
-  // parseSourceExtras() — C# source: Source.cs
-  Source: [
-    'AutomaticGeneration', 'Interval', 'GenerateIfDistance',
-    'ThisObjectAsMU', 'PlaceOnTransportSurface',
-    // Legacy WebViewer field names (fallback):
-    'Spawn', 'SpawnInterval', 'SpawnDistance',
-  ],
-
-  // Sink — no extras parsed yet
-  Sink: [],
+  // Drive behaviors — schema fields auto-derived
+  Drive_Simple: [],       // all fields in RVDriveSimple.schema
+  Drive_Cylinder: [],     // all fields in RVDriveCylinder.schema
+  Drive_ErraticPosition: [], // all fields in RVErraticDriver.schema
 
   // MU — no extras parsed yet (template nodes only)
   MU: [],
@@ -91,9 +88,6 @@ const CONSUMED: Record<string, string[]> = {
   LogicStep_Enable: ['Target', 'Enable', 'Active'],
   LogicStep_Pause: ['Active'],  // debugging breakpoint, no other fields consumed
 
-  // ConnectSignal — C# source: ConnectSignal.cs (Packages/io.realvirtual.starter/Runtime/Components/ConnectSignal.cs)
-  ConnectSignal: ['ConnectedSignal'],
-
   // Group — parsed by loadGLB group parsing
   Group: ['GroupName', 'GroupNamePrefix'],
 };
@@ -123,10 +117,10 @@ const IGNORED: Record<string, string[]> = {
 
   TransportSurface: [
     // Unity physics features not in WebViewer
-    'AnimateSurface', 'AdvancedSurface',
+    'AdvancedSurface',
     'ChangeConstraintsOnEnter', 'ConstraintsEnter',
     'ChangeConstraintsOnExit', 'ConstraintsExit',
-    'DriveReference', 'ParentDrive',
+    'ParentDrive',
     'UseMeshCollider', 'DebugMode', 'Layer',
     'UseAGXPhysics',
     // Runtime status
@@ -140,8 +134,7 @@ const IGNORED: Record<string, string[]> = {
     'ShowSensorLinerenderer', 'RayCastDisplayWidth',
     // Raycast details (not consumed)
     'AdditionalRayCastLayers',
-    // Signal connections (handled via signal store)
-    'SensorOccupied', 'SensorNotOccupied',
+    // SensorOccupied, SensorNotOccupied — now in schema (componentRef)
     // Filtering
     'LimitSensorToTag',
     // Debug
@@ -204,15 +197,14 @@ const IGNORED: Record<string, string[]> = {
   PLCOutputInt: ['Status', 'Name'],
   PLCInputInt: ['Status', 'Name'],
 
-  // Behavior extras — intentionally passed through raw
-  Drive_ErraticPosition: ['MinPos', 'MaxPos', 'Speed', 'IterateBetweenMaxAndMin', 'Name', 'Active'],
-  Drive_Cylinder: ['Out', 'In', 'OneBitCylinder', 'InvertOutputLogic', 'MinPos', 'MaxPos', 'TimeOut', 'TimeIn',
+  // Drive behaviors — schema fields auto-derived, only non-schema fields here
+  Drive_ErraticPosition: ['Name', 'Active'],
+  Drive_Cylinder: [
     'StopWhenDrivingToMin', 'StopWhenDrivingToMax',
     '_out', '_in', '_isOut', '_isIn', '_movingOut', '_movingIn', '_isMax', '_isMin',
-    'IsOut', 'IsIn', 'IsMax', 'IsMin', 'IsMovingOut', 'IsMovingIn',
     'Name', 'Active', '_fullTypeName', '_version', '_enabled'],
   Drive_Gear: ['*'],      // Not yet consumed, pass-through
-  Drive_Simple: ['Forward', 'Backward', 'Speed', 'Accelaration', 'IsAtPosition', 'IsAtSpeed', 'IsDriving',
+  Drive_Simple: ['Speed', 'Accelaration', 'IsAtPosition', 'IsAtSpeed', 'IsDriving',
     'ScaleSpeed', 'CurrentPositionScale', 'CurrentPositionOffset', 'ScaleFeedbackPosition', 'Name', 'Active'],
   Drive_CAM: ['*'],       // Not yet consumed, pass-through
 
@@ -235,6 +227,20 @@ const IGNORED: Record<string, string[]> = {
   // ConnectSignal — internal state, Name/Active metadata
   ConnectSignal: ['Name', 'Active'],
 
+  // Grip — fields not consumed in WebViewer
+  Grip: [
+    'AdvancedMode', 'DirectlyGrip', 'PickAlignWithObject', 'AlignRotation',
+    'PickBasedOnSensor', 'PickBasedOnCylinder', 'PickOnCylinderMax',
+    'RaycastDistance', 'NoPhysicsWhenPlaced', 'PlaceAlignWithObject',
+    'PlaceLoadOnMU', 'PlaceLoadOnMUSensor', 'ConnectToJoint',
+    'PickObjects', 'PlaceObjects',  // runtime state
+    'EventMUGrip', 'ShowGizmo', 'PickedMUs',
+    'Name', 'Active',
+  ],
+
+  // GripTarget — component metadata
+  GripTarget: ['Name', 'Active'],
+
   // Group — component metadata
   Group: ['Name', 'Active', '_fullTypeName', '_version', '_enabled'],
 };
@@ -250,7 +256,10 @@ const unhandledSummary = new Map<string, Map<string, unknown>>();
 export function validateExtras(componentType: string, data: Record<string, unknown>): void {
   if (!import.meta.env.DEV) return;
 
-  const consumed = new Set(CONSUMED[componentType] ?? []);
+  // Merge manual CONSUMED with schema-derived fields (keys + aliases)
+  const manualConsumed = CONSUMED[componentType] ?? [];
+  const schemaConsumed = getConsumedFieldsFromSchema(componentType);
+  const consumed = new Set([...manualConsumed, ...schemaConsumed]);
   const ignored = IGNORED[componentType] ?? [];
 
   // Wildcard '*' in ignored means skip all validation for this type
@@ -300,11 +309,15 @@ export function printParitySummary(): void {
 
 /**
  * Get editable field names for a component type. Used by property editor.
- * Returns the CONSUMED fields list for the given type, or an empty array
- * if the type is unknown.
+ * Returns the CONSUMED fields merged with schema-derived fields for the given type,
+ * or an empty array if the type is unknown.
  */
 export function getConsumedFields(componentType: string): readonly string[] {
-  return CONSUMED[componentType] ?? [];
+  const manual = CONSUMED[componentType] ?? [];
+  const schema = getConsumedFieldsFromSchema(componentType);
+  if (schema.length === 0) return manual;
+  // Deduplicate: schema first, then any manual extras
+  return [...new Set([...schema, ...manual])];
 }
 
 /**

@@ -14,6 +14,7 @@ import { initHMI } from './custom/hmi-entry';
 import { initTestRunner } from './rv-test-runner';
 import { fetchAppConfig, setAppConfig } from './core/hmi/rv-app-config';
 import { loadVisualSettings } from './core/hmi/visual-settings-store';
+import { isMobileDevice } from './hooks/use-mobile-layout';
 
 // Core Plugins
 import { SensorMonitorPlugin } from './plugins/sensor-monitor-plugin';
@@ -56,7 +57,7 @@ const LS_KEY_RENDERER = 'rv-webviewer-renderer';
 // --- Renderer selection via URL parameter (fallback to localStorage) ---
 // Mobile/touch devices always use WebGL — WebGPU is desktop-only unless explicitly overridden.
 const params = new URLSearchParams(window.location.search);
-const isTouchDevice = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+const isTouchDevice = isMobileDevice();
 const useWebGPU = !isTouchDevice
   && (params.get('renderer') ?? localStorage.getItem(LS_KEY_RENDERER)) === 'webgpu';
 
@@ -104,7 +105,6 @@ async function init() {
   const perfMode = params.has('perf');
   if (perfMode) {
     appConfig.lockSettings = true;
-    appConfig.hideWelcomeModal = true;
   }
 
   // Set singleton — from here all stores have access via getAppConfig()

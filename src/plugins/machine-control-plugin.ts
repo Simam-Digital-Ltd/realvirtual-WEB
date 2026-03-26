@@ -61,6 +61,7 @@ export class MachineControlPlugin implements RVViewerPlugin {
     this._viewer = viewer;
     this._resetState();
     this._discoverComponents(viewer);
+    this._updateComponentStatuses();
     this._emitChanged();
   }
 
@@ -107,18 +108,19 @@ export class MachineControlPlugin implements RVViewerPlugin {
     this._setState('IDLE');
   }
 
-  /** Start: IDLE -> RUNNING */
+  /** Start: any non-running state -> RUNNING */
   start(): void {
-    if (this._state !== 'IDLE') return;
+    if (this._state === 'RUNNING') return;
+    if (this._state === 'ERROR') this._clearError();
     this._setState('RUNNING');
     this._updateComponentStatuses();
   }
 
-  /** Stop: RUNNING | HELD -> STOPPED */
+  /** Stop: RUNNING | HELD -> IDLE */
   stop(): void {
     if (this._state !== 'RUNNING' && this._state !== 'HELD') return;
     this._cancelTransition();
-    this._setState('STOPPED');
+    this._setState('IDLE');
     this._updateComponentStatuses();
   }
 
@@ -197,7 +199,7 @@ export class MachineControlPlugin implements RVViewerPlugin {
   // ─── Internal ─────────────────────────────────────────────────────
 
   private _resetState(): void {
-    this._state = 'STOPPED';
+    this._state = 'RUNNING';
     this._mode = 'AUTO';
     this._errorComponentIdx = -1;
     this._transitionCancelled = false;
@@ -244,30 +246,47 @@ export class MachineControlPlugin implements RVViewerPlugin {
     }
   }
 
+  /** Patterns for drives to exclude from the component list. */
+  private static readonly _EXCLUDE_PATTERNS = /grip|finger|clamp|jaw/i;
+  /** Patterns for robot axis drives to group into a single "Robot" entry. */
+  private static readonly _ROBOT_AXIS_PATTERN = /^axis\d|^a\d|^j\d/i;
+
   private _discoverComponents(viewer: RVViewer): void {
     this._components = [];
 
-    // Add all drives
+    // Collect drives, grouping robot axes and filtering grippers
+    let robotPath = '';
+    let hasRobotAxes = false;
+
     for (const drive of viewer.drives) {
+      const name = drive.name;
+      // Skip gripper/finger drives
+      if (MachineControlPlugin._EXCLUDE_PATTERNS.test(name)) continue;
+      // Group robot axes into one entry
+      if (MachineControlPlugin._ROBOT_AXIS_PATTERN.test(name)) {
+        if (!hasRobotAxes) {
+          hasRobotAxes = true;
+          // Use the parent path as robot path (e.g. "Cell/Robot" from "Cell/Robot/Axis1")
+          const fullPath = viewer.registry?.getPathForNode(drive.node) ?? '';
+          const parts = fullPath.split('/');
+          robotPath = parts.length > 1 ? parts.slice(0, -1).join('/') : fullPath;
+        }
+        continue;
+      }
       const path = viewer.registry?.getPathForNode(drive.node) ?? '';
-      this._components.push({
-        name: drive.name,
-        path,
-        type: 'drive',
-        status: 'stopped',
-      });
+      this._components.push({ name, path, type: 'drive', status: 'stopped' });
+    }
+
+    // Add grouped robot entry at the beginning
+    if (hasRobotAxes) {
+      this._components.unshift({ name: 'Robot', path: robotPath, type: 'drive', status: 'stopped' });
     }
 
     // Add all sensors
     const sensors = viewer.transportManager?.sensors ?? [];
     for (const sensor of sensors) {
       const path = viewer.registry?.getPathForNode(sensor.node) ?? '';
-      this._components.push({
-        name: sensor.node.name,
-        path,
-        type: 'sensor',
-        status: 'inactive',
-      });
+      this._components.push({ name: sensor.node.name, path, type: 'sensor', status: 'inactive' });
     }
   }
 

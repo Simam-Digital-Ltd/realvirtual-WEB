@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Paper } from '@mui/material';
 
 interface KpiCardProps {
@@ -8,6 +8,8 @@ interface KpiCardProps {
   secondary?: string;
   color?: string;
   sparkline?: number[];
+  /** Enable slow rolling demo animation (default: true) */
+  animate?: boolean;
   onClick?: () => void;
 }
 
@@ -53,12 +55,63 @@ function MiniSparkline({ data, color }: { data: number[]; color: string }) {
 const SPARKLINES: Record<string, number[]> = {
   OEE: [82, 84, 81, 86, 87, 85, 88, 87, 86, 87, 89, 87, 86, 88, 87],
   'Parts/h': [26, 28, 27, 29, 30, 28, 31, 28, 30, 28, 29, 28, 27, 29, 28],
-  'Cycle Time': [4.5, 4.3, 4.4, 4.1, 4.2, 4.3, 4.1, 4.2, 4.3, 4.2, 4.1, 4.2, 4.3, 4.2, 4.2],
+  'Cycle Time': [132, 127, 130, 126, 129, 131, 126, 128, 130, 129, 127, 129, 131, 128, 129],
   Power: [18.2, 19.5, 22.1, 24.3, 23.8, 21.4, 8.5, 22.7, 24.1, 23.5, 22.9, 19.8, 8.2, 23.6, 24.0],
 };
 
-export const KpiCard = memo(function KpiCard({ label, value, unit, secondary, color = '#4fc3f7', onClick }: KpiCardProps) {
-  const sparkData = SPARKLINES[label] || [];
+/** Detect decimal precision of the original value string (e.g. "4.2" → 1, "87" → 0) */
+function detectPrecision(value: string): number {
+  const dot = value.indexOf('.');
+  return dot < 0 ? 0 : value.length - dot - 1;
+}
+
+/**
+ * Hook that slowly rolls sparkline data and drifts the displayed value.
+ * Shifts the array left every ~1.5s and appends a jittered new point.
+ */
+function useAnimatedKpi(seed: number[], baseValue: string, active: boolean) {
+  const precision = detectPrecision(baseValue);
+  const [data, setData] = useState<number[]>(() => [...seed]);
+  const [displayValue, setDisplayValue] = useState(baseValue);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+
+  useEffect(() => {
+    if (!active || seed.length < 2) return;
+
+    // Compute a stable center and range from the seed data
+    const sMin = Math.min(...seed);
+    const sMax = Math.max(...seed);
+    const sCenter = (sMin + sMax) / 2;
+    const sRange = sMax - sMin || 1;
+    const jit = sRange * 0.15; // ±15% of the data range per tick
+
+    const interval = setInterval(() => {
+      const prev = dataRef.current;
+      const last = prev[prev.length - 1];
+      // Random walk with mean-reversion toward seed center
+      const reversion = (sCenter - last) * 0.1;
+      const noise = (Math.random() - 0.5) * 2 * jit;
+      let next = last + reversion + noise;
+      // Clamp within a reasonable band around the seed range
+      next = Math.max(sMin - sRange * 0.2, Math.min(sMax + sRange * 0.2, next));
+
+      const newData = [...prev.slice(1), next];
+      setData(newData);
+      setDisplayValue(next.toFixed(precision));
+    }, 1500);
+
+    return () => clearInterval(interval);
+    // seed array identity is stable (from SPARKLINES constant)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, seed, precision]);
+
+  return { sparkData: data, displayValue };
+}
+
+export function KpiCard({ label, value, unit, secondary, color = '#4fc3f7', animate = true, onClick }: KpiCardProps) {
+  const seed = SPARKLINES[label] || [];
+  const { sparkData, displayValue } = useAnimatedKpi(seed, value, animate && seed.length >= 2);
 
   return (
     <Paper
@@ -100,9 +153,10 @@ export const KpiCard = memo(function KpiCard({ label, value, unit, secondary, co
               lineHeight: 1.1,
               fontSize: { xs: '1.35rem', sm: '1.75rem' },
               fontFamily: '"Inter", "Roboto", sans-serif',
+              transition: 'opacity 0.3s ease',
             }}
           >
-            {value}
+            {animate ? displayValue : value}
           </Typography>
           <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
             {unit}
@@ -123,4 +177,4 @@ export const KpiCard = memo(function KpiCard({ label, value, unit, secondary, co
       </Box>
     </Paper>
   );
-});
+}

@@ -69,43 +69,41 @@ function setupPlugin(options?: { drives?: { name: string; nodePath: string }[]; 
 // ─── 9.1 State Machine Tests ─────────────────────────────────────────────
 
 describe('MachineControlPlugin - State Machine', () => {
-  it('initial state is STOPPED', () => {
+  it('initial state is RUNNING', () => {
     const { plugin } = setupPlugin();
-    expect(plugin.machineState).toBe('STOPPED');
+    expect(plugin.machineState).toBe('RUNNING');
   });
 
   it('Reset: STOPPED -> IDLE', () => {
     const { plugin } = setupPlugin();
-    plugin.reset();
+    plugin.emergencyStop();
+    plugin.clearError(); // ERROR -> STOPPED
+    plugin.reset(); // STOPPED -> IDLE
     expect(plugin.machineState).toBe('IDLE');
   });
 
   it('Start: IDLE -> RUNNING', () => {
     const { plugin } = setupPlugin();
-    plugin.reset();
-    plugin.start();
+    plugin.stop(); // RUNNING -> IDLE
+    plugin.start(); // IDLE -> RUNNING
     expect(plugin.machineState).toBe('RUNNING');
   });
 
-  it('Stop: RUNNING -> STOPPED', () => {
+  it('Stop: RUNNING -> IDLE', () => {
     const { plugin } = setupPlugin();
-    plugin.reset();
-    plugin.start();
     plugin.stop();
-    expect(plugin.machineState).toBe('STOPPED');
+    expect(plugin.machineState).toBe('IDLE');
   });
 
   it('E-Stop from any state -> ERROR', () => {
     const { plugin } = setupPlugin();
-    plugin.reset(); // IDLE
+    plugin.stop(); // RUNNING -> IDLE
     plugin.emergencyStop();
     expect(plugin.machineState).toBe('ERROR');
   });
 
   it('E-Stop from RUNNING -> ERROR', () => {
     const { plugin } = setupPlugin();
-    plugin.reset();
-    plugin.start();
     plugin.emergencyStop();
     expect(plugin.machineState).toBe('ERROR');
   });
@@ -119,26 +117,24 @@ describe('MachineControlPlugin - State Machine', () => {
 
   it('Hold: RUNNING -> HELD', () => {
     const { plugin } = setupPlugin();
-    plugin.reset();
-    plugin.start();
     plugin.hold();
     expect(plugin.machineState).toBe('HELD');
   });
 
   it('Resume: HELD -> RUNNING', () => {
     const { plugin } = setupPlugin();
-    plugin.reset();
-    plugin.start();
     plugin.hold();
     plugin.resume();
     expect(plugin.machineState).toBe('RUNNING');
   });
 
-  it('Start rejected from STOPPED (must Reset first)', () => {
+  it('Start from STOPPED works (start from any non-running)', () => {
     const { plugin } = setupPlugin();
+    plugin.emergencyStop();
+    plugin.clearError(); // ERROR -> STOPPED
     expect(plugin.machineState).toBe('STOPPED');
-    plugin.start(); // should be no-op
-    expect(plugin.machineState).toBe('STOPPED');
+    plugin.start();
+    expect(plugin.machineState).toBe('RUNNING');
   });
 
   it('mode can be switched from any state (demo mode)', () => {
@@ -147,8 +143,6 @@ describe('MachineControlPlugin - State Machine', () => {
     expect(plugin.machineMode).toBe('MANUAL');
     plugin.setMode('MAINTENANCE');
     expect(plugin.machineMode).toBe('MAINTENANCE');
-    plugin.reset();
-    plugin.start();
     plugin.setMode('AUTO');
     expect(plugin.machineMode).toBe('AUTO');
     expect(plugin.machineState).toBe('RUNNING'); // state unchanged
@@ -215,7 +209,8 @@ describe('MachineControlPlugin - Auto-Discovery', () => {
 describe('MachineControlPlugin - Events', () => {
   it('emits machine-control-changed on state transition', () => {
     const { plugin, viewer } = setupPlugin();
-    plugin.reset(); // STOPPED -> IDLE
+    viewer.emit.mockClear();
+    plugin.stop(); // RUNNING -> IDLE
     expect(viewer.emit).toHaveBeenCalledWith(
       'machine-control-changed',
       expect.objectContaining({ state: 'IDLE' }),
@@ -279,8 +274,6 @@ describe('MachineControlPlugin - 3D Integration', () => {
 describe('MachineControlPlugin - Idempotency', () => {
   it('Start from RUNNING is a no-op', () => {
     const { plugin, viewer } = setupPlugin();
-    plugin.reset();
-    plugin.start();
     expect(plugin.machineState).toBe('RUNNING');
     viewer.emit.mockClear();
     plugin.start(); // no-op
@@ -289,19 +282,17 @@ describe('MachineControlPlugin - Idempotency', () => {
     expect(viewer.emit).not.toHaveBeenCalled();
   });
 
-  it('Stop from STOPPED is a no-op', () => {
+  it('Stop from IDLE is a no-op', () => {
     const { plugin, viewer } = setupPlugin();
-    expect(plugin.machineState).toBe('STOPPED');
+    plugin.stop(); // RUNNING -> IDLE
     viewer.emit.mockClear();
-    plugin.stop(); // no-op
-    expect(plugin.machineState).toBe('STOPPED');
+    plugin.stop(); // no-op (IDLE, not RUNNING or HELD)
+    expect(plugin.machineState).toBe('IDLE');
     expect(viewer.emit).not.toHaveBeenCalled();
   });
 
   it('mode change does NOT reset machine state', () => {
     const { plugin } = setupPlugin();
-    plugin.reset();
-    plugin.start();
     expect(plugin.machineState).toBe('RUNNING');
     plugin.setMode('MAINTENANCE');
     expect(plugin.machineState).toBe('RUNNING'); // unchanged
@@ -396,24 +387,23 @@ describe('LeftPanelManager', () => {
 // ─── Component Status Update Tests ───────────────────────────────────────
 
 describe('MachineControlPlugin - Component Status Updates', () => {
-  it('components are "running" when machine is RUNNING', () => {
+  it('components are "running"/"active" when machine is RUNNING (default)', () => {
     const { plugin } = setupPlugin({
       drives: [{ name: 'D1', nodePath: 'Root/D1' }, { name: 'D2', nodePath: 'Root/D2' }],
       sensors: [{ name: 'S1', nodePath: 'Root/S1' }],
     });
-    plugin.reset();
-    plugin.start();
     const comps = plugin.components;
     expect(comps[0].status).toBe('running');
     expect(comps[1].status).toBe('running');
     expect(comps[2].status).toBe('active'); // sensor
   });
 
-  it('components are "stopped"/"inactive" when machine is STOPPED', () => {
+  it('components are "stopped"/"inactive" when machine is IDLE', () => {
     const { plugin } = setupPlugin({
       drives: [{ name: 'D1', nodePath: 'Root/D1' }],
       sensors: [{ name: 'S1', nodePath: 'Root/S1' }],
     });
+    plugin.stop(); // RUNNING -> IDLE
     expect(plugin.components[0].status).toBe('stopped');
     expect(plugin.components[1].status).toBe('inactive');
   });
@@ -457,6 +447,6 @@ describe('MachineControlPlugin - Dispose', () => {
     const { plugin } = setupPlugin();
     plugin.dispose();
     const state = plugin.getState();
-    expect(state.state).toBe('STOPPED');
+    expect(state.state).toBe('RUNNING');
   });
 });

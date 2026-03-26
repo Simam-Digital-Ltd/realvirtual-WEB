@@ -8,6 +8,8 @@
 
 import { getConsumedFields, getIgnoredFields } from '../engine/rv-extras-validator';
 import type { SignalStore } from '../engine/rv-signal-store';
+import type { NodeRegistry } from '../engine/rv-node-registry';
+import type { RVDrive } from '../engine/rv-drive';
 
 // ── Hidden component types (not shown in inspector or hierarchy) ──────────
 
@@ -23,6 +25,7 @@ export function isHiddenComponentType(type: string): boolean {
 const DIRECTION_OPTIONS = [
   'LinearX', 'LinearY', 'LinearZ',
   'RotationX', 'RotationY', 'RotationZ',
+  'Virtual',
 ];
 
 const ACTIVE_OPTIONS = ['Always', 'Connected', 'Disconnected'];
@@ -191,6 +194,23 @@ export function isSignalComponentType(type: string): boolean {
   return type.startsWith('PLCInput') || type.startsWith('PLCOutput');
 }
 
+/** Get signal header color matching hierarchy badge style.
+ *  Bool false → gray, Bool true → Input red / Output green,
+ *  Numeric 0 → gray, empty string → gray, otherwise → component color. */
+export function getSignalHeaderColor(componentType: string, signalValue: string): string {
+  const isBool = componentType.includes('Bool');
+  if (isBool) {
+    if (signalValue === 'true') {
+      return componentType.startsWith('PLCInput') ? '#ef5350' : '#66bb6a';
+    }
+    return '#808080';
+  }
+  const num = parseFloat(signalValue);
+  if (!isNaN(num) && num === 0) return '#808080';
+  if (signalValue === '' || signalValue === '\u2014') return '#808080';
+  return componentColor(componentType);
+}
+
 /** Get live signal value for display in component header. */
 export function getSignalDisplayValue(
   signalStore: SignalStore | null,
@@ -215,6 +235,45 @@ export function getSignalDisplayValue(
     return componentType.includes('Int') ? Math.trunc(value).toString() : value.toFixed(2);
   }
   return String(value);
+}
+
+// ── Drive live value helpers ───────────────────────────────────────────────
+
+/** Get live drive position for display in Drive component header (like signals show their value). */
+export function getDriveDisplayValue(
+  registry: NodeRegistry | null,
+  nodePath: string,
+  componentType: string,
+): string | null {
+  if (!registry || (componentType !== 'Drive' && !componentType.startsWith('Drive_'))) return null;
+  const drive = registry.getByPath<RVDrive>('Drive', nodePath);
+  if (!drive) return null;
+  const pos = drive.currentPosition;
+  const unit = drive.isRotary ? '°' : ' mm';
+  return pos.toFixed(1) + unit;
+}
+
+/** Runtime Drive fields to overlay on static GLB data for live inspector display. */
+export function getLiveDriveFields(
+  registry: NodeRegistry | null,
+  nodePath: string,
+  componentType: string,
+): Record<string, unknown> | null {
+  if (!registry || (componentType !== 'Drive' && !componentType.startsWith('Drive_'))) return null;
+  const drive = registry.getByPath<RVDrive>('Drive', nodePath);
+  if (!drive) return null;
+  return {
+    CurrentPosition: drive.currentPosition,
+    CurrentSpeed: drive.currentSpeed,
+    IsPosition: drive.currentPosition, // WebViewer has no separate IsPosition; currentPosition is the effective value
+    IsSpeed: drive.currentSpeed,
+    IsRunning: drive.isRunning,
+    IsAtTarget: drive.isAtTarget,
+    TargetPosition: drive.targetPosition,
+    TargetSpeed: drive.targetSpeed,
+    JogForward: drive.jogForward,
+    JogBackward: drive.jogBackward,
+  };
 }
 
 // ── Reverse reference helpers (who points to this node?) ──────────────────

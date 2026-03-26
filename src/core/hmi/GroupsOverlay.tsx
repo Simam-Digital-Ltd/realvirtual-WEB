@@ -15,7 +15,7 @@ import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useGroupsOverlayOpen } from '../../hooks/use-groups-overlay';
 import { ChartPanel } from './ChartPanel';
-import { BOTTOM_BAR_HEIGHT } from './BottomBar';
+import { BOTTOM_BAR_HEIGHT } from './layout-constants';
 import {
   loadGroupVisibilitySettings,
   saveGroupVisibilitySettings,

@@ -44,6 +44,8 @@ export interface ExtrasEditorState {
   revealPath: string | null;
   /** Whether the property inspector should be shown (true when selected from hierarchy, false from 3D click). */
   showInspector: boolean;
+  /** Whether the settings panel is open (shared so ButtonPanel can shift). */
+  settingsOpen: boolean;
 }
 
 // ─── Plugin ──────────────────────────────────────────────────────────────
@@ -59,6 +61,7 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
   private _selectedNodePath: string | null = null;
   private _revealPath: string | null = null;
   private _showInspector = false;
+  private _settingsOpen = false;
   private _viewer: RVViewer | null = null;
   private _glbName: string | null = null;
 
@@ -79,6 +82,7 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
       selectedNodePath: this._selectedNodePath,
       revealPath: null,
       showInspector: false,
+      settingsOpen: false,
     };
   }
 
@@ -95,6 +99,7 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
     selectedNodePath: null,
     revealPath: null,
     showInspector: false,
+    settingsOpen: false,
   };
 
   /** Subscribe for React useSyncExternalStore. */
@@ -115,6 +120,7 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
       selectedNodePath: this._selectedNodePath,
       revealPath: this._revealPath,
       showInspector: this._showInspector,
+      settingsOpen: this._settingsOpen,
     };
     for (const listener of this._listeners) listener();
   }
@@ -126,6 +132,19 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
   togglePanel(): void {
     this._panelOpen = !this._panelOpen;
     localStorage.setItem(LS_KEY_PANEL_OPEN, String(this._panelOpen));
+    // Coordinate with LeftPanelManager for mutual exclusion
+    if (this._viewer) {
+      if (this._panelOpen) {
+        this._viewer.leftPanelManager.open('hierarchy', this._panelWidth);
+      } else {
+        this._viewer.leftPanelManager.close('hierarchy');
+      }
+    }
+    this.notify();
+  }
+
+  setSettingsOpen(open: boolean): void {
+    this._settingsOpen = open;
     this.notify();
   }
 
@@ -158,6 +177,10 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
     if (!this._panelOpen) {
       this._panelOpen = true;
       localStorage.setItem(LS_KEY_PANEL_OPEN, 'true');
+      // Coordinate with LeftPanelManager for mutual exclusion
+      if (this._viewer) {
+        this._viewer.leftPanelManager.open('hierarchy', this._panelWidth);
+      }
     }
     this._selectedNodePath = path;
     this._revealPath = path;
@@ -410,6 +433,23 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
         }
       }),
     );
+
+    // Subscribe to LeftPanelManager: close hierarchy when another panel opens
+    this._eventUnsubs.push(
+      viewer.leftPanelManager.subscribe(() => {
+        const snap = viewer.leftPanelManager.getSnapshot();
+        if (snap.activePanel !== null && snap.activePanel !== 'hierarchy' && this._panelOpen) {
+          this._panelOpen = false;
+          localStorage.setItem(LS_KEY_PANEL_OPEN, 'false');
+          this.notify();
+        }
+      }),
+    );
+
+    // If panel was persisted as open, register with LPM so it knows about us
+    if (this._panelOpen) {
+      viewer.leftPanelManager.open('hierarchy', this._panelWidth);
+    }
 
     this.notify();
   }

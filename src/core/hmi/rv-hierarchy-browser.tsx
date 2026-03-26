@@ -85,6 +85,33 @@ function matchesTypeFilter(types: string[], filter: TypeFilter): boolean {
   return true;
 }
 
+// ─── Signal Sort ─────────────────────────────────────────────────────────
+
+type SignalSort = 'name' | 'type';
+
+/** Sort signal nodes: 'name' = alphabetical by leaf name, 'type' = group by In/Out then alphabetical. */
+function sortSignalNodes(nodes: EditableNodeInfo[], sort: SignalSort): EditableNodeInfo[] {
+  const sorted = [...nodes];
+  if (sort === 'name') {
+    sorted.sort((a, b) => {
+      const nameA = (a.path.split('/').pop() ?? a.path).toLowerCase();
+      const nameB = (b.path.split('/').pop() ?? b.path).toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+  } else {
+    // Group by type: Outputs first, then Inputs
+    sorted.sort((a, b) => {
+      const aIsOut = a.types.some(t => t.startsWith('PLCOutput'));
+      const bIsOut = b.types.some(t => t.startsWith('PLCOutput'));
+      if (aIsOut !== bIsOut) return aIsOut ? -1 : 1;
+      const nameA = (a.path.split('/').pop() ?? a.path).toLowerCase();
+      const nameB = (b.path.split('/').pop() ?? b.path).toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+  }
+  return sorted;
+}
+
 // ─── Tree Data Structure ─────────────────────────────────────────────────
 
 interface TreeNode {
@@ -210,6 +237,21 @@ function formatSignalValue(type: string, signalStore: SignalStore | null, path: 
   return '\u2014';
 }
 
+/** Get signal badge color based on live value. Bool: green when true, grey when false. */
+function signalBadgeColor(type: string, signalStore: SignalStore | null, path: string | null): string {
+  if (!signalStore || !path) return componentColor(type);
+  const value = signalStore.getByPath(path);
+  if (value === undefined) return componentColor(type);
+
+  if (isBoolSignal(type)) {
+    if (value === true) {
+      return type.startsWith('PLCInput') ? '#ef5350' : '#66bb6a';
+    }
+    return '#808080';
+  }
+  return componentColor(type);
+}
+
 // ─── LogicStep Helpers ───────────────────────────────────────────────────
 
 function isLogicStepType(type: string): boolean {
@@ -275,6 +317,7 @@ function badgeLabel(type: string, stepState?: StepState): string {
     }
     return shortType;
   }
+  if (type === 'ConnectSignal') return 'Conn';
   if (type === 'TransportSurface') return 'TS';
   if (type === 'DrivesRecorder') return 'Rec';
   if (type === 'ReplayRecording') return 'Replay';
@@ -374,7 +417,7 @@ function NodeBadges({
   const progressText = stepInfo ? formatContainerProgress(stepInfo) : null;
 
   return (
-    <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 1, ml: 'auto', alignItems: 'center', overflow: 'hidden', minWidth: 0 }}>
+    <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 0, ml: 'auto', alignItems: 'center', overflow: 'hidden', minWidth: 0 }}>
       {nonSignalTypes.map((type) => (
         <BadgeChip
           key={type}
@@ -389,7 +432,7 @@ function NodeBadges({
       {signalTypes.map((type) => (
         <BadgeChip
           key={type}
-          color={componentColor(type)}
+          color={signalBadgeColor(type, signalStore, path)}
           label={`${badgeLabel(type)} ${formatSignalValue(type, signalStore, path)}`}
         />
       ))}
@@ -680,7 +723,20 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
 
   const state = useSyncExternalStore(plugin.subscribe, plugin.getSnapshot);
   const [searchTerm, setSearchTerm] = useState('');
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const [typeFilter, setTypeFilterRaw] = useState<TypeFilter>(() => {
+    try { const v = localStorage.getItem('rv-hierarchy-type-filter'); return (v as TypeFilter) ?? 'all'; } catch { return 'all'; }
+  });
+  const setTypeFilter = useCallback((v: TypeFilter) => {
+    setTypeFilterRaw(v);
+    try { localStorage.setItem('rv-hierarchy-type-filter', v); } catch { /* */ }
+  }, []);
+  const [signalSort, setSignalSortRaw] = useState<SignalSort>(() => {
+    try { const v = localStorage.getItem('rv-hierarchy-signal-sort'); return (v as SignalSort) ?? 'name'; } catch { return 'name'; }
+  });
+  const setSignalSort = useCallback((v: SignalSort) => {
+    setSignalSortRaw(v);
+    try { localStorage.setItem('rv-hierarchy-signal-sort', v); } catch { /* */ }
+  }, []);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const signalStore = viewer.signalStore;
@@ -701,16 +757,24 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     });
   }, []);
 
-  // Flat list when type filter is active (bypasses tree hierarchy)
+  // Flat list when type filter is active OR search is active (bypasses tree hierarchy)
   const flatFiltered = useMemo(() => {
-    if (typeFilter === 'all') return null;
-    let nodes = state.editableNodes.filter(n => matchesTypeFilter(n.types, typeFilter));
+    if (typeFilter === 'all' && !searchTerm) return null;
+    let nodes = typeFilter !== 'all'
+      ? state.editableNodes.filter(n => matchesTypeFilter(n.types, typeFilter))
+      : state.editableNodes;
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
-      nodes = nodes.filter(n => n.path.toLowerCase().includes(lower));
+      nodes = nodes.filter(n => {
+        const leafName = n.path.split('/').pop() ?? n.path;
+        return leafName.toLowerCase().includes(lower);
+      });
+    }
+    if (typeFilter === 'signals') {
+      nodes = sortSignalNodes(nodes, signalSort);
     }
     return nodes;
-  }, [state.editableNodes, typeFilter, searchTerm]);
+  }, [state.editableNodes, typeFilter, searchTerm, signalSort]);
 
   // Compute relative depth for flat filtered nodes (for indentation in Logic view)
   const flatDepths = useMemo(() => {
@@ -940,6 +1004,33 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
         ))}
       </Box>
 
+      {/* Signal sort buttons (only when Signals filter active) */}
+      {typeFilter === 'signals' && (
+        <Box sx={{ display: 'flex', gap: 0.25, px: 0.75, py: 0.25, borderBottom: '1px solid rgba(255, 255, 255, 0.05)', flexShrink: 0, alignItems: 'center' }}>
+          {([['name', 'A\u2013Z'], ['type', 'In / Out']] as const).map(([key, label]) => (
+            <Chip
+              key={key}
+              label={label}
+              size="small"
+              onClick={() => setSignalSort(key)}
+              sx={{
+                height: 16,
+                fontSize: 8,
+                fontWeight: signalSort === key ? 700 : 400,
+                bgcolor: signalSort === key ? 'rgba(79, 195, 247, 0.2)' : 'transparent',
+                color: signalSort === key ? 'primary.main' : 'text.secondary',
+                border: `1px solid ${signalSort === key ? 'rgba(79, 195, 247, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`,
+                '& .MuiChip-label': { px: 0.4 },
+                cursor: 'pointer',
+                '&:hover': {
+                  bgcolor: signalSort === key ? 'rgba(79, 195, 247, 0.25)' : 'rgba(255, 255, 255, 0.06)',
+                },
+              }}
+            />
+          ))}
+        </Box>
+      )}
+
       {/* Tree / Flat list — own scroll container for useVirtualizer compatibility */}
       <Box
         ref={scrollContainerRef}
@@ -968,7 +1059,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
 
                     signalStore={signalStore}
                     logicEngine={logicEngine}
-                    depth={flatDepths.get(info.path) ?? 0}
+                    depth={typeFilter === 'logic' ? (flatDepths.get(info.path) ?? 0) : 0}
                     virtualStyle={{
                       position: 'absolute',
                       top: 0,

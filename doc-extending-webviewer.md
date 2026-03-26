@@ -17,14 +17,360 @@ HMIShell.tsx (React)
   ...
 ```
 
-Two extension points:
+Three extension points:
 
 1. **Plugins** — lifecycle callbacks, simulation data, event emission, optional UI slot registration
 2. **Events** — typed pub/sub between plugins and UI
+3. **UI Components** — Left panels, chart overlays, tooltips, slot-based layout areas
 
 ---
 
-## 1. Core Plugins
+## 1. UI Architecture
+
+### Component Tree
+
+```
+<ThemeProvider>                        // MUI dark theme
+  <HMIShell>                           // Fixed overlay, pointer-events: none on container
+    <TooltipLayer />                   //   Generic tooltip renderer
+    <KpiBar />                         //   Top center — KPI badge cards (slot: kpi-bar)
+    <TopBar />                         //   Top-right buttons + docked panels:
+    │   ├── Hierarchy toggle button    //     Opens HierarchyBrowser (LeftPanel)
+    │   ├── VR button                  //     Opens VR/AR modal
+    │   ├── Settings button            //     Opens Settings (LeftPanel with tabs)
+    │   ├── HierarchyBrowser           //     Docked left panel (when open)
+    │   ├── PropertyInspector          //     Second left panel beside hierarchy
+    │   ├── MachineControlPanel        //     Docked left panel (when open)
+    │   └── Settings LeftPanel         //     Model / Visual / Physics / Interfaces / Dev / Tests
+    <ButtonPanel />                    //   Left sidebar — logo + slot: button-group
+    <MessagePanel />                   //   Right sidebar — slot: messages
+    <BottomBar />                      //   Bottom — search/filter bar (slot: search-bar)
+    <SlotRenderer slot="views" />      //   Bottom-right — charts, tables (slot: views)
+  </HMIShell>
+  <DriveTooltipController />           // Headless — outside HMIShell for pointer events
+  <DriveChartOverlay />                // Floating chart — outside HMIShell for drag/resize
+  <WelcomeModal />                     // First-visit overlay
+</ThemeProvider>
+```
+
+### HMIShell — The Overlay Container
+
+`HMIShell` is a `position: fixed; inset: 0` container with `pointer-events: none`. This allows the 3D scene underneath to remain interactive. Each direct child gets `pointer-events: auto` restored automatically.
+
+Components that need full pointer interaction (drag, resize) — like `ChartPanel` overlays — render **outside** HMIShell as siblings in `App.tsx`.
+
+### TopBar — Top-Right Menu
+
+The `TopBar` component renders a small button group fixed at top-right with:
+
+| Button | Icon | Action | Visibility |
+|--------|------|--------|------------|
+| Hierarchy | `AccountTree` / `Close` | Toggles `HierarchyBrowser` left panel | Desktop only |
+| VR | `VR` text / `Close` | Opens VR/AR QR code modal | Desktop only |
+| AR | `ViewInAr` | Starts WebXR AR session | Mobile + AR supported |
+| Settings | `Settings` / `Close` | Toggles Settings left panel | Unless `isSettingsLocked()` |
+
+**Mutual exclusion:** Opening one panel closes the others. The TopBar coordinates with `LeftPanelManager` — when the machine-control panel (or any other left panel) opens, hierarchy and settings close automatically.
+
+#### Settings Panel Tabs
+
+The Settings panel is a `LeftPanel` (540px wide) with these tabs:
+
+| Tab | Content | Lockable |
+|-----|---------|----------|
+| Model | Renderer (WebGL/WebGPU), model selector, reset all settings | `isTabLocked('model')` |
+| Visual | Antialiasing, shadow map, lighting mode, ambient/directional light, tone mapping, camera projection/FOV | `isTabLocked('visual')` |
+| Physics | Rapier.js toggle, gravity, friction, substeps, debug wireframes | `isTabLocked('physics')` |
+| Interfaces | Protocol selector (WebSocket, ctrlX, MQTT), connection settings, auto-connect | `isTabLocked('interfaces')` |
+| Dev Tools | FPS overlay, console log, stats, performance budget bars, GPU benchmark | `isTabLocked('devtools')` |
+| Tests | Run Vitest browser tests, show pass/fail results | `isTabLocked('tests')` |
+
+Tabs can be hidden via `rv-app-config.ts` using `isTabLocked(tabName)` and the entire settings button via `isSettingsLocked()`.
+
+#### Adding a Settings Tab via Plugin
+
+Use the `settings-tab` slot to add custom tabs:
+
+```typescript
+export class MyPlugin implements RVViewerPlugin {
+  readonly id = 'my-plugin';
+  readonly slots: UISlotEntry[] = [
+    { slot: 'settings-tab', component: MySettingsTab, label: 'My Tab', order: 300 },
+  ];
+}
+```
+
+### ButtonPanel — Left Sidebar
+
+The `ButtonPanel` renders two elements:
+
+1. **Logo + status indicator** — fixed at top-left (always visible)
+2. **Button group** — vertical column of icon buttons from the `button-group` slot
+
+The button group automatically shifts right when a left panel is open, reading `activePanelWidth` from the `LeftPanelManager`.
+
+### Pointer Events Strategy
+
+```
+HMIShell container           → pointer-events: none  (3D scene receives clicks)
+  └── each child component   → pointer-events: auto  (UI elements are interactive)
+
+App.tsx siblings (outside HMIShell):
+  └── ChartPanel, tooltips   → pointer-events: auto  (need drag/resize)
+```
+
+Individual UI elements mark themselves with `data-ui-panel` attribute for identification. The `RaycastManager` checks `data-ui-panel` to avoid 3D raycasts when clicking on UI.
+
+---
+
+## 2. Components, Signals, and Unity Mapping
+
+### How Unity Components Map to the WebViewer
+
+The Unity scene is exported as a **GLB file** with custom `extras` data on each node. During loading, the `rv-scene-loader.ts` traverses the GLB scene graph and maps Unity components to TypeScript counterparts:
+
+| Unity Component | TypeScript Class | File |
+|----------------|-----------------|------|
+| `Drive` | `RVDrive` | `rv-drive.ts` |
+| `Drive_Simple` | `RVDriveSimple` | `rv-drive-simple.ts` |
+| `Drive_Cylinder` | `RVDriveCylinder` | `rv-drive-cylinder.ts` |
+| `Drive_ErraticPosition` | `RVErraticDriver` | `rv-erratic.ts` |
+| `Sensor` | `RVSensor` | `rv-sensor.ts` |
+| `TransportSurface` | `RVTransportSurface` | `rv-transport-surface.ts` |
+| `Source` | `RVSource` | `rv-source.ts` |
+| `Sink` | `RVSink` | `rv-sink.ts` |
+| `Grip` | `RVGrip` | `rv-grip.ts` |
+| `GripTarget` | `RVGripTarget` | `rv-grip-target.ts` |
+| `ConnectSignal` | `RVConnectSignal` | `rv-connect-signal.ts` |
+| `PLCOutputBool/Float/Int` | Signal entry in `SignalStore` | `rv-signal-store.ts` |
+| `PLCInputBool/Float/Int` | Signal entry in `SignalStore` | `rv-signal-store.ts` |
+| `DrivesRecorder` | `RVDrivesPlayback` | `rv-drives-playback.ts` |
+| `ReplayRecording` | `RVReplayRecording` | `rv-replay-recording.ts` |
+
+### Component Registry and Auto-Mapping
+
+Components use a **schema-based auto-mapping system** (`rv-component-registry.ts`). Each TypeScript component declares a static schema matching its C# counterpart:
+
+```typescript
+// Schema uses exact C# PascalCase field names
+export class RVDrive implements RVComponent {
+  static readonly schema: ComponentSchema = {
+    Direction: { type: 'enum', enumMap: { 'LinearX': DriveDirection.LinearX, ... }},
+    TargetSpeed: { type: 'number', default: 100 },
+    Acceleration: { type: 'number', default: 100 },
+    UseLimits: { type: 'boolean', default: false },
+    // ... maps directly from GLB extras
+  };
+}
+```
+
+**Field types:** `number`, `boolean`, `string`, `vector3`, `componentRef` (resolved to another component), `enum` (string→value mapping).
+
+### Two-Step Loading (Awake/Start Pattern)
+
+Like Unity's `Awake()` / `Start()` lifecycle:
+
+1. **Step 1 "Awake"**: Traverse GLB → construct components → apply schema from extras → register ALL
+2. **Step 2 "Start"**: Resolve `ComponentRef` cross-references → call `init()` on ALL
+
+This ensures all components exist before any references are resolved.
+
+### Adding a New Component Type (Unity → WebViewer)
+
+To map an existing Unity component to the WebViewer:
+
+**Step 1: Create the TypeScript component** in `src/core/engine/`:
+
+```typescript
+// src/core/engine/rv-my-component.ts
+import { Object3D } from 'three';
+import type { ComponentSchema, ComponentContext, RVComponent } from './rv-component-registry';
+import { registerComponent } from './rv-component-registry';
+
+export class RVMyComponent implements RVComponent {
+  // Schema key names MUST match C# PascalCase field names exactly
+  static readonly schema: ComponentSchema = {
+    Speed: { type: 'number', default: 100 },
+    IsActive: { type: 'boolean', default: true },
+    Mode: { type: 'enum', enumMap: { 'Auto': 0, 'Manual': 1 }},
+    TargetDrive: { type: 'componentRef' },        // Resolved to RVDrive in Step 2
+    Offset: { type: 'vector3', unityCoords: true }, // Unity→glTF coord conversion
+  };
+
+  readonly node: Object3D;
+  readonly name: string;
+  Speed = 100;
+  IsActive = true;
+  Mode = 0;
+  TargetDrive: RVComponent | null = null;
+
+  constructor(node: Object3D) {
+    this.node = node;
+    this.name = node.name;
+  }
+
+  init(ctx: ComponentContext): void {
+    // Called in Step 2 after ALL components exist and ComponentRefs are resolved
+    ctx.registry.register('MyComponent', ctx.registry.pathFor(this.node) ?? '', this);
+  }
+
+  dispose(): void { /* cleanup on model unload */ }
+}
+
+// Self-register: the scene loader auto-discovers this component — no loader changes needed
+registerComponent({
+  type: 'MyComponent',
+  schema: RVMyComponent.schema,
+  create: (node) => new RVMyComponent(node),
+  // Optional hooks:
+  // needsAABB: true,                          // if component needs a BoxCollider AABB
+  // beforeSchema: (inst, extras) => { ... },  // extract raw data before coord conversion
+  // afterCreate: (inst, node) => { ... },     // set node metadata after construction
+});
+```
+
+**Step 2: Import in scene loader** — Add a single side-effect import in `rv-scene-loader.ts`:
+
+```typescript
+import './rv-my-component';
+```
+
+That's it — the factory loop in the loader auto-discovers the component from the registry.
+
+**Step 3: Export from Unity** — The C# component must be exported in the GLB's `realvirtual` extras by `WebViewerExporter.cs`.
+
+**Field type reference:**
+
+| Schema Type | C# Type | TS Type | Notes |
+|------------|---------|---------|-------|
+| `number` | `float`, `int` | `number` | Auto-coerced |
+| `boolean` | `bool` | `boolean` | Auto-coerced |
+| `string` | `string` | `string` | Auto-coerced |
+| `vector3` | `Vector3` | `THREE.Vector3` | `unityCoords: true` negates X |
+| `componentRef` | Unity Object ref | `RVComponent \| null` | Resolved from hierarchy path |
+| `enum` | C# enum | via `enumMap` | GLB string → TS value |
+
+### Signal Store
+
+The `SignalStore` is the central pub/sub store for PLC signals. It mirrors Unity's `PLCInputBool`, `PLCOutputBool`, `PLCInputFloat`, etc.
+
+**Two lookup tables** point to the same underlying values:
+- **By name** — `Signal.Name` (custom unique name) or node name. Primary addressing for plugins and HMI. Always O(1) hash lookup.
+- **By path** — Full hierarchy path (e.g. `"DemoCell/Signals/ConveyorStart"`). Used internally by the loader and for component-reference resolution. **Also O(1) after first access** — results are cached in `resolveCache`. First access may do a suffix scan (for paths missing the GLB root prefix), but subsequent lookups hit the cache directly.
+
+#### Reading Signals
+
+```typescript
+const store = viewer.signalStore;
+
+// By name (primary — O(1) hash lookup)
+store.getBool('ConveyorStart');       // boolean
+store.getFloat('ConveyorSpeed');      // number
+store.getInt('PartCounter');          // number (truncated)
+store.get('SignalName');              // boolean | number | undefined
+
+// By path (also O(1) after first access — cached)
+store.getBoolByPath('DemoCell/Signals/ConveyorStart');
+store.getFloatByPath('DemoCell/Signals/Speed');
+```
+
+#### Writing Signals
+
+```typescript
+store.set('ConveyorStart', true);     // By name
+store.setByPath('DemoCell/Signals/Speed', 500);  // By path
+
+// Bulk update — all values set first, then all listeners fire (batch semantics)
+store.setMany({
+  ConveyorStart: true,
+  MachineSpeed: 200,
+  DoorClosed: false,
+});
+```
+
+#### Subscribing to Changes
+
+```typescript
+// Direct subscription (returns unsubscribe function)
+const off = store.subscribe('ConveyorStart', (value) => {
+  console.log('ConveyorStart changed to', value);
+});
+off();  // Unsubscribe
+
+// By path
+const off2 = store.subscribeByPath('DemoCell/Signals/Speed', (value) => {
+  console.log('Speed:', value);
+});
+```
+
+#### React Hook: useSignal
+
+```typescript
+// In a React component — reactive to signal changes
+const value = useSignal('ConveyorStart');  // boolean | number | undefined
+```
+
+#### RVBehavior Signal Helpers
+
+Plugins extending `RVBehavior` get convenience methods:
+
+```typescript
+class MyPlugin extends RVBehavior {
+  protected onStart(): void {
+    // Read
+    const running = this.getSignalBool('ConveyorStart');
+
+    // Write
+    this.setSignal('ConveyorSpeed', 500);
+
+    // Subscribe (auto-cleanup on dispose)
+    this.onSignalChanged('PartAtSensor', (value) => {
+      if (value === true) this.handlePartArrived();
+    });
+  }
+}
+```
+
+### Accessing Components from Plugins
+
+```typescript
+// All drives
+const drives = viewer.drives;  // RVDrive[]
+
+// Find by name
+const conveyor = drives.find(d => d.name === 'Conveyor');
+
+// Typed plugin access to component lists
+class MyPlugin extends RVBehavior {
+  protected onStart(): void {
+    const drives = this.drives;     // RVDrive[]
+    const sensors = this.sensors;   // (via viewer)
+  }
+}
+```
+
+### LoadResult — What the Loader Returns
+
+After loading a GLB, `loadModel()` returns a `LoadResult` with:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `drives` | `RVDrive[]` | All drive components |
+| `transportManager` | `RVTransportManager` | Transport surface + MU management |
+| `signalStore` | `SignalStore` | All PLC signals |
+| `registry` | `NodeRegistry` | Node path → Object3D lookup |
+| `playback` | `RVDrivesPlayback \| null` | Drive recording playback |
+| `replayRecordings` | `RVReplayRecording[]` | Individual replay recordings |
+| `logicEngine` | `RVLogicEngine \| null` | LogicStep execution engine |
+| `groups` | `GroupRegistry \| null` | Group definitions (for visibility) |
+| `boundingBox` | `Box3` | Scene bounding box |
+| `triangleCount` | `number` | Total triangle count |
+
+This result is passed to all plugins via `onModelLoaded(result, viewer)`.
+
+---
+
+## 3. Core Plugins
 
 ### The RVViewerPlugin Interface
 
@@ -265,7 +611,7 @@ The `order` property controls execution order within each phase (Pre, Post, Rend
 
 ---
 
-## 2. Events
+## 4. Events
 
 ### Built-in Event Types
 
@@ -327,7 +673,7 @@ useSimulationEvent('sensor-changed', (data) => {
 
 ---
 
-## 3. UI Slots (React Components in Plugins)
+## 5. UI Slots (React Components in Plugins)
 
 Plugins can provide UI by declaring a `slots` array on `RVViewerPlugin`. Slot entries are automatically registered into the HMI layout when `viewer.use()` is called.
 
@@ -457,7 +803,7 @@ function CustomPanel() {
 
 ---
 
-## 4. React Hooks Reference
+## 6. React Hooks Reference
 
 | Hook | Returns | Purpose |
 |------|---------|---------|
@@ -493,7 +839,7 @@ export function useAlarm() {
 
 ---
 
-## 4b. Generic Tooltip System
+## 6b. Generic Tooltip System
 
 The tooltip system (`core/hmi/tooltip/`) uses a content-type registry pattern. To add a tooltip for a new object type:
 
@@ -565,7 +911,7 @@ import './core/hmi/tooltip/SensorTooltipContent';  // Triggers self-registration
 
 ---
 
-## 5. Plugins with Both Data and UI
+## 7. Plugins with Both Data and UI
 
 A common pattern: one plugin handles data/simulation AND provides UI via slots.
 
@@ -663,7 +1009,7 @@ The plugin runs at 60Hz (data), emits events, AND renders a KPI card — all fro
 
 ---
 
-## 6. Floating Chart Panels
+## 8. Floating Chart Panels
 
 Use `ChartPanel` to create draggable, resizable overlay panels (same as the drive chart and KPI charts):
 
@@ -729,7 +1075,155 @@ const toggle = (id: string) => setOpenChart(prev => prev === id ? null : id);
 
 ---
 
-## 7. Testing Plugins
+## 9. Left Panels (Docked Side Panels)
+
+Use the `LeftPanel` component and `LeftPanelManager` to create docked side panels — the same pattern used by the Hierarchy Browser, Property Inspector, Settings, and Machine Control panels.
+
+### LeftPanelManager — Mutual Exclusion
+
+Only one left panel can be open at a time. The `LeftPanelManager` (on `viewer.leftPanelManager`) coordinates this automatically — opening a new panel closes the previous one ("last one wins").
+
+```typescript
+const lpm = viewer.leftPanelManager;
+
+lpm.open('my-panel', 350);        // Open with width 350px
+lpm.close('my-panel');             // Close (no-op if not the active one)
+lpm.toggle('my-panel', 350);      // Toggle open/closed
+lpm.isOpen('my-panel');            // Check if active
+lpm.activePanel;                   // Current panel id or null
+lpm.activePanelWidth;              // Current panel width (0 when closed)
+```
+
+React components subscribe via `useSyncExternalStore`:
+
+```typescript
+import { useSyncExternalStore } from 'react';
+
+const lpm = viewer.leftPanelManager;
+const snapshot = useSyncExternalStore(lpm.subscribe, lpm.getSnapshot);
+// snapshot.activePanel  — 'my-panel' | null
+// snapshot.activePanelWidth — number
+```
+
+### LeftPanel Component
+
+`LeftPanel` provides the standardized container: fixed positioning below the TopBar, header with title and close button, optional toolbar/footer, optional resize handle, and mobile full-screen behavior.
+
+```typescript
+import { LeftPanel } from '../core/hmi/LeftPanel';
+```
+
+**Props:**
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `title` | `ReactNode` | required | Header title (string or custom JSX) |
+| `onClose` | `() => void` | required | Close button handler |
+| `children` | `ReactNode` | required | Panel content |
+| `width` | `number` | 320 | Panel width in px |
+| `resizable` | `boolean` | false | Enable right-edge resize handle |
+| `minWidth` | `number` | 200 | Min width when resizable |
+| `maxWidth` | `number` | 600 | Max width when resizable |
+| `onResize` | `(width) => void` | — | Callback during resize |
+| `toolbar` | `ReactNode` | — | Optional toolbar between title and close button |
+| `footer` | `ReactNode` | — | Optional footer below content |
+| `mobile` | `'full-screen' \| 'hidden'` | `'full-screen'` | Mobile display policy |
+
+### Example: Custom Left Panel
+
+A complete example — a plugin that adds a button to the `button-group` slot and opens a docked left panel:
+
+```typescript
+// src/plugins/my-status-plugin.tsx
+import { useSyncExternalStore, useCallback } from 'react';
+import { IconButton, Box, Typography } from '@mui/material';
+import { Analytics } from '@mui/icons-material';
+import { useViewer } from '../hooks/use-viewer';
+import { LeftPanel } from '../core/hmi/LeftPanel';
+import type { RVViewerPlugin, UISlotEntry } from '../core/rv-plugin';
+
+const PANEL_ID = 'my-status';
+const PANEL_WIDTH = 320;
+
+// Button in the left sidebar (slot: 'button-group')
+function StatusButton({ viewer }: { viewer: RVViewer }) {
+  const lpm = viewer.leftPanelManager;
+  const snapshot = useSyncExternalStore(lpm.subscribe, lpm.getSnapshot);
+  const isActive = snapshot.activePanel === PANEL_ID;
+
+  return (
+    <IconButton
+      size="small"
+      onClick={() => lpm.toggle(PANEL_ID, PANEL_WIDTH)}
+      sx={{ color: isActive ? '#4fc3f7' : 'text.secondary' }}
+    >
+      <Analytics sx={{ fontSize: 18 }} />
+    </IconButton>
+  );
+}
+
+// The panel itself — renders when open
+function StatusPanel() {
+  const viewer = useViewer();
+  const lpm = viewer.leftPanelManager;
+  const snapshot = useSyncExternalStore(lpm.subscribe, lpm.getSnapshot);
+
+  const isOpen = snapshot.activePanel === PANEL_ID;
+  const handleClose = useCallback(() => lpm.close(PANEL_ID), [lpm]);
+
+  if (!isOpen) return null;
+
+  return (
+    <LeftPanel title="Status" onClose={handleClose} width={PANEL_WIDTH}>
+      <Box sx={{ p: 1.5, overflowY: 'auto', flex: 1 }}>
+        <Typography variant="body2">My custom panel content</Typography>
+      </Box>
+    </LeftPanel>
+  );
+}
+
+// Plugin: registers button + panel
+export class MyStatusPlugin implements RVViewerPlugin {
+  readonly id = 'my-status';
+  readonly slots: UISlotEntry[] = [
+    { slot: 'button-group', component: StatusButton, order: 60 },
+  ];
+}
+```
+
+The `StatusPanel` component should be rendered in `App.tsx` alongside other panels:
+
+```typescript
+// App.tsx
+<StatusPanel />
+```
+
+### Built-in Left Panels
+
+| Panel ID | Width | Trigger | Component |
+|----------|-------|---------|-----------|
+| `'hierarchy'` | resizable (default 320) | TopBar toggle / button-group | `HierarchyBrowser` |
+| `'settings'` | 540 | TopBar gear icon | `SettingsPanel` (via TopBar) |
+| `'machine-control'` | 370 | button-group toggle | `MachineControlPanel` |
+
+### Layout Integration
+
+The `ButtonPanel` automatically shifts right when a left panel is open, reading `activePanelWidth` from the manager. No extra wiring needed — the manager's `useSyncExternalStore` API triggers re-renders in any subscribing component.
+
+### Layout Constants
+
+All left panel positioning uses shared constants from `core/hmi/layout-constants.ts`:
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `LEFT_PANEL_TOP` | 44 | Top position (below TopBar) |
+| `LEFT_PANEL_LEFT` | 8 | Left margin on desktop |
+| `LEFT_PANEL_BOTTOM` | 8 | Bottom margin on desktop |
+| `LEFT_PANEL_ZINDEX` | 1200 | z-index for all left panels |
+
+---
+
+## 10. Testing Plugins
 
 Tests use Vitest in headless Chromium. Create `tests/<name>.test.ts`:
 
@@ -798,7 +1292,7 @@ class MockHost {
 
 ---
 
-## 8. Checklist: Adding a New Feature
+## 11. Checklist: Adding a New Feature
 
 1. **Create plugin** in `src/plugins/`:
    - Extend `RVBehavior` (recommended) or implement `RVViewerPlugin` directly
@@ -825,7 +1319,7 @@ class MockHost {
 
 ---
 
-## 9. Existing Plugins Reference
+## 12. Existing Plugins Reference
 
 ### Core Plugins
 
@@ -863,7 +1357,7 @@ class MockHost {
 
 ---
 
-## 10. Key Design Decisions
+## 13. Key Design Decisions
 
 **Why unified plugins with optional UI slots?**
 A single `RVViewerPlugin` interface handles both simulation lifecycle and UI registration. Plugins declare `slots?: UISlotEntry[]` — if present, the HMI renders them; if absent, the plugin is data-only. This avoids the overhead of separate "core" and "UI" plugin classes for what is usually one logical feature. The plugin class itself has no React dependency — only the slot component functions use React.

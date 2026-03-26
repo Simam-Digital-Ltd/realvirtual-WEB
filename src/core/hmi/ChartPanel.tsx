@@ -11,7 +11,7 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { Box, IconButton, Typography, Paper } from '@mui/material';
 import { Close, UnfoldMore, UnfoldLess, DragIndicator } from '@mui/icons-material';
-import { BOTTOM_BAR_HEIGHT } from './BottomBar';
+import { BOTTOM_BAR_HEIGHT } from './layout-constants';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 
 // ─── Constants ──────────────────────────────────────────────────────────

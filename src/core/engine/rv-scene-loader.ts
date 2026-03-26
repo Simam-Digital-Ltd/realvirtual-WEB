@@ -1,13 +1,20 @@
-import { Scene, Object3D, Box3, Vector3, Quaternion, BufferAttribute, Mesh, BufferGeometry } from 'three';
+import { Scene, Object3D, Box3, BufferAttribute, Mesh, BufferGeometry } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { RVDrive, DriveDirection, type DriveConfig } from './rv-drive';
+import { RVDrive } from './rv-drive';
 import { RVErraticDriver } from './rv-erratic';
+import { RVDriveSimple } from './rv-drive-simple';
+import { RVDriveCylinder } from './rv-drive-cylinder';
 import { AABB } from './rv-aabb';
-import { RVTransportSurface, type TransportSurfaceConfig } from './rv-transport-surface';
-import { RVSensor, type SensorConfig } from './rv-sensor';
-import { RVSource, type SourceConfig } from './rv-source';
-import { RVSink } from './rv-sink';
+// Side-effect imports: trigger registerComponent() at module load
+import './rv-transport-surface';
+import './rv-sensor';
+import './rv-source';
+import './rv-sink';
+import './rv-grip';
+import './rv-grip-target';
+import './rv-connect-signal';
+import { applySchema, resolveComponentRefs, getRegisteredFactories, type RVComponent, type ComponentContext, type ComponentSchema } from './rv-component-registry';
 import { RVTransportManager } from './rv-transport-manager';
 import { SignalStore } from './rv-signal-store';
 import { RVDrivesPlayback, type CompactRecording } from './rv-drives-playback';
@@ -15,7 +22,6 @@ import { RVReplayRecording } from './rv-replay-recording';
 import { RVLogicEngine } from './rv-logic-engine';
 import { NodeRegistry, type ComponentRef } from './rv-node-registry';
 import { GroupRegistry } from './rv-group-registry';
-import { unityDirectionToGltf, unityPositionToGltf } from './rv-coordinate-utils';
 import { validateExtras, printParitySummary, resetParityValidator } from './rv-extras-validator';
 import { parseActiveOnly, type ActiveOnly } from './rv-active-only';
 import { debug } from './rv-debug';
@@ -49,184 +55,50 @@ export interface LoadResult {
   groups: GroupRegistry | null;
 }
 
-/** Parse Direction string from GLB extras to DriveDirection enum */
-function parseDirection(dirStr: string): DriveDirection | null {
-  const map: Record<string, DriveDirection> = {
-    'LinearX': DriveDirection.LinearX,
-    'LinearY': DriveDirection.LinearY,
-    'LinearZ': DriveDirection.LinearZ,
-    'RotationX': DriveDirection.RotationX,
-    'RotationY': DriveDirection.RotationY,
-    'RotationZ': DriveDirection.RotationZ,
-    'Virtual': DriveDirection.Virtual,
-  };
-  return map[dirStr] ?? null;
-}
-
-/** Extract DriveConfig from GLB node.userData.realvirtual.Drive */
-/**
- * Parse Drive component extras from GLB.
- *
- * C# source: Packages/io.realvirtual.starter/Runtime/Components/Drive.cs
- * Consumed fields: Direction, ReverseDirection, Offset, StartPosition,
- *   TargetSpeed, Acceleration, UseAcceleration, UseLimits, LowerLimit, UpperLimit
- * Intentionally skipped: SpeedOverride, JogForward/Backward, TargetPosition,
- *   MoveThisRigidBody, smoothMotion, Jerk, SmoothAcceleration, runtime status fields
- */
-function parseDriveExtras(driveData: Record<string, unknown>): DriveConfig | null {
-  validateExtras('Drive', driveData);
-
-  const dirStr = driveData['Direction'] as string | undefined;
-  if (!dirStr) return null;
-
-  const direction = parseDirection(dirStr);
-  if (direction === null || direction === DriveDirection.Virtual) {
-    if (direction === DriveDirection.Virtual) {
-      console.warn(`  Skipping Virtual drive`);
-    }
-    return null;
-  }
-
-  const reverseDirection = (driveData['ReverseDirection'] as boolean) ?? false;
-
-  return {
-    direction,
-    reverseDirection,
-    offset: (driveData['Offset'] as number) ?? 0,
-    startPosition: (driveData['StartPosition'] as number) ?? 0,
-    targetSpeed: (driveData['TargetSpeed'] as number) ?? 100,
-    acceleration: (driveData['Acceleration'] as number) ?? 100,
-    useAcceleration: (driveData['UseAcceleration'] as boolean) ?? false,
-    useLimits: (driveData['UseLimits'] as boolean) ?? false,
-    lowerLimit: (driveData['LowerLimit'] as number) ?? -180,
-    upperLimit: (driveData['UpperLimit'] as number) ?? 180,
-    behaviors: [], // populated by loadGLB after parsing
-    behaviorExtras: {}, // populated by loadGLB after parsing
-  };
-}
-
-/**
- * Parse TransportSurface component extras from GLB.
- *
- * C# source: Packages/io.realvirtual.starter/Runtime/Components/TransportSurface.cs
- * Consumed fields: TransportDirection, Radial, TextureScale, HeightOffsetOverride
- * Intentionally skipped: AnimateSurface, AdvancedSurface, constraint settings,
- *   DriveReference (resolved via hierarchy), physics settings, runtime status
- */
-function parseTransportSurfaceExtras(data: Record<string, unknown>): TransportSurfaceConfig {
-  validateExtras('TransportSurface', data);
-
-  // TransportDirection is exported as {x, y, z} in Unity LHS space — convert to glTF RHS
-  const rawDir = data['TransportDirection'] as { x: number; y: number; z: number } | undefined;
-  const transportDirection = rawDir
-    ? unityDirectionToGltf(rawDir.x, rawDir.y, rawDir.z)
-    : new Vector3(1, 0, 0); // Fallback: X-axis
-
-  const isRadial = (data['Radial'] as boolean) ?? false;
-
-  return {
-    transportDirection,
-    isRadial,
-    textureScale: (data['TextureScale'] as number) ?? 1,
-    heightOffset: (data['HeightOffsetOverride'] as number) ?? 0,
-  };
-}
-
-/**
- * Parse Sensor component extras from GLB.
- *
- * C# source: Packages/io.realvirtual.starter/Runtime/Components/Sensor.cs
- * Consumed fields: UseRaycast, RayCastDirection, RayCastLength
- * NOTE: C# has NO 'InvertSignal' or 'Mode' fields — those were legacy WebViewer names.
- *   C# uses 'UseRaycast' (bool) to determine Raycast vs Collision mode.
- */
-function parseSensorExtras(data: Record<string, unknown>): SensorConfig {
-  validateExtras('Sensor', data);
-
-  // C# uses UseRaycast (bool), not Mode (string). Support both for backwards compat.
-  const useRaycast = (data['UseRaycast'] as boolean) ?? false;
-  const modeStr = (data['Mode'] as string) ?? undefined; // legacy WebViewer field
-  const mode = modeStr ? (modeStr === 'Raycast' ? 'Raycast' : 'Collision')
-    : (useRaycast ? 'Raycast' : 'Collision');
-
-  // Raycast parameters (only meaningful when mode === 'Raycast')
-  const rawDir = data['RayCastDirection'] as { x: number; y: number; z: number } | undefined;
-  const rayCastLength = (data['RayCastLength'] as number) ?? 1000; // default 1000mm
-
-  // Convert direction from Unity LHS to glTF RHS (negate X)
-  const rayCastDirection = rawDir
-    ? { x: -rawDir.x, y: rawDir.y, z: rawDir.z }
-    : { x: -1, y: 0, z: 0 }; // default: Unity local X → glTF -X
-
-  return {
-    invertSignal: false,
-    mode,
-    rayCastDirection,
-    rayCastLength,
-  };
-}
-
-/**
- * Parse Source component extras from GLB.
- *
- * C# source: Packages/io.realvirtual.starter/Runtime/Components/Source.cs
- * Consumed fields: AutomaticGeneration, Interval, GenerateIfDistance,
- *   ThisObjectAsMU, PlaceOnTransportSurface
- * Legacy WebViewer fallback: Spawn, SpawnInterval, SpawnDistance
- * Intentionally skipped: Destination, Mass, pooling, layer, runtime status, signals
- */
-function parseSourceExtras(data: Record<string, unknown>, nodeName: string): SourceConfig {
-  validateExtras('Source', data);
-  // Spawn mode: Unity uses AutomaticGeneration (bool) + Interval > 0 vs. GenerateIfDistance > 0
-  const autoGen = (data['AutomaticGeneration'] as boolean) ?? true;
-  const interval = (data['Interval'] as number) ?? (data['SpawnInterval'] as number) ?? 0;
-  const distance = (data['GenerateIfDistance'] as number) ?? (data['SpawnDistance'] as number) ?? 300;
-
-  let spawnMode: 'Interval' | 'Distance' | 'OnSignal' = 'Interval';
-  if (interval > 0) {
-    spawnMode = 'Interval';
-  } else if (autoGen && distance > 0) {
-    spawnMode = 'Distance';
-  }
-  // Override with explicit Spawn field if present (legacy WebViewer format)
-  const spawnStr = data['Spawn'] as string | undefined;
-  if (spawnStr === 'Distance') spawnMode = 'Distance';
-  else if (spawnStr === 'OnSignal') spawnMode = 'OnSignal';
-
-  // ThisObjectAsMU is serialized as a relative path string (or null/empty if self)
-  const templateRef = data['ThisObjectAsMU'] as string | null | undefined;
-  // If empty, null, or path ends with own name -> Source itself is the template
-  // Unity serializes as relative path e.g. "DemoCell/Turbine" where node.name = "Turbine"
-  const sourceIsTemplate = !templateRef || templateRef === '' ||
-    templateRef === nodeName || templateRef.endsWith('/' + nodeName);
-  const muName = sourceIsTemplate ? nodeName : templateRef;
-
-  return {
-    spawnMode,
-    spawnInterval: interval > 0 ? interval : 3, // default 3s if not set
-    spawnDistance: distance,
-    muName: muName ?? '',
-    placeOnTransportSurface: (data['PlaceOnTransportSurface'] as boolean) ?? true,
-    sourceIsTemplate,
-  };
-}
-
-/**
- * Create an AABB from BoxCollider data in GLB extras, or fallback to mesh bounds.
- */
 /**
  * Create an AABB from BoxCollider data in GLB extras, or fallback to mesh bounds.
  * C# source: Unity built-in BoxCollider (center, size fields)
  */
 function createAABBFromExtras(node: Object3D, rv: Record<string, unknown>): AABB {
+  // Prefer mesh-based AABB when the node has visible geometry (TransportSurface, Sensor).
+  // Only fall back to BoxCollider data for meshless nodes (e.g. Sink trigger colliders).
+  const meshAABB = AABB.fromNode(node);
+  if (meshAABB.halfSize.lengthSq() > 0) {
+    return meshAABB;
+  }
+
+  console.log(`[AABB] ${node.name}: meshAABB halfSize=${meshAABB.halfSize.toArray()}, lengthSq=${meshAABB.halfSize.lengthSq()}`);
+
+  // No mesh — use BoxCollider data from GLB extras
+  // Legacy format: BoxCollider as top-level key
   const boxCollider = rv['BoxCollider'] as { center?: { x: number; y: number; z: number }; size?: { x: number; y: number; z: number } } | undefined;
   if (boxCollider?.center && boxCollider?.size) {
     validateExtras('BoxCollider', boxCollider as unknown as Record<string, unknown>);
     return AABB.fromBoxCollider(node, boxCollider.center, boxCollider.size);
   }
-  // Fallback: compute from mesh bounds
-  return AABB.fromNode(node);
+
+  // Current format: colliders array (Unity exports BoxCollider data here)
+  const colliders = rv['colliders'] as Array<{ type?: string; center?: { x: number; y: number; z: number }; size?: { x: number; y: number; z: number } }> | undefined;
+  if (colliders) {
+    for (const col of colliders) {
+      if ((col.type === 'Box' || col.type === 'BoxCollider') && col.center && col.size) {
+        const bc = AABB.fromBoxCollider(node, col.center, col.size);
+        console.log(`[AABB] ${node.name}: using BoxCollider halfSize=${bc.halfSize.toArray()}, center=${bc.center.toArray()}`);
+        return bc;
+      }
+    }
+  }
+
+  // Last resort: return degenerate AABB
+  return meshAABB;
 }
+
+/** Map of known drive behavior types → class + schema for data-driven instantiation */
+const DRIVE_BEHAVIOR_MAP: Record<string, { ctor: new (n: Object3D) => RVComponent; schema: ComponentSchema }> = {
+  Drive_ErraticPosition: { ctor: RVErraticDriver, schema: RVErraticDriver.schema },
+  Drive_Simple: { ctor: RVDriveSimple, schema: RVDriveSimple.schema },
+  Drive_Cylinder: { ctor: RVDriveCylinder, schema: RVDriveCylinder.schema },
+};
 
 /** Signal type names recognized from GLB extras */
 const SIGNAL_TYPES = ['PLCOutputBool', 'PLCInputBool', 'PLCOutputFloat', 'PLCInputFloat', 'PLCOutputInt', 'PLCInputInt'];
@@ -304,8 +176,20 @@ export interface LoadGLBOptions {
   isWebGPU?: boolean;
 }
 
+/** Pending component awaiting resolveComponentRefs + init() in Step 2 */
+interface PendingComponent {
+  component: RVComponent;
+  type: string;
+  path: string;
+}
+
 /**
  * Load a GLB file and extract all realvirtual components.
+ *
+ * Two-step model (like Unity Awake/Start):
+ *   Step 1 "Awake": traverse, construct, applySchema, register ALL
+ *   Step 2 "Start": resolveComponentRefs + init() ALL
+ *
  * Returns drives, transport manager, signal store, registry, playback, logic engine, and scene metrics.
  */
 export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOptions): Promise<LoadResult> {
@@ -322,6 +206,30 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
   const manager = new RVTransportManager();
   manager.scene = scene;
 
+  // ── Detect Three.js name deduplication (e.g. "Grip" → "Grip_1") ──
+  // Three.js GLTFLoader renames duplicate node names via createUniqueName().
+  // Build a map of Object3D → original sanitized name for alias registration.
+  const renamedNodes = new Map<Object3D, string>();
+  const gltfParser = (gltf as unknown as { parser?: {
+    associations?: Map<Object3D, { nodes?: number }>;
+    json?: { nodes?: { name?: string }[] };
+  } }).parser;
+  if (gltfParser?.associations && gltfParser?.json?.nodes) {
+    for (const [obj, ref] of gltfParser.associations) {
+      if (ref.nodes !== undefined && ref.nodes < gltfParser.json.nodes.length) {
+        const origName = gltfParser.json.nodes[ref.nodes].name ?? '';
+        // Three.js sanitizes spaces → underscores before dedup
+        const sanitized = origName.replace(/\s/g, '_');
+        if (sanitized && obj.name !== sanitized) {
+          renamedNodes.set(obj, sanitized);
+        }
+      }
+    }
+    if (renamedNodes.size > 0) {
+      console.log(`[loadGLB] ${renamedNodes.size} node(s) renamed by Three.js (name dedup)`);
+    }
+  }
+
   let triangleCount = 0;
   let recordingData: CompactRecording | null = null;
   let recorderSettings: RecorderSettings | null = null;
@@ -329,20 +237,17 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
   // Collected ReplayRecording configs (parsed after playback is created)
   const replayRecordingConfigs: { sequence: string; startOnSignal: ComponentRef | null; isReplayingSignal: ComponentRef | null; activeOnly: ActiveOnly }[] = [];
 
-  // Collected nodes for second-pass processing
-  const transportNodes: { node: Object3D; data: Record<string, unknown>; rv: Record<string, unknown> }[] = [];
-  const sensorNodes: { node: Object3D; data: Record<string, unknown>; rv: Record<string, unknown> }[] = [];
-  const sourceNodes: { node: Object3D; data: Record<string, unknown> }[] = [];
-  const sinkNodes: { node: Object3D; rv: Record<string, unknown> }[] = [];
+  // Generic pending array for Step 2 (replaces per-component collection arrays)
+  const pending: PendingComponent[] = [];
+
+  // MU templates and Group nodes (handled specially, not via init())
   const muTemplateNodes: Object3D[] = [];
   const groupNodes: { node: Object3D; key: string; data: Record<string, unknown> }[] = [];
 
-  // Collect drive node set for static/dynamic classification (Phase 1.3)
-  // We need a two-step approach: first find all drives, then classify meshes
+  // ── Pre-scan: Drive/TransportSurface node sets for shadow classification ──
   const driveNodeSet = new Set<Object3D>();
   const transportSurfaceNodeSet = new Set<Object3D>();
 
-  // Pre-scan for Drive and TransportSurface nodes
   root.traverse((node: Object3D) => {
     const rv = node.userData?.realvirtual as Record<string, unknown> | undefined;
     if (!rv) return;
@@ -350,7 +255,6 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     if (rv['TransportSurface']) transportSurfaceNodeSet.add(node);
   });
 
-  /** Check if a node is under a Drive ancestor (dynamic mesh). */
   function isUnderDrive(node: Object3D): boolean {
     let current: Object3D | null = node.parent;
     while (current) {
@@ -360,7 +264,6 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     return false;
   }
 
-  /** Check if a node is under a TransportSurface ancestor (static despite Drive parent). */
   function isUnderTransportSurface(node: Object3D): boolean {
     let current: Object3D | null = node;
     while (current) {
@@ -370,9 +273,11 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     return false;
   }
 
-  // First pass: shadows, triangles, drives, collect component nodes, register all nodes
+  // ═══════════════════════════════════════════════════════════════════
+  // STEP 1 "Awake": Traverse, construct, applySchema, register ALL
+  // ═══════════════════════════════════════════════════════════════════
   root.traverse((node: Object3D) => {
-    // Enable shadows on mesh nodes with static/dynamic classification
+    // ── Shadow classification and triangle counting ──
     const anyNode = node as unknown as {
       isMesh?: boolean;
       castShadow?: boolean;
@@ -398,19 +303,14 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
         console.log(`  No shadow: ${node.name} (transparent=${mat?.transparent}, alphaTest=${mat?.alphaTest}, opacity=${mat?.opacity})`);
         anyNode.castShadow = false;
       } else {
-        // Static/dynamic classification:
-        // - Dynamic: mesh under a Drive node (except TransportSurface children)
-        // - Static: everything else (factory structure, conveyors, ground, walls)
-        // TransportSurface meshes are static — conveyor jog drives Rapier velocity, not the mesh
         const underDrive = isUnderDrive(node);
         const underTS = isUnderTransportSurface(node);
         const isStatic = !underDrive || underTS;
-
         if (isStatic) {
-          anyNode.castShadow = false;    // static: receive shadows only
-          anyNode.matrixAutoUpdate = false; // static: never moves
+          anyNode.castShadow = false;
+          anyNode.matrixAutoUpdate = false;
         } else {
-          anyNode.castShadow = true;     // dynamic: cast + receive shadows
+          anyNode.castShadow = true;
         }
       }
       anyNode.receiveShadow = true;
@@ -424,115 +324,20 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
       }
     }
 
-    // Register ALL nodes in registry (Phase 1) — enables hierarchy hover for containers
+    // ── Register ALL nodes in registry (Phase 1) ──
     const path = NodeRegistry.computeNodePath(node);
     registry.registerNode(path, node);
 
-    // Check for realvirtual extras
     const rv = node.userData?.realvirtual as Record<string, unknown> | undefined;
     if (!rv) return;
 
-    // Parse Drive
-    if (rv['Drive']) {
-      const driveData = rv['Drive'] as Record<string, unknown>;
-      const config = parseDriveExtras(driveData);
-      if (config) {
-        // Check which DriveBehaviours exist on this node and store their extras
-        const behaviors: string[] = [];
-        const behaviorExtras: Record<string, Record<string, unknown>> = {};
-        for (const key of Object.keys(rv)) {
-          if (key !== 'Drive' && key.startsWith('Drive_')) {
-            behaviors.push(key);
-            const bExtras = rv[key] as Record<string, unknown>;
-            behaviorExtras[key] = bExtras;
-            validateExtras(key, bExtras);
-          }
-        }
-        config.behaviors = behaviors;
-        config.behaviorExtras = behaviorExtras;
-
-        const drive = new RVDrive(node, config);
-        drives.push(drive);
-        registry.register('Drive', path, drive);
-        // Cache node type for fast raycast lookup (avoids parent chain walk)
-        node.userData._rvType = 'Drive';
-
-        // Construct DriveBehaviors — mirrors Unity's Drive owning its IDriveBehavior[]
-        if (behaviors.includes('Drive_ErraticPosition')) {
-          const extras = behaviorExtras['Drive_ErraticPosition'];
-          drive.driveBehaviors.push(new RVErraticDriver(drive, extras ? {
-            minPos: extras['MinPos'] as number | undefined,
-            maxPos: extras['MaxPos'] as number | undefined,
-            speed: extras['Speed'] as number | undefined,
-            iterateBetweenMaxAndMin: extras['IterateBetweenMaxAndMin'] as boolean | undefined,
-          } : undefined));
-        }
-
-        console.log(
-          `  Drive: ${node.name} [${config.direction}${config.reverseDirection ? ' REV' : ''}]` +
-          ` path="${path}"` +
-          (config.useLimits ? ` limits=[${config.lowerLimit}, ${config.upperLimit}]` : '') +
-          ` speed=${config.targetSpeed}` +
-          (behaviors.length > 0 ? ` behaviors=[${behaviors.join(',')}]` : '')
-        );
-      }
-    }
-
-    // Collect TransportSurface nodes (process after all drives are found)
-    if (rv['TransportSurface']) {
-      transportNodes.push({
-        node,
-        data: rv['TransportSurface'] as Record<string, unknown>,
-        rv,
-      });
-    }
-
-    // Collect Sensor nodes
-    if (rv['Sensor']) {
-      sensorNodes.push({
-        node,
-        data: rv['Sensor'] as Record<string, unknown>,
-        rv,
-      });
-    }
-
-    // Collect Source nodes
-    if (rv['Source']) {
-      sourceNodes.push({
-        node,
-        data: rv['Source'] as Record<string, unknown>,
-      });
-    }
-
-    // Collect Sink nodes
-    if (rv['Sink']) {
-      validateExtras('Sink', rv['Sink'] as Record<string, unknown>);
-      sinkNodes.push({ node, rv });
-    }
-
-    // Collect MU template nodes
-    if (rv['MU']) {
-      validateExtras('MU', rv['MU'] as Record<string, unknown>);
-      muTemplateNodes.push(node);
-    }
-
-    // Collect Group components (Group, Group_1, Group_2, ...)
-    for (const key of Object.keys(rv)) {
-      if (key === 'Group' || /^Group_\d+$/.test(key)) {
-        const gData = rv[key] as Record<string, unknown>;
-        validateExtras(key === 'Group' ? 'Group' : 'Group', gData);
-        groupNodes.push({ node, key, data: gData });
-      }
-    }
-
-    // Register PLC signals in SignalStore and NodeRegistry
+    // ── PLC Signals (registered first, before components that reference them) ──
     for (const sigType of SIGNAL_TYPES) {
       if (rv[sigType]) {
         const sigData = rv[sigType] as Record<string, unknown>;
         validateExtras(sigType, sigData);
         const status = sigData['Status'] as { Value?: boolean | number } | undefined;
-        // Signal.Name (custom unique name) overrides node name as primary key
-        const signalName = (sigData['Name'] as string) || node.name;
+        const signalName = (sigData['Name'] as string) || renamedNodes.get(node) || node.name;
         if (sigType.includes('Bool')) {
           signalStore.register(signalName, path, status?.Value as boolean ?? false);
         } else if (sigType.includes('Float')) {
@@ -544,15 +349,91 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
       }
     }
 
-    // Check for DrivesRecording (compact format or ScriptableObject inline)
+    // ── Drive (special case: inline construction, behaviors, initDrive) ──
+    if (rv['Drive']) {
+      const driveData = rv['Drive'] as Record<string, unknown>;
+      validateExtras('Drive', driveData);
+
+      const dirStr = driveData['Direction'] as string | undefined;
+      if (dirStr) {
+        const drive = new RVDrive(node);
+        applySchema(drive as unknown as Record<string, unknown>, RVDrive.schema, driveData);
+
+        // Collect DriveBehaviours
+        const behaviors: string[] = [];
+        const behaviorExtras: Record<string, Record<string, unknown>> = {};
+        for (const key of Object.keys(rv)) {
+          if (key !== 'Drive' && key.startsWith('Drive_')) {
+            behaviors.push(key);
+            const bExtras = rv[key] as Record<string, unknown>;
+            behaviorExtras[key] = bExtras;
+            validateExtras(key, bExtras);
+          }
+        }
+        drive.Behaviors = behaviors;
+        drive.BehaviorExtras = behaviorExtras;
+        drive.initDrive();
+
+        drives.push(drive);
+        registry.register('Drive', path, drive);
+        node.userData._rvType = 'Drive';
+
+        // Instantiate recognized drive behaviors via data-driven map
+        for (const bName of behaviors) {
+          const entry = DRIVE_BEHAVIOR_MAP[bName];
+          if (entry) {
+            const inst = new entry.ctor(node);
+            applySchema(inst as unknown as Record<string, unknown>, entry.schema, behaviorExtras[bName] ?? {});
+            pending.push({ component: inst, type: bName, path });
+          }
+        }
+
+        console.log(
+          `  Drive: ${node.name} [${drive.Direction}${drive.ReverseDirection ? ' REV' : ''}]` +
+          ` path="${path}"` +
+          (drive.UseLimits ? ` limits=[${drive.LowerLimit}, ${drive.UpperLimit}]` : '') +
+          ` speed=${drive.TargetSpeed}` +
+          (behaviors.length > 0 ? ` behaviors=[${behaviors.join(',')}]` : '')
+        );
+      }
+    }
+
+    // ── Auto-discovered components (via registered factories) ──
+    for (const [type, factory] of getRegisteredFactories()) {
+      if (!rv[type]) continue;
+      const data = rv[type] as Record<string, unknown>;
+      validateExtras(type, data);
+      const aabb = factory.needsAABB ? createAABBFromExtras(node, rv) : null;
+      const instance = factory.create(node, aabb);
+      if (factory.beforeSchema) factory.beforeSchema(instance, data);
+      applySchema(instance as unknown as Record<string, unknown>, factory.schema, data);
+      if (factory.afterCreate) factory.afterCreate(instance, node);
+      registry.register(type, path, instance);
+      pending.push({ component: instance, type, path });
+    }
+
+    // ── MU templates ──
+    if (rv['MU']) {
+      validateExtras('MU', rv['MU'] as Record<string, unknown>);
+      muTemplateNodes.push(node);
+    }
+
+    // ── Group components (Group, Group_1, Group_2, ...) ──
+    for (const key of Object.keys(rv)) {
+      if (key === 'Group' || /^Group_\d+$/.test(key)) {
+        const gData = rv[key] as Record<string, unknown>;
+        validateExtras('Group', gData);
+        groupNodes.push({ node, key, data: gData });
+      }
+    }
+
+    // ── DrivesRecording / DrivesRecorder / ReplayRecording (special cases) ──
     if (rv['DrivesRecording_compact'] && !recordingData) {
       recordingData = parseCompactRecording(rv['DrivesRecording_compact'] as Record<string, unknown>);
     }
     if (rv['DrivesRecorder']) {
       const recorderData = rv['DrivesRecorder'] as Record<string, unknown>;
       validateExtras('DrivesRecorder', recorderData);
-      // C# source: Packages/io.realvirtual.starter/Runtime/Components/DrivesRecorder.cs
-      // Consumed: PlayOnStart, ReplayStartFrame, ReplayEndFrame, Loop, DrivesRecording
       recorderSettings = {
         playOnStart: (recorderData['PlayOnStart'] as boolean) ?? true,
         replayStartFrame: (recorderData['ReplayStartFrame'] as number) ?? 0,
@@ -569,8 +450,6 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
         }
       }
     }
-
-    // Collect ReplayRecording components (may be multiple: ReplayRecording, ReplayRecording_1, etc.)
     for (const key of Object.keys(rv)) {
       if (key === 'ReplayRecording' || key.match(/^ReplayRecording_\d+$/)) {
         const rrData = rv[key] as Record<string, unknown>;
@@ -584,134 +463,60 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     }
   });
 
-  // Second pass: process TransportSurfaces (need drives registered in registry)
-  const _worldQuat = new Quaternion();
-  for (const { node, data, rv } of transportNodes) {
-    const config = parseTransportSurfaceExtras(data);
-
-    // TransportDirection is stored in local space by Unity (InverseTransformDirection).
-    // Transform to world space using the node's world quaternion.
-    node.getWorldQuaternion(_worldQuat);
-    config.transportDirection.applyQuaternion(_worldQuat).normalize();
-
-    const aabb = createAABBFromExtras(node, rv);
-    const surface = new RVTransportSurface(node, config, aabb);
-
-    // Find associated drive via registry hierarchy walk-up
-    surface.drive = registry.findInParent<RVDrive>(node, 'Drive');
-    if (!surface.drive) {
-      console.warn(`  TransportSurface "${node.name}": no Drive found - will not transport`);
-    }
-
-    const surfacePath = NodeRegistry.computeNodePath(node);
-    registry.register('TransportSurface', surfacePath, surface);
-    manager.surfaces.push(surface);
-    console.log(
-      `  TransportSurface: ${node.name}` +
-      ` dir=(${config.transportDirection.x.toFixed(2)}, ${config.transportDirection.y.toFixed(2)}, ${config.transportDirection.z.toFixed(2)})` +
-      ` radial=${config.isRadial}` +
-      (surface.drive ? ` drive=${surface.drive.name}` : ' NO DRIVE')
-    );
-  }
-
-  // Process Sensors
-  for (const { node, data, rv } of sensorNodes) {
-    const config = parseSensorExtras(data);
-    const aabb = createAABBFromExtras(node, rv);
-    const sensor = new RVSensor(node, config, aabb);
-    manager.sensors.push(sensor);
-    const sensorPath = NodeRegistry.computeNodePath(node);
-    registry.register('Sensor', sensorPath, sensor);
-    // Cache node type for fast raycast lookup
-    node.userData._rvType = 'Sensor';
-
-    // Bind sensor to SignalStore: when occupied state changes, update the signal
-    const sensorName = node.name;
-    signalStore.register(sensorName, sensorPath, false);
-    sensor.onChanged = (occupied) => {
-      signalStore.set(sensorName, occupied);
-    };
-
-    // Create sensor visualization
-    if (config.mode === 'Raycast') {
-      // Raycast mode: show a line from sensor origin in ray direction
-      sensor.createRayVisualization();
-    } else {
-      // Collision mode: show a box around the BoxCollider zone
-      const boxCollider = rv['BoxCollider'] as { center?: { x: number; y: number; z: number }; size?: { x: number; y: number; z: number } } | undefined;
-      if (boxCollider?.center && boxCollider?.size) {
-        // Convert Unity center to glTF space (negate X) — same as AABB does
-        const gltfCenter = unityPositionToGltf(boxCollider.center.x, boxCollider.center.y, boxCollider.center.z);
-        const halfSize = {
-          x: Math.abs(boxCollider.size.x) / 2,
-          y: Math.abs(boxCollider.size.y) / 2,
-          z: Math.abs(boxCollider.size.z) / 2,
-        };
-        sensor.createVisualization(gltfCenter, halfSize);
-      }
-    }
-
-    console.log(`  Sensor: ${node.name} mode=${config.mode} dir=${config.mode === 'Raycast' ? JSON.stringify(config.rayCastDirection) : 'N/A'} len=${config.rayCastLength}mm`);
-  }
-
-  // Process Sources
-  for (const { node, data } of sourceNodes) {
-    const config = parseSourceExtras(data, node.name);
-    const source = new RVSource(node, config);
-    source.spawnParent = root;
-
-    // Find MU template via registry (path-based, safe)
-    let template: Object3D | null = null;
-    if (config.sourceIsTemplate) {
-      template = node;
-      console.log(`  Source: ${node.name} mode=${config.spawnMode} interval=${config.spawnInterval}s template=SELF`);
-    } else if (config.muName) {
-      template = registry.getNode(config.muName);
-      if (template) {
-        console.log(`  Source: ${node.name} mode=${config.spawnMode} interval=${config.spawnInterval}s template="${config.muName}"`);
-      } else {
-        console.warn(`  Source: ${node.name} - MU template "${config.muName}" not found in registry`);
-      }
-    } else {
-      console.warn(`  Source: ${node.name} - no MU template configured`);
-    }
-
-    if (template) {
-      source.setTemplate(template);
-    }
-
-    const sourcePath = NodeRegistry.computeNodePath(node);
-    registry.register('Source', sourcePath, source);
-    manager.sources.push(source);
-  }
-
-  // Process Sinks
-  for (const { node, rv } of sinkNodes) {
-    const aabb = createAABBFromExtras(node, rv);
-    const sink = new RVSink(node, aabb);
-    manager.sinks.push(sink);
-    const sinkPath = NodeRegistry.computeNodePath(node);
-    registry.register('Sink', sinkPath, sink);
-    console.log(`  Sink: ${node.name}`);
-  }
-
-  // Hide MU templates (they're just for cloning, not visible in scene)
+  // ── Hide MU templates (before init — sources need them hidden) ──
   for (const muNode of muTemplateNodes) {
     muNode.visible = false;
     console.log(`  MU template: ${muNode.name} (hidden)`);
   }
 
-  // Build GroupRegistry from collected Group components
+  // ── Register alias paths for nodes renamed by Three.js dedup ──
+  // Must happen AFTER Step 1 (signals registered) and BEFORE Step 2 (refs resolved).
+  if (renamedNodes.size > 0) {
+    const computeOriginalPath = (node: Object3D): string => {
+      const parts: string[] = [];
+      let current: Object3D | null = node;
+      while (current && current.parent) {
+        parts.unshift(renamedNodes.get(current) ?? current.name);
+        current = current.parent;
+        if (!current.parent) break;
+      }
+      return parts.join('/');
+    };
+
+    for (const [obj, origName] of renamedNodes) {
+      const origPath = computeOriginalPath(obj);
+      const currentPath = NodeRegistry.computeNodePath(obj);
+      if (origPath !== currentPath) {
+        registry.registerAlias(origPath, obj);
+        // Also register signal path alias if this node has a signal
+        const sigName = signalStore.nameForPath(currentPath);
+        if (sigName !== undefined) {
+          signalStore.register(sigName, origPath, signalStore.get(sigName) ?? false);
+          debug('loader', `Signal alias: "${origPath}" → signal "${sigName}" (renamed "${origName}" → "${obj.name}")`);
+        }
+        debug('loader', `Node alias: "${origPath}" → "${currentPath}" (renamed "${origName}" → "${obj.name}")`);
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // STEP 2 "Start": resolveComponentRefs + init() ALL pending
+  // ═══════════════════════════════════════════════════════════════════
+  const context: ComponentContext = { registry, signalStore, scene, transportManager: manager, root };
+
+  for (const { component } of pending) {
+    resolveComponentRefs(component as unknown as Record<string, unknown>, registry);
+    component.init(context);
+  }
+
+  // ── Build GroupRegistry (special case — not an RVComponent) ──
   let groups: GroupRegistry | null = null;
   if (groupNodes.length > 0) {
     groups = new GroupRegistry();
     for (const { node, data } of groupNodes) {
-      // Skip disabled Group components
       if (data['_enabled'] === false) continue;
       const groupName = data['GroupName'] as string | undefined;
       if (!groupName) continue;
-
-      // Resolve GroupNamePrefix if present
       const prefix = data['GroupNamePrefix'] as string | undefined;
       let resolvedName = groupName;
       if (prefix) {
@@ -719,7 +524,6 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
         if (prefixNode) {
           resolvedName = prefixNode.name + groupName;
         }
-        // If prefix not found, fall back to raw GroupName
       }
       groups.register(resolvedName, node);
     }
@@ -727,116 +531,7 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     console.log(`  Groups: ${groups.groupCount} groups [${groupNames.join(', ')}]`);
   }
 
-  // Bind Drive_Simple behaviors: connect Forward/Backward PLCOutputBool signals to drive.jogForward/jogBackward
-  for (const drive of drives) {
-    if (!drive.config.behaviors.includes('Drive_Simple')) continue;
-    const simpleExtras = drive.config.behaviorExtras['Drive_Simple'];
-    debug('loader', `Drive_Simple "${drive.name}": extras keys=${simpleExtras ? JSON.stringify(Object.keys(simpleExtras)) : 'NULL'}`);
-    if (!simpleExtras) continue;
-
-    debug('loader', `Drive_Simple "${drive.name}": Forward=${JSON.stringify(simpleExtras['Forward'])?.substring(0, 200)}`);
-    const forwardRef = simpleExtras['Forward'] as ComponentRef | undefined;
-    const backwardRef = simpleExtras['Backward'] as ComponentRef | undefined;
-
-    if (forwardRef) {
-      const resolved = registry.resolve(forwardRef);
-      if (resolved.signalAddress) {
-        const addr = resolved.signalAddress;
-        // Read initial signal value (addr is a resolved Three.js path)
-        drive.jogForward = signalStore.getBoolByPath(addr);
-        // Subscribe to changes
-        signalStore.subscribeByPath(addr, (value) => {
-          drive.jogForward = value === true;
-        });
-        debug('loader', `  Drive_Simple "${drive.name}": Forward signal="${addr}" (initial=${drive.jogForward})`);
-      }
-    }
-
-    if (backwardRef) {
-      const resolved = registry.resolve(backwardRef);
-      if (resolved.signalAddress) {
-        const addr = resolved.signalAddress;
-        drive.jogBackward = signalStore.getBoolByPath(addr);
-        signalStore.subscribeByPath(addr, (value) => {
-          drive.jogBackward = value === true;
-        });
-        debug('loader', `  Drive_Simple "${drive.name}": Backward signal="${addr}" (initial=${drive.jogBackward})`);
-      }
-    }
-  }
-
-  // Bind Drive_Cylinder behaviors: Out/In PLCOutputBool → drive.startMove(MaxPos/MinPos)
-  for (const drive of drives) {
-    if (!drive.config.behaviors.includes('Drive_Cylinder')) continue;
-    const cylExtras = drive.config.behaviorExtras['Drive_Cylinder'];
-    if (!cylExtras) continue;
-
-    const minPos = (cylExtras['MinPos'] as number) ?? 0;
-    const maxPos = (cylExtras['MaxPos'] as number) ?? 100;
-    const timeOut = (cylExtras['TimeOut'] as number) ?? 1;
-    const timeIn = (cylExtras['TimeIn'] as number) ?? 1;
-    const oneBit = (cylExtras['OneBitCylinder'] as boolean) ?? false;
-    const invertLogic = (cylExtras['InvertOutputLogic'] as boolean) ?? false;
-    const stroke = Math.abs(maxPos - minPos);
-
-    debug('loader', `Drive_Cylinder "${drive.name}": min=${minPos} max=${maxPos} timeOut=${timeOut}s timeIn=${timeIn}s oneBit=${oneBit} invert=${invertLogic} reverse=${drive.config.reverseDirection} dir=${drive.config.direction}`);
-
-    // Set initial position to MinPos (Unity behavior: Start() sets CurrentPosition = MinPos)
-    drive.currentPosition = minPos;
-    drive.applyToNode();
-
-    const outRef = cylExtras['Out'] as ComponentRef | undefined;
-    const inRef = cylExtras['In'] as ComponentRef | undefined;
-
-    if (outRef) {
-      const resolved = registry.resolve(outRef);
-      if (resolved.signalAddress) {
-        const addr = resolved.signalAddress;
-        signalStore.subscribeByPath(addr, (value) => {
-          let outVal = value === true;
-          if (invertLogic) outVal = !outVal;
-
-          if (oneBit) {
-            // OneBitCylinder: true=extend, false=retract
-            if (outVal) {
-              drive.targetSpeed = stroke / timeOut;
-              drive.startMove(maxPos);
-              debug('drive', `Cylinder "${drive.name}": OUT → ${maxPos}mm at ${drive.targetSpeed.toFixed(0)}mm/s`);
-            } else {
-              drive.targetSpeed = stroke / timeIn;
-              drive.startMove(minPos);
-              debug('drive', `Cylinder "${drive.name}": IN → ${minPos}mm at ${drive.targetSpeed.toFixed(0)}mm/s`);
-            }
-          } else {
-            if (outVal) {
-              drive.targetSpeed = stroke / timeOut;
-              drive.startMove(maxPos);
-              debug('drive', `Cylinder "${drive.name}": OUT → ${maxPos}mm at ${drive.targetSpeed.toFixed(0)}mm/s`);
-            }
-          }
-        });
-        debug('loader', `  Drive_Cylinder "${drive.name}": Out signal="${addr}"`);
-      }
-    }
-
-    if (inRef && !oneBit) {
-      const resolved = registry.resolve(inRef);
-      if (resolved.signalAddress) {
-        const addr = resolved.signalAddress;
-        signalStore.subscribeByPath(addr, (value) => {
-          let inVal = value === true;
-          if (invertLogic) inVal = !inVal;
-          if (inVal) {
-            drive.targetSpeed = stroke / timeIn;
-            drive.startMove(minPos);
-          }
-        });
-        debug('loader', `  Drive_Cylinder "${drive.name}": In signal="${addr}"`);
-      }
-    }
-  }
-
-  // WebGPU compatibility fixes
+  // ── WebGPU compatibility fixes ──
   const isWebGPU = options?.isWebGPU ?? false;
   let uvFixCount = 0;
   let indexFixCount = 0;
@@ -844,7 +539,6 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     if (!(node as Mesh).isMesh) return;
     const geo = (node as Mesh).geometry as BufferGeometry;
 
-    // Fix 1: Add dummy UV attribute for meshes missing it
     if (!geo.attributes.uv && geo.attributes.position) {
       geo.setAttribute('uv', new BufferAttribute(
         new Float32Array(geo.attributes.position.count * 2), 2,
@@ -852,8 +546,6 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
       uvFixCount++;
     }
 
-    // Fix 2: Remove ALL index buffers on WebGPU (r171 bug: GPU buffer allocation uses element
-    // count instead of byte count for BOTH Uint16 and Uint32 index buffers).
     if (isWebGPU && geo.index) {
       const nonIndexed = geo.toNonIndexed();
       (node as Mesh).geometry = nonIndexed;
@@ -865,13 +557,12 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     console.log(`Geometry fixes: ${uvFixCount} missing UVs` + (indexFixCount > 0 ? `, ${indexFixCount} indexed->non-indexed (WebGPU)` : ''));
   }
 
-  // Compute bounding box
+  // ── Bounding box ──
   const boundingBox = new Box3().setFromObject(root);
 
-  // Compute BVH (Bounding Volume Hierarchy) for fast raycasting
+  // ── BVH for fast raycasting ──
   try {
     const { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } = await import('three-mesh-bvh');
-    // Patch Three.js prototypes for BVH-accelerated raycasting
     BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
     BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
     Mesh.prototype.raycast = acceleratedRaycast;
@@ -888,19 +579,15 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     console.warn('[loadGLB] BVH computation failed (three-mesh-bvh):', e);
   }
 
-  // Build DrivesPlayback if recording data found
+  // ── DrivesPlayback ──
   let playback: RVDrivesPlayback | null = null;
   const rec = recordingData as CompactRecording | null;
   const recSettings = recorderSettings as RecorderSettings | null;
   if (rec) {
     try {
-      // PlayOnStart plays once through the full recording (or frame range) then stops.
-      // Don't constrain frame range here — ReplayStartFrame/ReplayEndFrame are runtime
-      // values used by ReplayRecording sequences, not for initial playback limiting.
       playback = new RVDrivesPlayback(rec, registry, {
         loop: recSettings?.loop ?? false,
       });
-      // Set ActiveOnly from DrivesRecorder extras
       playback.activeOnly = recSettings?.activeOnly ?? 'Always';
       console.log(
         `  DrivesPlayback: ${rec.numberFrames} frames, ${rec.driveCount} drives, ` +
@@ -912,7 +599,7 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     }
   }
 
-  // Build ReplayRecording instances (signal-triggered sequence playback)
+  // ── ReplayRecording instances ──
   const replayRecordings: RVReplayRecording[] = [];
   if (playback && replayRecordingConfigs.length > 0) {
     for (const cfg of replayRecordingConfigs) {
@@ -927,15 +614,18 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     }
   }
 
-  // Build LogicStep engine from GLB hierarchy
+  // ── LogicStep engine ──
   let logicEngine: RVLogicEngine | null = null;
   const engine = RVLogicEngine.build(root, registry, signalStore);
   if (engine.roots.length > 0) {
     logicEngine = engine;
   }
 
-  // Print dev-mode parity warnings for unhandled GLB extras fields
+  // ── Parity summary ──
   printParitySummary();
+
+  // ── Build signal path index (all suffix variants pre-hashed for O(1) lookup) ──
+  signalStore.buildIndex();
 
   const regSize = registry.size;
   const stats = manager.stats;

@@ -66,8 +66,8 @@ export function CycleTimeChart({ open, onClose }: CycleTimeChartProps) {
       const ma = movingAverage(data, 10);
 
       // Zone boundaries in seconds
-      const greenUpper = taktS * 1.05;  // 31.5s
-      const amberUpper = taktS * 1.20;  // 36s
+      const greenUpper = taktS * 1.05;  // 126s at 120s takt
+      const amberUpper = taktS * 1.20;  // 144s at 120s takt
 
       chart.setOption(
         {

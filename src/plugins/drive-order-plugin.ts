@@ -32,8 +32,8 @@ export class DriveOrderPlugin implements RVViewerPlugin {
         ?? d.name;
       driveByPath.set(path, d);
 
-      const camExtras = d.config.behaviorExtras['Drive_CAM'];
-      const gearExtras = d.config.behaviorExtras['Drive_Gear'];
+      const camExtras = d.BehaviorExtras['Drive_CAM'];
+      const gearExtras = d.BehaviorExtras['Drive_Gear'];
       const masterRefs: string[] = [];
       if (camExtras?.['MasterDrive']) masterRefs.push(camExtras['MasterDrive'] as string);
       if (gearExtras?.['MasterDrive']) masterRefs.push(gearExtras['MasterDrive'] as string);

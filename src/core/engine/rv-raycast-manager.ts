@@ -18,14 +18,17 @@ import {
   Vector2,
   Vector3,
   Mesh,
+  InstancedMesh,
   Object3D,
   Layers,
+  Matrix4,
 } from 'three';
 import type { Camera, PerspectiveCamera, Scene } from 'three';
 import { RaycastLayers, type RaycastLayerName } from './rv-raycast-layers';
 import type { NodeRegistry } from './rv-node-registry';
 import type { RVHighlightManager } from './rv-highlight-manager';
 import type { RVDrive } from './rv-drive';
+import type { MUInstancePool, InstancedMovingUnit } from './rv-mu';
 
 /** Data emitted with 'object-hover'. */
 export interface ObjectHoverData {
@@ -76,6 +79,9 @@ export class RaycastManager {
   private _hoveredNodeType: string | null = null;
   /** Path of the currently hovered node. */
   private _hoveredNodePath: string | null = null;
+
+  /** Currently hovered instanced MU (for identity comparison). */
+  private _hoveredInstancedMU: InstancedMovingUnit | null = null;
 
   /** When false, hover raycasting is suppressed (e.g. during orbit/pinch). */
   private _enabled = true;
@@ -240,6 +246,7 @@ export class RaycastManager {
    * Perform a click/select raycast from a mouse/pointer event.
    * Returns the hovered node path, or null.
    * Does NOT alter hover state — this is for click handlers only.
+   * Respects the current layer mask (exclusive hover mode).
    */
   raycastForRVNode(e: MouseEvent): string | null {
     if (!this.registry) return null;
@@ -247,7 +254,8 @@ export class RaycastManager {
     this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-    // Use a fresh raycaster config for click (all scene click layers)
+    // Use enableAll for the raycast (layers are shared with rendering, so we
+    // can't use them for filtering). Instead we filter the resolved node type.
     const savedMask = this.raycaster.layers.mask;
     this.raycaster.layers.enableAll();
     this.raycaster.setFromCamera(this.pointer, this.camera);
@@ -256,15 +264,11 @@ export class RaycastManager {
 
     for (const hit of hits) {
       if (this._isExcluded(hit.object)) continue;
-      // Walk up from hit mesh to find nearest node with realvirtual data
-      let current: Object3D | null = hit.object;
-      while (current) {
-        const rv = current.userData?.realvirtual;
-        if (rv && typeof rv === 'object') {
-          const path = this.registry.getPathForNode(current);
-          if (path) return path;
-        }
-        current = current.parent;
+      const result = this._findRVAncestor(hit.object);
+      if (result) {
+        // Enforce exclusive hover mode for clicks too
+        if (!this._isTypeEnabled(result.nodeType)) continue;
+        return result.nodePath;
       }
     }
     return null;
@@ -356,6 +360,24 @@ export class RaycastManager {
     this._doRaycast();
   }
 
+  /** Map node type string (e.g. "Drive") to RaycastLayerName (e.g. "DRIVE"). */
+  private _nodeTypeToLayer(nodeType: string): RaycastLayerName | null {
+    const map: Record<string, RaycastLayerName> = { Drive: 'DRIVE', Sensor: 'SENSOR', MU: 'MU' };
+    return map[nodeType] ?? null;
+  }
+
+  /** Check if a node type is allowed by the current enabled hover types. */
+  private _isTypeEnabled(nodeType: string): boolean {
+    // If all standard types are enabled, allow everything (no filtering)
+    if (this._enabledTypes.has('DRIVE') && this._enabledTypes.has('SENSOR') && this._enabledTypes.has('MU')) {
+      return true;
+    }
+    const layer = this._nodeTypeToLayer(nodeType);
+    // Untyped nodes (no matching layer) are allowed when no exclusive mode is active
+    if (!layer) return true;
+    return this._enabledTypes.has(layer);
+  }
+
   /** Core raycast logic shared between pointer and XR. */
   private _doRaycast(): void {
     const hits = this.raycaster.intersectObjects(this.scene.children, true);
@@ -363,13 +385,31 @@ export class RaycastManager {
     let hitNode: Object3D | null = null;
     let hitType: string | null = null;
     let hitPath: string | null = null;
+    let hitInstancedMU: InstancedMovingUnit | null = null;
 
     for (const hit of hits) {
       if (!(hit.object as Mesh).isMesh) continue;
       if (this._isExcluded(hit.object)) continue;
 
+      // Check for InstancedMesh MU pool hit
+      const pool = hit.object.userData?._muPool as MUInstancePool | undefined;
+      if (pool && hit.instanceId !== undefined && hit.instanceId >= 0) {
+        if (!this._enabledTypes.has('MU')) continue;
+        const mu = pool.getMUAtSlot(hit.instanceId);
+        if (mu) {
+          hitNode = hit.object;
+          hitType = 'MU';
+          hitPath = mu.getName();
+          hitInstancedMU = mu;
+          break;
+        }
+        continue;
+      }
+
       const result = this._findRVAncestor(hit.object);
       if (result) {
+        // Enforce exclusive hover mode: skip nodes whose type is not enabled
+        if (!this._isTypeEnabled(result.nodeType)) continue;
         hitNode = result.node;
         hitType = result.nodeType;
         hitPath = result.nodePath;
@@ -382,13 +422,22 @@ export class RaycastManager {
       return;
     }
 
-    if (hitNode === this._hoveredNode) return;
+    if (hitNode === this._hoveredNode && !hitInstancedMU) return;
+    // For instanced MUs, check if same MU is still highlighted
+    if (hitInstancedMU && this._hoveredInstancedMU === hitInstancedMU) return;
 
     this._clearHover();
     this._hoveredNode = hitNode;
     this._hoveredNodeType = hitType;
     this._hoveredNodePath = hitPath;
-    this.highlighter.highlight(hitNode);
+    this._hoveredInstancedMU = hitInstancedMU;
+
+    if (hitInstancedMU) {
+      // Highlight instanced MU via temporary overlay at instance matrix
+      this.highlighter.highlightInstancedMU(hitInstancedMU);
+    } else {
+      this.highlighter.highlight(hitNode);
+    }
     this.renderer.domElement.style.cursor = 'pointer';
   }
 
@@ -470,6 +519,7 @@ export class RaycastManager {
       this._hoveredNode = null;
       this._hoveredNodeType = null;
       this._hoveredNodePath = null;
+      this._hoveredInstancedMU = null;
       this.renderer.domElement.style.cursor = '';
 
       this.emitter.emit('object-unhover', { node: prevNode, nodeType: prevType });

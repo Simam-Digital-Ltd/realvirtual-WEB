@@ -315,6 +315,111 @@ describe('NodeRegistry duplicate name handling', () => {
   });
 });
 
+// ─── registerAlias (Three.js name dedup) ─────────────────────────
+
+describe('NodeRegistry.registerAlias', () => {
+  it('should find renamed node via alias path', () => {
+    // Simulate Three.js renaming "Grip" → "Grip_1" for the second node
+    const root = new Object3D();
+    root.name = 'Scene';
+
+    const robot = new Object3D();
+    robot.name = 'Robot';
+    root.add(robot);
+
+    // Deep Grip (component, keeps name "Grip")
+    const tcp = new Object3D();
+    tcp.name = 'TCP';
+    robot.add(tcp);
+    const gripDeep = new Object3D();
+    gripDeep.name = 'Grip';
+    tcp.add(gripDeep);
+
+    // Signal Grip (renamed by Three.js to "Grip_1")
+    const gripSignal = new Object3D();
+    gripSignal.name = 'Grip_1'; // Three.js dedup
+    robot.add(gripSignal);
+
+    const registry = new NodeRegistry();
+    registerHierarchy(registry, root);
+
+    // Without alias: "Robot/Grip" resolves to the deep Grip via suffix
+    expect(registry.getNode('Robot/Grip')).toBeNull(); // suffix "Grip" candidates: "Robot/TCP/Grip" — doesn't endsWith "/Robot/Grip"
+
+    // Register alias for the original path
+    registry.registerAlias('Robot/Grip', gripSignal);
+
+    // Now "Robot/Grip" resolves to gripSignal via alias
+    expect(registry.getNode('Robot/Grip')).toBe(gripSignal);
+  });
+
+  it('should not overwrite existing node registration', () => {
+    const root = new Object3D();
+    root.name = 'Scene';
+    const a = new Object3D();
+    a.name = 'NodeA';
+    root.add(a);
+    const b = new Object3D();
+    b.name = 'NodeB';
+    root.add(b);
+
+    const registry = new NodeRegistry();
+    registerHierarchy(registry, root);
+
+    // Try to register alias with path that already exists
+    registry.registerAlias('NodeA', b);
+    // Should NOT overwrite — NodeA still points to 'a'
+    expect(registry.getNode('NodeA')).toBe(a);
+  });
+
+  it('should not affect nodePaths reverse lookup', () => {
+    const root = new Object3D();
+    root.name = 'Scene';
+    const node = new Object3D();
+    node.name = 'Grip_1';
+    root.add(node);
+
+    const registry = new NodeRegistry();
+    registerHierarchy(registry, root);
+
+    // Canonical path is "Grip_1"
+    expect(registry.getPathForNode(node)).toBe('Grip_1');
+
+    // Register alias
+    registry.registerAlias('Grip', node);
+
+    // Canonical path unchanged
+    expect(registry.getPathForNode(node)).toBe('Grip_1');
+    // But alias works
+    expect(registry.getNode('Grip')).toBe(node);
+  });
+
+  it('should resolve signal ComponentRef via alias', () => {
+    const root = new Object3D();
+    root.name = 'Scene';
+    const robot = new Object3D();
+    robot.name = 'Robot';
+    root.add(robot);
+    const gripSignal = new Object3D();
+    gripSignal.name = 'Grip_1'; // Renamed by Three.js
+    robot.add(gripSignal);
+
+    const registry = new NodeRegistry();
+    registerHierarchy(registry, root);
+    registry.registerAlias('Robot/Grip', gripSignal);
+
+    // Resolve signal ComponentRef with original C# path
+    const ref: ComponentRef = {
+      type: 'ComponentReference',
+      path: 'Robot/Grip',
+      componentType: 'realvirtual.PLCOutputBool',
+    };
+    const result = registry.resolve(ref);
+    // Should resolve to the canonical path (Grip_1), not the alias
+    expect(result.signalAddress).toBe('Robot/Grip_1');
+  });
+});
+
 // ─── resolve (ComponentReference) ─────────────────────────────────
 
 describe('NodeRegistry.resolve', () => {

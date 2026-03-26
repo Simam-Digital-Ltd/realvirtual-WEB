@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Object3D, Vector3, Mesh, BoxGeometry, MeshBasicMaterial } from 'three';
-import { RVDrive, DriveDirection, type DriveConfig } from '../src/core/engine/rv-drive';
+import { RVDrive, DriveDirection } from '../src/core/engine/rv-drive';
 import { RVMovingUnit } from '../src/core/engine/rv-mu';
 import {
   loadVisualSettings,
@@ -21,25 +21,33 @@ import { setAppConfig } from '../src/core/hmi/rv-app-config';
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-function createTestDrive(overrides?: Partial<DriveConfig>): RVDrive {
+function createTestDrive(overrides?: Partial<{
+  Direction: typeof DriveDirection[keyof typeof DriveDirection];
+  ReverseDirection: boolean;
+  Offset: number;
+  StartPosition: number;
+  TargetSpeed: number;
+  Acceleration: number;
+  UseAcceleration: boolean;
+  UseLimits: boolean;
+  LowerLimit: number;
+  UpperLimit: number;
+}>): RVDrive {
   const node = new Object3D();
   node.name = 'TestDrive';
-  const config: DriveConfig = {
-    direction: DriveDirection.LinearX,
-    reverseDirection: false,
-    offset: 0,
-    startPosition: 0,
-    targetSpeed: 100,
-    acceleration: 100,
-    useAcceleration: false,
-    useLimits: false,
-    lowerLimit: -180,
-    upperLimit: 180,
-    behaviors: [],
-    behaviorExtras: {},
-    ...overrides,
-  };
-  return new RVDrive(node, config);
+  const drive = new RVDrive(node);
+  drive.Direction = overrides?.Direction ?? DriveDirection.LinearX;
+  drive.ReverseDirection = overrides?.ReverseDirection ?? false;
+  drive.Offset = overrides?.Offset ?? 0;
+  drive.StartPosition = overrides?.StartPosition ?? 0;
+  drive.TargetSpeed = overrides?.TargetSpeed ?? 100;
+  drive.Acceleration = overrides?.Acceleration ?? 100;
+  drive.UseAcceleration = overrides?.UseAcceleration ?? false;
+  drive.UseLimits = overrides?.UseLimits ?? false;
+  drive.LowerLimit = overrides?.LowerLimit ?? -180;
+  drive.UpperLimit = overrides?.UpperLimit ?? 180;
+  drive.initDrive();
+  return drive;
 }
 
 // ─── Drive Idle Guard (Phase 2.1) ───────────────────────────────────────

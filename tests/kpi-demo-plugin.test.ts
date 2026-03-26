@@ -50,11 +50,11 @@ describe('KpiDemoPlugin', () => {
     plugin.cycleTimeData.forEach(v => expect(v).toBeGreaterThan(0));
   });
 
-  test('Cycle times within plausible range (10s to 120s)', () => {
+  test('Cycle times within plausible range (80s to 300s)', () => {
     const plugin = new KpiDemoPlugin();
     plugin.cycleTimeData.forEach(v => {
-      expect(v).toBeGreaterThan(10000);
-      expect(v).toBeLessThan(120000);
+      expect(v).toBeGreaterThanOrEqual(80000);
+      expect(v).toBeLessThanOrEqual(300000);
     });
   });
 

@@ -134,28 +134,28 @@ function generatePartsDummyData(): PartsHourBucket[] {
 
 function generateCycleTimeDummyData(): number[] {
   const rand = seededRandom(777);
-  const takt = 30000; // 30s in ms
+  const base = 129000; // 129s base cycle time (slightly above 120s takt → ~28 parts/h)
   const cycles: number[] = [];
 
   for (let i = 0; i < 100; i++) {
-    let ct = takt;
+    let ct = base;
 
-    // Normal noise ±0.8s
-    ct += (rand() - 0.5) * 1600;
+    // Normal noise ±3s
+    ct += (rand() - 0.5) * 6000;
 
-    // Warmup: first 5 cycles +25%
-    if (i < 5) ct += takt * 0.25 * (1 - i / 5);
+    // Warmup: first 5 cycles +20%
+    if (i < 5) ct += base * 0.20 * (1 - i / 5);
 
-    // Gradual drift +1.5s over 100 cycles (tool wear)
-    ct += (i / 100) * 1500;
+    // Gradual drift +5s over 100 cycles (tool wear)
+    ct += (i / 100) * 5000;
 
-    // 3% spike chance (+80% of takt)
-    if (rand() < 0.03) ct += takt * 0.8;
+    // 3% spike chance (+50% of base)
+    if (rand() < 0.03) ct += base * 0.5;
 
-    // Random variation ±1s
-    ct += (rand() - 0.5) * 2000;
+    // Random variation ±4s
+    ct += (rand() - 0.5) * 8000;
 
-    cycles.push(Math.round(clamp(ct, 10000, 120000)));
+    cycles.push(Math.round(clamp(ct, 80000, 300000)));
   }
 
   return cycles;
@@ -255,8 +255,8 @@ export class KpiDemoPlugin implements RVViewerPlugin {
 
   /** Target parts per hour for the Parts/H chart. */
   readonly partsTarget = 30;
-  /** Takt time in ms for the Cycle Time chart. */
-  readonly taktTimeMs = 30000;
+  /** Takt time in ms for the Cycle Time chart (120s = 30 parts/h target). */
+  readonly taktTimeMs = 120000;
 
   constructor() {
     this.oeeData = generateOeeDummyData();

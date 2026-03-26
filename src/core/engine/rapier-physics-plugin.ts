@@ -21,7 +21,7 @@ import type { AABB } from './rv-aabb';
 import type { RVTransportSurface } from './rv-transport-surface';
 import type { RVSensor } from './rv-sensor';
 import type { RVSink } from './rv-sink';
-import type { RVMovingUnit } from './rv-mu';
+import type { RVMovingUnit, InstancedMovingUnit, MUInstancePool } from './rv-mu';
 import type { RVTransportManager } from './rv-transport-manager';
 import {
   Vector3, Quaternion, MathUtils, Box3,
@@ -53,19 +53,30 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
   private _surfaceIds = new Map<RVTransportSurface, string>();
   /** Maps sensor node name/path → sensor ID used in physics world */
   private _sensorIds = new Map<RVSensor, string>();
-  /** Maps MU ID → RVMovingUnit instance (for sync and removal) */
-  private _muMap = new Map<string, RVMovingUnit>();
+  /** Maps MU ID → MU instance (for sync and removal) */
+  private _muMap = new Map<string, RVMovingUnit | InstancedMovingUnit>();
   /** Maps sensor ID → RVSensor (for event dispatch) */
   private _sensorLookup = new Map<string, RVSensor>();
   /** Maps sink sensor ID → RVSink */
   private _sinkSensors = new Map<string, RVSink>();
   /** MU ID counter for unique identification */
   private _muIdCounter = 0;
-  /** Maps RVMovingUnit → MU ID in physics world */
-  private _muToId = new Map<RVMovingUnit, string>();
+  /** Maps MU → MU ID in physics world */
+  private _muToId = new Map<RVMovingUnit | InstancedMovingUnit, string>();
 
   /** Node sync map: MU ID → { position, quaternion } for Rapier → Three.js sync */
   private _nodeSyncMap = new Map<string, { position: Vector3; quaternion: Quaternion }>();
+
+  /**
+   * Instanced MU sync entries: muId → { mu, syncPos, syncQuat }.
+   * After Rapier sync(), these values must be pushed back to the pool's Float32Arrays.
+   * Clone-based MUs don't need this — sync writes directly to node.position/quaternion.
+   */
+  private _instancedSyncEntries = new Map<string, {
+    mu: InstancedMovingUnit;
+    syncPos: Vector3;
+    syncQuat: Quaternion;
+  }>();
 
   /** Cache last conveyor speed per surface to avoid redundant Rapier calls */
   private _lastSpeed = new Map<RVTransportSurface, number>();
@@ -194,7 +205,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       // Speed in m/s (currentSpeed is in mm/s)
       const speedMs = surface.speed / 1000;
       // Pre-normalize and cache transport direction (avoid clone().normalize() GC in hot path)
-      _tmpVec3.copy(surface.config.transportDirection).normalize();
+      _tmpVec3.copy(surface.TransportDirection).normalize();
       const dir = { x: _tmpVec3.x, y: _tmpVec3.y, z: _tmpVec3.z };
       this._cachedDirs.set(surface, dir);
 
@@ -218,7 +229,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
 
     // Build sensors as fixed bodies with sensor colliders
     for (const sensor of tm.sensors) {
-      if (sensor.config.mode === 'Collision') {
+      if (sensor.mode === 'Collision') {
         const sensorId = `sensor_${sensor.node.name}_${sensor.node.id}`;
         this._sensorIds.set(sensor, sensorId);
         this._sensorLookup.set(sensorId, sensor);
@@ -298,7 +309,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
         tm.mus.push(mu);
         tm.totalSpawned++;
         this._addMUToPhysics(mu);
-        debug('transport', `[Rapier] Source "${source.node.name}" spawned MU "${mu.node.name}"`);
+        debug('transport', `[Rapier] Source "${source.node.name}" spawned MU "${mu.getName()}"`);
       }
     }
 
@@ -313,10 +324,10 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       this._lastSpeed.set(surface, surface.speed);
 
       const speedMs = surface.speed / 1000;
-      if (surface.config.isRadial) {
+      if (surface.Radial) {
         // Radial: angular velocity
         const angularSpeed = MathUtils.degToRad(surface.speed); // speed is in deg/s for radial
-        const dir = surface.config.transportDirection;
+        const dir = surface.TransportDirection;
         this._physicsWorld.updateConveyorAngularVelocity(
           surfaceId,
           { x: dir.x, y: dir.y, z: dir.z },
@@ -339,13 +350,26 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     // 4. Sync physics → Three.js (sync writes world positions to local position refs)
     this._physicsWorld.sync(this._nodeSyncMap);
 
-    // 4b. Convert synced world positions to parent-local space
-    // (sync() writes Rapier world-space positions directly; if the MU's parent
-    //  has a non-identity transform, we must convert to local space)
+    // 4a. Push synced values from dedicated sync vectors back to instanced MU pools.
+    // For clone MUs, sync() writes directly to node.position/quaternion (by reference).
+    // For instanced MUs, sync() writes to dedicated Vector3/Quaternion objects;
+    // we must push those values to the pool's Float32Arrays.
+    for (const entry of this._instancedSyncEntries.values()) {
+      if (!entry.mu.markedForRemoval) {
+        entry.mu.setPosition(entry.syncPos);
+        entry.mu.setQuaternion(entry.syncQuat);
+      }
+    }
+
+    // 4b. Convert synced world positions to parent-local space (clone MUs only).
+    // Clone MUs live in the scene graph with potentially non-identity parent transforms.
+    // Instanced MUs store world-space positions directly (pool's Float32Arrays).
     for (const mu of tm.mus) {
-      if (!mu.markedForRemoval && mu.node.parent) {
+      if (!mu.markedForRemoval && !mu.isInstanced && mu.node.parent) {
         mu.node.parent.updateWorldMatrix(true, false);
-        mu.node.parent.worldToLocal(mu.node.position);
+        const pos = mu.getPosition();
+        mu.node.parent.worldToLocal(pos);
+        mu.setPosition(pos);
       }
     }
 
@@ -361,7 +385,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
 
     // 7. Raycast sensors (use Rapier ray queries)
     for (const sensor of tm.sensors) {
-      if (sensor.config.mode === 'Raycast') {
+      if (sensor.mode === 'Raycast') {
         this._updateRaycastSensor(sensor, tm.mus);
       }
     }
@@ -372,7 +396,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       const mu = this._muMap.get(muId);
       if (mu && !mu.markedForRemoval) {
         mu.markedForRemoval = true;
-        debug('transport', `[Rapier] MU "${mu.node.name}" fell out of bounds, removing`);
+        debug('transport', `[Rapier] MU "${mu.getName()}" fell out of bounds, removing`);
       }
     }
 
@@ -388,6 +412,9 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
         tm.mus.pop();
       }
     }
+
+    // 10. Batch-update instance pool matrices after all physics position changes
+    tm.updatePoolMatrices();
   }
 
   onModelCleared(): void {
@@ -400,14 +427,14 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
 
   // ─── Private Helpers ──────────────────────────────────────────
 
-  private _addMUToPhysics(mu: RVMovingUnit): void {
+  private _addMUToPhysics(mu: RVMovingUnit | InstancedMovingUnit): void {
     if (!this._physicsWorld) return;
 
     const muId = `mu_${this._muIdCounter++}`;
     this._muMap.set(muId, mu);
     this._muToId.set(mu, muId);
 
-    mu.node.getWorldPosition(_muWorldPos);
+    mu.getWorldPosition(_muWorldPos);
 
     this._physicsWorld.addMU(
       muId,
@@ -415,14 +442,23 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       { x: mu.aabb.halfSize.x, y: mu.aabb.halfSize.y, z: mu.aabb.halfSize.z },
     );
 
-    // Register for sync
-    this._nodeSyncMap.set(muId, {
-      position: mu.node.position,
-      quaternion: mu.node.quaternion,
-    });
+    if (mu.isInstanced) {
+      // Instanced MU: create dedicated Vector3/Quaternion for Rapier to write into.
+      // After sync(), we push these values back to the pool's Float32Arrays.
+      const syncPos = mu.getWorldPosition(new Vector3());
+      const syncQuat = mu.getQuaternion().clone();
+      this._nodeSyncMap.set(muId, { position: syncPos, quaternion: syncQuat });
+      this._instancedSyncEntries.set(muId, { mu: mu as InstancedMovingUnit, syncPos, syncQuat });
+    } else {
+      // Clone MU: sync writes directly to node.position/quaternion (by reference)
+      this._nodeSyncMap.set(muId, {
+        position: mu.getPosition(),
+        quaternion: mu.getQuaternion(),
+      });
+    }
   }
 
-  private _removeMUFromPhysics(mu: RVMovingUnit): void {
+  private _removeMUFromPhysics(mu: RVMovingUnit | InstancedMovingUnit): void {
     if (!this._physicsWorld) return;
 
     const muId = this._muToId.get(mu);
@@ -432,6 +468,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     this._muMap.delete(muId);
     this._muToId.delete(mu);
     this._nodeSyncMap.delete(muId);
+    this._instancedSyncEntries.delete(muId);
   }
 
   private _handleSensorEvent(sensor: RVSensor, sensorId: string, muId: string, entered: boolean): void {
@@ -440,7 +477,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     const occupantCount = this._physicsWorld.getSensorOccupantCount(sensorId);
     const wasOccupied = sensor.occupied;
     const rawOccupied = occupantCount > 0;
-    const newOccupied = sensor.config.invertSignal ? !rawOccupied : rawOccupied;
+    const newOccupied = sensor.invertSignal ? !rawOccupied : rawOccupied;
 
     // Update occupiedMU reference
     if (rawOccupied) {
@@ -464,10 +501,10 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
 
     mu.markedForRemoval = true;
     sink.onConsumed?.(mu, sink);
-    debug('transport', `[Rapier] Sink "${sink.node.name}" consumed MU "${mu.node.name}"`);
+    debug('transport', `[Rapier] Sink "${sink.node.name}" consumed MU "${mu.getName()}"`);
   }
 
-  private _updateRaycastSensor(sensor: RVSensor, mus: RVMovingUnit[]): void {
+  private _updateRaycastSensor(sensor: RVSensor, mus: (RVMovingUnit | InstancedMovingUnit)[]): void {
     if (!this._physicsWorld) {
       // Fallback to AABB raycast
       sensor.checkOverlap(mus);
@@ -475,9 +512,8 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     }
 
     // Compute world-space ray
-    const cfg = sensor.config;
-    const d = cfg.rayCastDirection ?? { x: -1, y: 0, z: 0 };
-    const maxDist = (cfg.rayCastLength ?? 1000) / 1000; // mm → meters
+    const d = sensor.RayCastDirection;
+    const maxDist = sensor.RayCastLength / 1000; // mm → meters
 
     sensor.node.updateWorldMatrix(true, false);
     // Use pre-allocated vectors to avoid GC in hot path
@@ -492,7 +528,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
 
     const foundMU = hit?.muId ? (this._muMap.get(hit.muId) ?? null) : null;
     const rawOccupied = foundMU !== null;
-    const newOccupied = cfg.invertSignal ? !rawOccupied : rawOccupied;
+    const newOccupied = sensor.invertSignal ? !rawOccupied : rawOccupied;
 
     if (newOccupied !== sensor.occupied) {
       sensor.occupied = newOccupied;
@@ -649,6 +685,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     this._muMap.clear();
     this._muToId.clear();
     this._nodeSyncMap.clear();
+    this._instancedSyncEntries.clear();
     this._muIdCounter = 0;
   }
 }
