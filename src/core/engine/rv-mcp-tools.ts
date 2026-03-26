@@ -8,10 +8,10 @@
  * Usage:
  *   class MyPlugin extends RVBehavior {
  *     @McpTool("List all drives with positions")
- *     async wvDriveList(): Promise<string> { ... }
+ *     async webDriveList(): Promise<string> { ... }
  *
  *     @McpTool("Set a boolean signal")
- *     async wvSignalSetBool(
+ *     async webSignalSetBool(
  *       @McpParam("name", "Signal name") name: string,
  *       @McpParam("value", "Value to set", "boolean") value: boolean
  *     ): Promise<string> { ... }
@@ -86,7 +86,7 @@ function getParamEntries(target: object): Map<string, Map<number, ParamEntry>> {
 // ── Helpers ──
 
 /** Convert camelCase to snake_case. */
-function toSnakeCase(str: string): string {
+export function toSnakeCase(str: string): string {
   return str
     .replace(/([A-Z])/g, '_$1')
     .toLowerCase()

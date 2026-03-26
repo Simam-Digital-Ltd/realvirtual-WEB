@@ -11,6 +11,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
+    "experimentalDecorators": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["src"]

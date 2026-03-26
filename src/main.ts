@@ -266,6 +266,12 @@ async function init() {
     const { DebugEndpointPlugin } = await import('./plugins/debug-endpoint-plugin');
     viewer.use(new DebugEndpointPlugin());
   }
+
+  // --- MCP bridge: DEV mode or ?mcp=1 URL param ---
+  if (import.meta.env.DEV || params.has('mcp')) {
+    const { McpBridgePlugin } = await import('./plugins/mcp-bridge-plugin');
+    viewer.use(new McpBridgePlugin());
+  }
 }
 
 init().catch(console.error);
