@@ -359,6 +359,18 @@ export class NodeRegistry {
     return results;
   }
 
+  /** Get component types registered at a path. Returns empty array if none. */
+  getComponentTypes(path: string): string[] {
+    const compMap = this.components.get(path);
+    return compMap ? [...compMap.keys()] : [];
+  }
+
+  /** Get all component instances at a path as [type, instance] pairs. */
+  getComponentsAt(path: string): Array<[string, unknown]> {
+    const compMap = this.components.get(path);
+    return compMap ? [...compMap.entries()] : [];
+  }
+
   // ─── Iteration ─────────────────────────────────────────────────
 
   /** Iterate all registered nodes with their paths. */

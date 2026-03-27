@@ -86,7 +86,7 @@ export function ButtonPanel() {
             <Circle sx={{ fontSize: 6, color: '#66bb6a' }} />
             {!isMobile && (
               <Typography sx={{ fontSize: 10, fontWeight: 500, color: 'rgba(102,187,106,0.85)', letterSpacing: 0.3 }}>
-                mcp
+                ai
               </Typography>
             )}
           </Box>

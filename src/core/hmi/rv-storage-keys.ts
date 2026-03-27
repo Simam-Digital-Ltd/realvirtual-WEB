@@ -20,6 +20,7 @@ export const ALL_RV_STORAGE_KEYS = [
   'rv-inspector-consumed-only',
   'rv-group-visibility',
   'rv-maintenance-progress',
+  'rv-ai-bridge',
 ] as const;
 
 /**

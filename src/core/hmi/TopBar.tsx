@@ -158,7 +158,7 @@ export function TopBar() {
             {!isTabLocked('interfaces') && <Tab label="Interfaces" value={3} />}
             {!isTabLocked('devtools') && <Tab label="Dev Tools" value={4} />}
             {!isTabLocked('tests') && <Tab label="Tests" value={5} />}
-            {!isTabLocked('mcp') && viewer.getPlugin('mcp-bridge') && <Tab label="MCP" value={6} />}
+            {!isTabLocked('mcp') && viewer.getPlugin('mcp-bridge') && <Tab label="AI" value={6} />}
           </Tabs>
 
           {/* Tab content - minHeight: 0 for correct flexbox scrolling */}
@@ -180,7 +180,7 @@ export function TopBar() {
 /* ─── VR/AR Modal ─── */
 
 function VRModal({ onClose }: { onClose: () => void }) {
-  const vrUrl = 'https://files.realvirtual.io/vr';
+  const vrUrl = window.location.origin + window.location.pathname;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&bgcolor=121212&color=ffffff&data=${encodeURIComponent(vrUrl)}`;
 
   return (
@@ -1487,7 +1487,7 @@ function McpTab() {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {/* Enable toggle */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="body2" sx={{ fontWeight: 500 }}>MCP Bridge</Typography>
+        <Typography variant="body2" sx={{ fontWeight: 500 }}>AI Bridge</Typography>
         <Switch size="small" checked={mcp.enabled}
           onChange={(_, v) => mcpPlugin?.setEnabled(v)} />
       </Box>
@@ -1523,6 +1523,23 @@ function McpTab() {
           sx={{ alignSelf: 'flex-start', textTransform: 'none' }}>
           Retry Now
         </Button>
+      )}
+
+      {/* Tool list */}
+      {mcp.toolNames.length > 0 && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+            Registered Tools ({mcp.toolNames.length})
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, pl: 1 }}>
+            {mcp.toolNames.map(name => (
+              <Typography key={name} variant="caption"
+                sx={{ fontFamily: 'monospace', fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>
+                {name}
+              </Typography>
+            ))}
+          </Box>
+        </Box>
       )}
     </Box>
   );

@@ -60,9 +60,36 @@ export interface McpBridgeSnapshot {
   connected: boolean;
   port: string;
   toolCount: number;
+  toolNames: string[];
   enabled: boolean;
   reconnectAttempt: number;
   reconnectDelay: number;
+}
+
+// ── Persistence ──
+
+const STORAGE_KEY = 'rv-ai-bridge';
+
+interface AiBridgeSettings {
+  enabled: boolean;
+  port: string;
+}
+
+function loadSettings(): AiBridgeSettings {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { enabled: true, port: '18712' };
+    const parsed = JSON.parse(raw) as Partial<AiBridgeSettings>;
+    return {
+      enabled: parsed.enabled !== false,
+      port: parsed.port || '18712',
+    };
+  } catch { return { enabled: true, port: '18712' }; }
+}
+
+function saveSettings(settings: AiBridgeSettings): void {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
+  catch { /* quota exceeded */ }
 }
 
 // ── Plugin ──
@@ -95,6 +122,7 @@ export class McpBridgePlugin extends RVBehavior {
       connected: this.mcpConnected,
       port: this._currentPort,
       toolCount: this.mcpToolCount,
+      toolNames: this.mcpToolNames,
       enabled: this.mcpEnabled,
       reconnectAttempt: this._reconnectAttempt,
       reconnectDelay: this._reconnectDelay,
@@ -111,6 +139,7 @@ export class McpBridgePlugin extends RVBehavior {
     this._reconnectDelay = 1000;
     this._destroyed = false;
     this._connect();
+    this._saveSettings();
   }
 
   /** Enable or disable the MCP bridge. */
@@ -126,15 +155,24 @@ export class McpBridgePlugin extends RVBehavior {
       }
       this._disconnect();
     }
+    this._saveSettings();
     this._emitChanged();
+  }
+
+  private _saveSettings(): void {
+    saveSettings({ enabled: !this._destroyed, port: this._currentPort });
   }
 
   // ── Lifecycle ──
 
   protected onStart(_result: LoadResult): void {
-    this._destroyed = false;
-    this._currentPort = new URLSearchParams(window.location.search).get('mcpPort') || '18712';
-    this._connect();
+    const saved = loadSettings();
+    this._currentPort = new URLSearchParams(window.location.search).get('mcpPort') || saved.port;
+    this._destroyed = !saved.enabled;
+    if (saved.enabled) {
+      this._connect();
+    }
+    this._emitChanged();
   }
 
   protected onDestroy(): void {
@@ -158,14 +196,24 @@ export class McpBridgePlugin extends RVBehavior {
       return;
     }
     this._ws.onopen = () => {
+      console.debug('[McpBridge] Connected to', `ws://localhost:${this._currentPort}/webviewer`);
       this._reconnectAttempt = 0;
+      this._reconnectDelay = 1000;
       this._sendDiscover();
       this._emitChanged();
     };
     this._ws.onmessage = (e) => { this._handleMessage(e.data); };
     this._ws.onerror = () => {};  // suppress console noise; onclose handles reconnect
-    this._ws.onclose = () => {
+    this._ws.onclose = (ev) => {
+      console.debug(`[McpBridge] Connection closed: code=${ev.code} reason="${ev.reason}"`);
       this._emitChanged();
+      // Code 1008 = "Another tab connected" — server kicked us because a newer tab took over.
+      // Do NOT reconnect: the other tab is the active client now.
+      if (ev.code === 1008) {
+        console.debug('[McpBridge] Another tab took over, stopping reconnect');
+        this._destroyed = true;
+        return;
+      }
       this._scheduleReconnect();
     };
   }
@@ -267,8 +315,13 @@ export class McpBridgePlugin extends RVBehavior {
     this._ws.send(JSON.stringify(msg));
   }
 
+  /** Get tool names registered via @McpTool decorators. */
+  get mcpToolNames(): string[] {
+    return this._dispatcher ? [...this._dispatcher.keys()] : [];
+  }
+
   // ═══════════════════════════════════════════════════════════════════
-  // @McpTool Definitions (11 tools)
+  // @McpTool Definitions
   // ═══════════════════════════════════════════════════════════════════
 
   @McpTool('Get WebViewer status: connection, FPS, model info, component counts')
@@ -440,5 +493,124 @@ export class McpBridgePlugin extends RVBehavior {
       }));
     }
     return JSON.stringify(getLastLogs(100));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Generic Component & Node Tools
+  // ═══════════════════════════════════════════════════════════════════
+
+  @McpTool('Search nodes by name (case-insensitive substring match). Returns paths and component types.')
+  async webFind(
+    @McpParam('term', 'Search term (matched against node name, case-insensitive)') term: string,
+  ): Promise<string> {
+    const reg = this.viewer?.registry;
+    if (!reg) return JSON.stringify({ error: 'No registry available' });
+    const results = reg.search(term);
+    return JSON.stringify(results.map(r => ({
+      path: r.path,
+      name: r.path.substring(r.path.lastIndexOf('/') + 1),
+      types: r.types,
+    })));
+  }
+
+  @McpTool('Get scene hierarchy tree from a root path (or entire scene). Returns nested children with component types.')
+  async webHierarchy(
+    @McpParam('root', 'Root path to start from (empty = entire scene)', 'string', false) root: string,
+    @McpParam('depth', 'Max depth to traverse (default 3)', 'integer', false) depth: number,
+  ): Promise<string> {
+    const reg = this.viewer?.registry;
+    if (!reg) return JSON.stringify({ error: 'No registry available' });
+
+    const maxDepth = depth || 3;
+    const scene = this.viewer?.scene;
+    if (!scene) return JSON.stringify({ error: 'No scene loaded' });
+
+    let startNode = root ? reg.getNode(root) : scene;
+    if (!startNode) return JSON.stringify({ error: `Node not found: "${root}"` });
+
+    const buildTree = (node: import('three').Object3D, d: number): object | null => {
+      const path = reg.getPathForNode(node);
+      const types = path ? reg.getComponentTypes(path) : [];
+      const entry: Record<string, unknown> = {
+        name: node.name,
+        path: path ?? node.name,
+        types,
+      };
+      if (d < maxDepth && node.children.length > 0) {
+        entry.children = node.children
+          .map(c => buildTree(c, d + 1))
+          .filter(Boolean);
+      } else if (node.children.length > 0) {
+        entry.childCount = node.children.length;
+      }
+      return entry;
+    };
+
+    return JSON.stringify(buildTree(startNode, 0));
+  }
+
+  @McpTool('Get all components on a node by path. Returns component types and their properties.')
+  async webComponentGetAll(
+    @McpParam('path', 'Full hierarchy path of the node') path: string,
+  ): Promise<string> {
+    const reg = this.viewer?.registry;
+    if (!reg) return JSON.stringify({ error: 'No registry available' });
+
+    const node = reg.getNode(path);
+    if (!node) return JSON.stringify({ error: `Node not found: "${path}"` });
+
+    const nodePath = reg.getPathForNode(node) ?? path;
+    const entries = reg.getComponentsAt(nodePath);
+    if (entries.length === 0) {
+      return JSON.stringify({ path: nodePath, components: [] });
+    }
+
+    const components = entries.map(([type, instance]) => ({
+      type,
+      properties: serializeProps(instance, 2),
+    }));
+    return JSON.stringify({ path: nodePath, components });
+  }
+
+  @McpTool('Get a specific component on a node by path and type. Returns component properties.')
+  async webComponentGet(
+    @McpParam('path', 'Full hierarchy path of the node') path: string,
+    @McpParam('type', 'Component type name (e.g. Drive, Sensor, TransportSurface, Source, Sink, Grip, GripTarget)') type: string,
+  ): Promise<string> {
+    const reg = this.viewer?.registry;
+    if (!reg) return JSON.stringify({ error: 'No registry available' });
+
+    const instance = reg.getByPath(type, path);
+    if (!instance) return JSON.stringify({ error: `Component "${type}" not found at "${path}"` });
+
+    return JSON.stringify({
+      path,
+      type,
+      properties: serializeProps(instance, 2),
+    });
+  }
+
+  @McpTool('Get all components of a given type across the entire scene. Returns paths and properties.')
+  async webComponentsByType(
+    @McpParam('type', 'Component type name (e.g. Drive, Sensor, TransportSurface, Source, Sink, Grip, GripTarget)') type: string,
+  ): Promise<string> {
+    const reg = this.viewer?.registry;
+    if (!reg) return JSON.stringify({ error: 'No registry available' });
+
+    const all = reg.getAll(type);
+    if (all.length === 0) {
+      // List available types for discoverability
+      const stats = reg.size;
+      return JSON.stringify({
+        error: `No components of type "${type}" found`,
+        availableTypes: stats.types,
+      });
+    }
+
+    return JSON.stringify(all.map(({ path, instance }) => ({
+      path,
+      name: path.substring(path.lastIndexOf('/') + 1),
+      properties: serializeProps(instance, 1),
+    })));
   }
 }

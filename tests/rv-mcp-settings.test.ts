@@ -270,7 +270,7 @@ describe('McpBridgePlugin - State Extension', () => {
     expect(plugin.mcpToolCount).toBe(expectedSize);
   });
 
-  it('snapshot contains all 6 McpBridgeSnapshot fields with correct types', () => {
+  it('snapshot contains all 7 McpBridgeSnapshot fields with correct types', () => {
     const { plugin, viewer } = setupPlugin();
     const p = internals(plugin);
 
@@ -286,10 +286,11 @@ describe('McpBridgePlugin - State Extension', () => {
     expect(viewer.emit).toHaveBeenCalledOnce();
     const snapshot = viewer.emit.mock.calls[0][1] as McpBridgeSnapshot;
 
-    // Verify all 6 fields exist and have correct types
+    // Verify all 7 fields exist and have correct types
     expect(typeof snapshot.connected).toBe('boolean');
     expect(typeof snapshot.port).toBe('string');
     expect(typeof snapshot.toolCount).toBe('number');
+    expect(Array.isArray(snapshot.toolNames)).toBe(true);
     expect(typeof snapshot.enabled).toBe('boolean');
     expect(typeof snapshot.reconnectAttempt).toBe('number');
     expect(typeof snapshot.reconnectDelay).toBe('number');
@@ -298,14 +299,15 @@ describe('McpBridgePlugin - State Extension', () => {
     expect(snapshot.connected).toBe(true);
     expect(snapshot.port).toBe('19999');
     expect(snapshot.toolCount).toBeGreaterThan(0);
+    expect(snapshot.toolNames.length).toBeGreaterThan(0);
     expect(snapshot.enabled).toBe(true);
     expect(snapshot.reconnectAttempt).toBe(3);
     expect(snapshot.reconnectDelay).toBe(4000);
 
-    // Verify exactly 6 keys (no extra, no missing)
-    expect(Object.keys(snapshot)).toHaveLength(6);
+    // Verify exactly 7 keys (no extra, no missing)
+    expect(Object.keys(snapshot)).toHaveLength(7);
     expect(Object.keys(snapshot).sort()).toEqual(
-      ['connected', 'enabled', 'port', 'reconnectAttempt', 'reconnectDelay', 'toolCount'],
+      ['connected', 'enabled', 'port', 'reconnectAttempt', 'reconnectDelay', 'toolCount', 'toolNames'],
     );
   });
 });

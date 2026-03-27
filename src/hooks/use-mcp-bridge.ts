@@ -14,6 +14,7 @@ const INITIAL: McpBridgeSnapshot = {
   connected: false,
   port: '18712',
   toolCount: 0,
+  toolNames: [],
   enabled: false,
   reconnectAttempt: 0,
   reconnectDelay: 0,
