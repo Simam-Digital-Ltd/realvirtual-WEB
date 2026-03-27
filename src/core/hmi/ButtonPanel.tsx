@@ -3,12 +3,14 @@ import { Box, Paper, Typography } from '@mui/material';
 import { Circle } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useSlot } from '../../hooks/use-slot';
+import { useMcpBridge } from '../../hooks/use-mcp-bridge';
 import { RvExtrasEditorPlugin, HIERARCHY_DEFAULT_WIDTH } from './rv-extras-editor';
 import { SETTINGS_PANEL_WIDTH, INSPECTOR_PANEL_WIDTH } from './layout-constants';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { WelcomeModal } from './WelcomeModal';
 
-import logoUrl from '/logo.png?url';
+/* Logo URL: use BASE_URL so it resolves correctly under sub-folder deploys (e.g. Bunny CDN /demo/) */
+const logoUrl = `${import.meta.env.BASE_URL}logo.png`;
 
 const EMPTY_SNAPSHOT = { panelOpen: false, panelWidth: HIERARCHY_DEFAULT_WIDTH, overlay: null, editableNodes: [], selectedNodePath: null, revealPath: null, showInspector: false, settingsOpen: false };
 const NOOP_UNSUB = () => () => {};
@@ -27,6 +29,7 @@ export function ButtonPanel() {
   );
 
   const isMobile = useMobileLayout();
+  const mcp = useMcpBridge();
 
   // Read leftPanelManager for panels managed outside of the extras-editor plugin
   const lpm = viewer.leftPanelManager;
@@ -78,6 +81,16 @@ export function ButtonPanel() {
             </Typography>
           )}
         </Box>
+        {mcp.connected && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
+            <Circle sx={{ fontSize: 6, color: '#66bb6a' }} />
+            {!isMobile && (
+              <Typography sx={{ fontSize: 10, fontWeight: 500, color: 'rgba(102,187,106,0.85)', letterSpacing: 0.3 }}>
+                mcp
+              </Typography>
+            )}
+          </Box>
+        )}
       </Paper>
 
       {/* Button group — vertical sidebar on desktop, horizontal bottom bar on mobile */}

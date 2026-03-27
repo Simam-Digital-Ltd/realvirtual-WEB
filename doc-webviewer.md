@@ -1,15 +1,17 @@
 # realvirtual WEB
 
-Browser-based 3D digital twin platform — loads realvirtual GLB exports and runs transport simulation, sensor collision, LogicStep sequencing, and drive animation directly in the browser. Supports WebGL, WebGPU, and WebXR (VR/AR).
+**The open standard for browser-based 3D-HMI and Digital Twins in manufacturing.**
 
-**Share a live, interactive digital twin with anyone in the world — just send a link.** No software installation, no plugins, no VPN. Works on any device with a browser.
+realvirtual WEB brings industrial 3D visualization to the browser — load realvirtual GLB exports and run transport simulation, sensor collision, LogicStep sequencing, and drive animation with no installation required. WebGL, WebGPU, and WebXR (VR/AR) supported out of the box.
 
-**Key use cases:**
-- **Sales & presales** — Send prospects an interactive 3D model of your machine or production line. They explore it live in the browser, see animations, toggle drives — far more convincing than slides or videos.
-- **Maintenance & service guides** — Technicians open a link on their tablet, see the machine in 3D, interact with components, check sensor states and drive positions — on-site or remote.
-- **3D HMI / operator dashboards** — Deploy as a web-based HMI connected to a real PLC via WebSocket or MQTT. Live signal visualization, KPI overlays, drive monitoring — no desktop app required.
-- **Training & onboarding** — New operators learn machine behavior interactively before touching the real system.
-- **Customer acceptance** — Share a virtual commissioning model with customers for remote review and sign-off.
+**One link. Any device. Live Digital Twin.** Share an interactive 3D model of your machine or production line with anyone — customers, operators, service technicians — across desktop, tablet, and VR/AR headsets.
+
+**Built for manufacturing:**
+- **3D HMI / operator dashboards** — Web-based HMI connected to real PLCs via WebSocket or MQTT. Live signal visualization, KPI overlays, drive monitoring — replacing desktop HMI applications.
+- **Sales & presales** — Interactive 3D models that let prospects explore machines live in the browser. More convincing than slides, more accessible than installed software.
+- **Maintenance & service** — Technicians open a link on their tablet, interact with 3D components, check sensor states and drive positions — on-site or remote.
+- **Training & onboarding** — Operators learn machine behavior interactively before touching the real system.
+- **Remote acceptance** — Share virtual commissioning models with customers for review and sign-off — worldwide, instantly.
 
 > For building custom plugins and extending the viewer, see **[doc-extending-webviewer.md](doc-extending-webviewer.md)**.
 

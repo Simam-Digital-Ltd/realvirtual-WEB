@@ -11,7 +11,7 @@ import type { InterfaceSettings } from '../../interfaces/interface-settings-stor
 import type { SearchSettings } from './search-settings-store';
 
 /** Settings tab identifiers used for selective locking. */
-export type SettingsTabId = 'model' | 'visual' | 'physics' | 'interfaces' | 'devtools' | 'tests';
+export type SettingsTabId = 'model' | 'visual' | 'physics' | 'interfaces' | 'devtools' | 'tests' | 'mcp';
 
 /** Top-level app configuration loaded from `public/settings.json`. */
 export interface RVAppConfig {

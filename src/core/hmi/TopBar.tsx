@@ -16,6 +16,8 @@ import { PropertyInspector } from './rv-property-inspector';
 import { LeftPanel } from './LeftPanel';
 import { SETTINGS_PANEL_WIDTH } from './layout-constants';
 import { MachineControlPanel } from './MachineControlPanel';
+import { useMcpBridge } from '../../hooks/use-mcp-bridge';
+import type { McpBridgePlugin } from '../../plugins/mcp-bridge-plugin';
 
 export function TopBar() {
   const viewer = useViewer();
@@ -156,6 +158,7 @@ export function TopBar() {
             {!isTabLocked('interfaces') && <Tab label="Interfaces" value={3} />}
             {!isTabLocked('devtools') && <Tab label="Dev Tools" value={4} />}
             {!isTabLocked('tests') && <Tab label="Tests" value={5} />}
+            {!isTabLocked('mcp') && viewer.getPlugin('mcp-bridge') && <Tab label="MCP" value={6} />}
           </Tabs>
 
           {/* Tab content - minHeight: 0 for correct flexbox scrolling */}
@@ -166,6 +169,7 @@ export function TopBar() {
             {settingsTab === 3 && !isTabLocked('interfaces') && <InterfacesTab />}
             {settingsTab === 4 && !isTabLocked('devtools') && <DevToolsTab />}
             {settingsTab === 5 && !isTabLocked('tests') && <TestsTab />}
+            {settingsTab === 6 && !isTabLocked('mcp') && viewer.getPlugin('mcp-bridge') && <McpTab />}
           </Box>
         </LeftPanel>
       )}
@@ -1431,8 +1435,100 @@ function TestsTab() {
   );
 }
 
-/* ─── Shared Components ─── */
+/* ─── MCP Tab ─── */
 
+function McpTab() {
+  const viewer = useViewer();
+  const mcp = useMcpBridge();
+  const mcpPlugin = viewer.getPlugin<McpBridgePlugin>('mcp-bridge');
+  const [portInput, setPortInput] = useState(mcp.port);
+  const [portError, setPortError] = useState(false);
+
+  // Sync portInput when mcp.port changes externally
+  useEffect(() => { setPortInput(mcp.port); }, [mcp.port]);
+
+  const stateColor = mcp.connected ? '#66bb6a'
+    : mcp.reconnectAttempt > 0 ? '#ffa726'
+    : mcp.enabled ? '#ef5350'
+    : 'rgba(255,255,255,0.5)';
+
+  const stateLabel = mcp.connected ? 'Connected'
+    : mcp.reconnectAttempt > 0 ? `Reconnecting (${mcp.reconnectAttempt})...`
+    : mcp.enabled ? 'Disconnected'
+    : 'Disabled';
+
+  const validatePort = (val: string): boolean => {
+    const n = Number(val);
+    return Number.isInteger(n) && n >= 1 && n <= 65535;
+  };
+
+  const handlePortChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setPortInput(val);
+    setPortError(val !== '' && !validatePort(val));
+  };
+
+  const handlePortBlur = () => {
+    if (portInput !== mcp.port && validatePort(portInput)) {
+      mcpPlugin?.reconnect(portInput);
+    } else if (!validatePort(portInput)) {
+      setPortInput(mcp.port);
+      setPortError(false);
+    }
+  };
+
+  const handlePortKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      (e.target as HTMLInputElement).blur();
+    }
+  };
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {/* Enable toggle */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography variant="body2" sx={{ fontWeight: 500 }}>MCP Bridge</Typography>
+        <Switch size="small" checked={mcp.enabled}
+          onChange={(_, v) => mcpPlugin?.setEnabled(v)} />
+      </Box>
+
+      {/* Status */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+        <StatRow label="State" value={stateLabel} color={stateColor} />
+        <StatRow label="Tools" value={String(mcp.toolCount)} />
+        <StatRow label="Port" value={mcp.port} />
+      </Box>
+
+      {/* Port config */}
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+        <TextField
+          label="Port"
+          size="small"
+          type="number"
+          value={portInput}
+          onChange={handlePortChange}
+          onBlur={handlePortBlur}
+          onKeyDown={handlePortKeyDown}
+          error={portError}
+          helperText={portError ? '1-65535' : undefined}
+          disabled={!mcp.enabled}
+          slotProps={{ htmlInput: { min: 1, max: 65535 } }}
+          sx={{ width: 110, '& input': { fontFamily: 'monospace', fontSize: 13 } }}
+        />
+      </Box>
+
+      {/* Retry button */}
+      {mcp.enabled && !mcp.connected && (
+        <Button size="small" variant="outlined" onClick={() => mcpPlugin?.reconnect()}
+          sx={{ alignSelf: 'flex-start', textTransform: 'none' }}>
+          Retry Now
+        </Button>
+      )}
+    </Box>
+  );
+}
+
+/* ─── Shared Components ─── */
 
 function StatRow({ label, value, color }: { label: string; value: string; color?: string }) {
   return (

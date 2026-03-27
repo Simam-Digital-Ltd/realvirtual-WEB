@@ -55,6 +55,16 @@ interface CallMessage {
   arguments: Record<string, unknown>;
 }
 
+/** Snapshot of the MCP bridge state, emitted on every state transition. */
+export interface McpBridgeSnapshot {
+  connected: boolean;
+  port: string;
+  toolCount: number;
+  enabled: boolean;
+  reconnectAttempt: number;
+  reconnectDelay: number;
+}
+
 // ── Plugin ──
 
 export class McpBridgePlugin extends RVBehavior {
@@ -68,11 +78,62 @@ export class McpBridgePlugin extends RVBehavior {
   private _reconnectDelay = 1000;
   private _maxReconnectDelay = 30000;
   private _destroyed = false;
+  private _currentPort = '18712';
+  private _reconnectAttempt = 0;
+
+  // ── Public getters ──
+
+  get mcpConnected(): boolean { return this._ws?.readyState === WebSocket.OPEN; }
+  get mcpPort(): string { return this._currentPort; }
+  get mcpToolCount(): number { return this._dispatcher?.size ?? 0; }
+  get mcpEnabled(): boolean { return !this._destroyed; }
+
+  // ── State emission ──
+
+  private _emitChanged(): void {
+    this.emit('mcp-bridge-changed', {
+      connected: this.mcpConnected,
+      port: this._currentPort,
+      toolCount: this.mcpToolCount,
+      enabled: this.mcpEnabled,
+      reconnectAttempt: this._reconnectAttempt,
+      reconnectDelay: this._reconnectDelay,
+    } satisfies McpBridgeSnapshot);
+  }
+
+  // ── Public API for UI ──
+
+  /** Reconnect to MCP server, optionally changing port. */
+  reconnect(port?: string): void {
+    if (port) this._currentPort = port;
+    this._disconnect();
+    this._reconnectAttempt = 0;
+    this._reconnectDelay = 1000;
+    this._destroyed = false;
+    this._connect();
+  }
+
+  /** Enable or disable the MCP bridge. */
+  setEnabled(enabled: boolean): void {
+    if (enabled && this._destroyed) {
+      this._destroyed = false;
+      this._connect();
+    } else if (!enabled && !this._destroyed) {
+      this._destroyed = true;
+      if (this._reconnectTimer !== null) {
+        clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = null;
+      }
+      this._disconnect();
+    }
+    this._emitChanged();
+  }
 
   // ── Lifecycle ──
 
   protected onStart(_result: LoadResult): void {
     this._destroyed = false;
+    this._currentPort = new URLSearchParams(window.location.search).get('mcpPort') || '18712';
     this._connect();
   }
 
@@ -90,17 +151,23 @@ export class McpBridgePlugin extends RVBehavior {
 
   private _connect(): void {
     if (this._destroyed) return;
-    const port = new URLSearchParams(window.location.search).get('mcpPort') || '18712';
     try {
-      this._ws = new WebSocket(`ws://localhost:${port}/webviewer`);
+      this._ws = new WebSocket(`ws://localhost:${this._currentPort}/webviewer`);
     } catch {
       this._scheduleReconnect();
       return;
     }
-    this._ws.onopen = () => this._sendDiscover();
+    this._ws.onopen = () => {
+      this._reconnectAttempt = 0;
+      this._sendDiscover();
+      this._emitChanged();
+    };
     this._ws.onmessage = (e) => { this._handleMessage(e.data); };
     this._ws.onerror = () => {};  // suppress console noise; onclose handles reconnect
-    this._ws.onclose = () => this._scheduleReconnect();
+    this._ws.onclose = () => {
+      this._emitChanged();
+      this._scheduleReconnect();
+    };
   }
 
   private _disconnect(): void {
@@ -117,6 +184,7 @@ export class McpBridgePlugin extends RVBehavior {
   private _scheduleReconnect(): void {
     if (this._destroyed) return;
     this._ws = null;
+    this._reconnectAttempt++;
 
     // Exponential backoff with jitter
     const jitter = Math.random() * 1000;
@@ -126,6 +194,7 @@ export class McpBridgePlugin extends RVBehavior {
       this._connect();
     }, delay);
     this._reconnectDelay = Math.min(this._reconnectDelay * 2, this._maxReconnectDelay);
+    this._emitChanged();
   }
 
   private _sendDiscover(): void {
@@ -140,6 +209,7 @@ export class McpBridgePlugin extends RVBehavior {
     }));
     // Reset backoff on successful connection
     this._reconnectDelay = 1000;
+    this._emitChanged();
   }
 
   // ── Message Handling ──
