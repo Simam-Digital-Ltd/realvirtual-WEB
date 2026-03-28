@@ -52,6 +52,7 @@ export interface ExtrasEditorState {
 
 export class RvExtrasEditorPlugin implements RVViewerPlugin {
   readonly id = 'rv-extras-editor';
+  readonly core = true;
 
   // ── State ──
   private _panelOpen = false;

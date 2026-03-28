@@ -22,6 +22,7 @@ import { loadInterfaceSettings } from './interface-settings-store';
 
 export class InterfaceManager implements RVViewerPlugin {
   readonly id = 'interface-manager';
+  readonly core = true;
   readonly order = 5; // Run before interface plugins
 
   private viewer: RVViewer | null = null;

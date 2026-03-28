@@ -41,6 +41,8 @@ export interface RecorderSettings {
   activeOnly: ActiveOnly;
 }
 
+import type { ModelConfig } from './rv-model-config';
+
 export interface LoadResult {
   drives: RVDrive[];
   transportManager: RVTransportManager;
@@ -53,6 +55,8 @@ export interface LoadResult {
   boundingBox: Box3;
   triangleCount: number;
   groups: GroupRegistry | null;
+  /** Merged model-specific plugin configuration (modelname.json > GLB extras > settings.json). */
+  modelConfig: ModelConfig;
 }
 
 /**
@@ -639,5 +643,5 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     `${Math.round(triangleCount / 1000)}K triangles`
   );
 
-  return { drives, transportManager: manager, signalStore, registry, playback, replayRecordings, recorderSettings, logicEngine, boundingBox, triangleCount, groups };
+  return { drives, transportManager: manager, signalStore, registry, playback, replayRecordings, recorderSettings, logicEngine, boundingBox, triangleCount, groups, modelConfig: {} };
 }

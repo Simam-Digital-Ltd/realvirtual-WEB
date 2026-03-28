@@ -20,7 +20,7 @@ import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { useMachineControl } from '../../hooks/use-machine-control';
 import { LeftPanel } from './LeftPanel';
 import { MACHINE_PANEL_WIDTH } from './layout-constants';
-import type { MachineControlPlugin, MachineState, MachineMode, MachineComponent, ComponentStatus } from '../../plugins/machine-control-plugin';
+import type { MachineControlPluginAPI, MachineState, MachineMode, MachineComponent, ComponentStatus } from '../types/plugin-types';
 
 // ─── ISA-101 Inspired Colors ─────────────────────────────────────────────
 
@@ -116,7 +116,7 @@ function ModeSelector({ mode, onModeChange }: { mode: MachineMode; onModeChange:
 
 // ─── Control Buttons (with icons) ───────────────────────────────────────
 
-function ControlButtons({ state, plugin }: { state: MachineState; plugin: MachineControlPlugin }) {
+function ControlButtons({ state, plugin }: { state: MachineState; plugin: MachineControlPluginAPI }) {
   const isRunning = state === 'RUNNING';
   const isError = state === 'ERROR';
 
@@ -430,7 +430,7 @@ function fakeDrivePosition(name: string, isRunning: boolean): string {
 }
 
 function ComponentList({ components, plugin, highlightedPath, machineRunning }: {
-  components: MachineComponent[]; plugin: MachineControlPlugin; highlightedPath: string | null;
+  components: MachineComponent[]; plugin: MachineControlPluginAPI; highlightedPath: string | null;
   machineRunning: boolean;
 }) {
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -481,7 +481,7 @@ export function MachineControlPanel() {
   const viewer = useViewer();
   const isMobile = useMobileLayout();
   const controlState = useMachineControl();
-  const plugin = viewer.getPlugin<MachineControlPlugin>('machine-control');
+  const plugin = viewer.getPlugin<MachineControlPluginAPI>('machine-control');
   const lpm = viewer.leftPanelManager;
 
   const panelSnapshot = useSyncExternalStore(lpm.subscribe, lpm.getSnapshot);

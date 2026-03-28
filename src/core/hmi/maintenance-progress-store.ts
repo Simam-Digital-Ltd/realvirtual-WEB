@@ -5,7 +5,7 @@
  * Same pattern as visual-settings-store.ts.
  */
 
-import type { StepResult } from '../../plugins/maintenance-plugin';
+import type { StepResult } from '../types/plugin-types';
 
 const STORAGE_KEY = 'rv-maintenance-progress';
 

@@ -13,6 +13,7 @@ import type { RVDrive } from '../core/engine/rv-drive';
 
 export class DriveOrderPlugin implements RVViewerPlugin {
   readonly id = 'drive-order';
+  readonly core = true;
   /** Run early so drives are sorted before other plugins see them. */
   readonly order = 0;
 

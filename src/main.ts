@@ -10,25 +10,21 @@
  */
 
 import { RVViewer } from './core/rv-viewer';
-import { initHMI } from './custom/hmi-entry';
 import { initTestRunner } from './rv-test-runner';
 import { fetchAppConfig, setAppConfig } from './core/hmi/rv-app-config';
 import { loadVisualSettings } from './core/hmi/visual-settings-store';
 import { isMobileDevice } from './hooks/use-mobile-layout';
 
-// Core Plugins
+// Private content (resolves to stubs when private folder is absent)
+import { initHMI } from '@rv-private/custom/hmi-entry';
+import { registerPrivatePlugins } from '@rv-private/private-plugins';
+
+// Core Plugins (always included in public AGPL build)
 import { SensorMonitorPlugin } from './plugins/sensor-monitor-plugin';
 import { TransportStatsPlugin } from './plugins/transport-stats-plugin';
 import { CameraEventsPlugin } from './plugins/camera-events-plugin';
 import { DriveOrderPlugin } from './plugins/drive-order-plugin';
-import { KpiDemoPlugin } from './plugins/kpi-demo-plugin';
 import { RapierPhysicsPlugin } from './core/engine/rapier-physics-plugin';
-
-// Demo HMI content (registers KPI cards, nav buttons, message tiles into HMI slots)
-import { DemoHMIPlugin } from './custom/demo-hmi-plugin';
-
-// TestAxes plugin (sequential rotary axis tester)
-import { TestAxesPlugin } from './plugins/test-axes-plugin';
 
 // Extras editor plugin (hierarchy browser + property editor)
 import { RvExtrasEditorPlugin } from './core/hmi/rv-extras-editor';
@@ -52,9 +48,6 @@ import { MultiuserPlugin } from './plugins/multiuser-plugin';
 
 // First-Person View plugin (desktop WASD + mouse look walkthrough)
 import { FpvPlugin } from './plugins/fpv-plugin';
-
-// Performance test plugin (activated via ?perf URL param)
-import { PerfTestPlugin } from './plugins/perf-test-plugin';
 
 // Microsoft Teams JS SDK (lazy-loaded when ?teams=1)
 import * as microsoftTeams from '@microsoft/teams-js';
@@ -169,16 +162,14 @@ async function init() {
     .use(new SensorMonitorPlugin())
     .use(new TransportStatsPlugin())
     .use(new CameraEventsPlugin())
-    .use(new KpiDemoPlugin())
-    .use(new DemoHMIPlugin())
     .use(new MaintenancePlugin())
     .use(new MachineControlPlugin())
     .use(new MultiuserPlugin())
     .use(new FpvPlugin())
-    .use(new TestAxesPlugin())
     .use(new RvExtrasEditorPlugin());
 
-  if (perfMode) viewer.use(new PerfTestPlugin());
+  // --- Register Private Plugins (no-op in public build) ---
+  registerPrivatePlugins(viewer);
 
   // --- Model discovery ---
   const modelFiles = import.meta.glob('/public/models/*.glb', { query: '?url', import: 'default', eager: true }) as Record<string, string>;

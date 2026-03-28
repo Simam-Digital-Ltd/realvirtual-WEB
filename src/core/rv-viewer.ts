@@ -63,6 +63,13 @@ import Stats from 'stats-gl';
 
 import { EventEmitter } from './rv-events';
 import { loadGLB, type LoadResult } from './engine/rv-scene-loader';
+import {
+  loadModelJsonConfig,
+  extractGlbPluginConfig,
+  mergeModelConfig,
+  type ModelConfig,
+} from './engine/rv-model-config';
+import { loadExternalPlugin } from './engine/rv-plugin-loader';
 import { SimulationLoop } from './engine/rv-simulation-loop';
 import { RVHighlightManager } from './engine/rv-highlight-manager';
 import { RaycastManager, type ObjectHoverData, type ObjectUnhoverData, type ObjectClickData } from './engine/rv-raycast-manager';
@@ -294,6 +301,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _physicsPluginActive = false;
   /** Last successful load result (for retroactive onModelLoaded). */
   private _lastLoadResult: LoadResult | null = null;
+  /** Lazy plugin factories: ID → async import factory (code-split by Vite). */
+  private _lazyFactories = new Map<string, () => Promise<{ default: unknown }>>();
   /** URL of the currently loaded model (for reloadModel). */
   private _currentModelUrl: string | null = null;
   /** True while OrbitControls is actively rotating/panning/pinching. */
@@ -352,6 +361,62 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   /** Type-safe plugin lookup by ID. */
   getPlugin<T extends RVViewerPlugin>(id: string): T | undefined {
     return this._plugins.find((p) => p.id === id) as T | undefined;
+  }
+
+  /**
+   * Register a lazy plugin factory. The factory is only called when a model
+   * actually requests the plugin (via rv_plugins / modelname.json).
+   * Vite automatically code-splits lazy factories into separate chunks.
+   */
+  registerLazy(id: string, factory: () => Promise<{ default: unknown }>): this {
+    this._lazyFactories.set(id, factory);
+    return this;
+  }
+
+  /**
+   * Resolve a plugin by ID through the three-level resolution chain:
+   *   1. Already registered (via `use()`)  → return existing
+   *   2. Lazy built-in (via `registerLazy()`) → import chunk, instantiate, register
+   *   3. External plugin (`models/plugins/{id}.js`) → dynamic import, register
+   *   4. Not found → return null (no crash)
+   */
+  async resolvePlugin(id: string): Promise<RVViewerPlugin | null> {
+    // 1. Already registered?
+    const existing = this._plugins.find(p => p.id === id);
+    if (existing) return existing;
+
+    // 2. Lazy built-in?
+    const factory = this._lazyFactories.get(id);
+    if (factory) {
+      try {
+        const mod = await factory();
+        const PluginOrInstance = mod.default;
+        const plugin = typeof PluginOrInstance === 'function'
+          ? new (PluginOrInstance as new () => RVViewerPlugin)()
+          : PluginOrInstance as RVViewerPlugin;
+        if (plugin && plugin.id) {
+          this.use(plugin);
+          return plugin;
+        }
+      } catch (e) {
+        console.warn(`[RVViewer] Failed to load lazy plugin '${id}':`, e);
+      }
+      return null;
+    }
+
+    // 3. External plugin?
+    const baseUrl = this._currentModelUrl
+      ? this._currentModelUrl.substring(0, this._currentModelUrl.lastIndexOf('/'))
+      : '.';
+    const plugin = await loadExternalPlugin(id, baseUrl);
+    if (plugin) {
+      this.use(plugin);
+      return plugin;
+    }
+
+    // 4. Not found
+    console.warn(`[RVViewer] Plugin '${id}' not found (not registered, no lazy factory, no external)`);
+    return null;
   }
 
   // ─── Exclusive Hover Mode ──────────────────────────────────────────
@@ -881,10 +946,42 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.dirLight.shadow.camera.updateProjectionMatrix();
     }
 
+    // --- Load and merge model-specific plugin configuration ---
+    const [modelJsonConfig, glbConfig] = await Promise.all([
+      loadModelJsonConfig(url).catch(() => ({} as ModelConfig)),
+      Promise.resolve(extractGlbPluginConfig(this.scene)),
+    ]);
+    const settingsConfig: ModelConfig = {};
+    const appConfig = (await import('./hmi/rv-app-config')).getAppConfig();
+    if (appConfig.plugins) settingsConfig.plugins = appConfig.plugins;
+    if (appConfig.pluginConfig) settingsConfig.pluginConfig = appConfig.pluginConfig;
+
+    result.modelConfig = mergeModelConfig(modelJsonConfig, glbConfig, settingsConfig);
+
     // Plugin lifecycle: onModelLoaded (before event, with error isolation)
+    // Activation mode depends on whether rv_plugins is declared anywhere.
     this._lastLoadResult = result;
-    for (const p of this._plugins) {
-      callPlugin(p, 'onModelLoaded', result, this);
+    const declared = result.modelConfig.plugins; // string[] | undefined
+
+    if (declared === undefined) {
+      // ALL-MODE: no rv_plugins declared — activate ALL registered plugins (backward compatible)
+      for (const p of this._plugins) {
+        callPlugin(p, 'onModelLoaded', result, this);
+      }
+    } else {
+      // SELECTIVE-MODE: only declared plugins + core plugins activate
+      for (const p of this._plugins) {
+        if (p.core || declared.includes(p.id)) {
+          callPlugin(p, 'onModelLoaded', result, this);
+        }
+      }
+      // Resolve any declared plugins not yet registered (lazy built-in or external)
+      for (const id of declared) {
+        if (!this._plugins.find(p => p.id === id)) {
+          const plugin = await this.resolvePlugin(id);
+          if (plugin) callPlugin(plugin, 'onModelLoaded', result, this);
+        }
+      }
     }
 
     // Re-evaluate _physicsPluginActive — plugins may have changed handlesTransport in onModelLoaded

@@ -42,6 +42,7 @@ const _rayDir = new Vector3();
 
 export class RapierPhysicsPlugin implements RVViewerPlugin {
   readonly id = 'rapier-physics';
+  readonly core = true;
   readonly order = 50; // Before sensor-monitor (100) and transport-stats (100)
   handlesTransport = true;
 

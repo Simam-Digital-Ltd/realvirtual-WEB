@@ -22,6 +22,11 @@ export interface RVAppConfig {
 /** Default model URL or filename (priority: URL param > defaultModel > localStorage > demo.glb). */
   defaultModel?: string;
 
+  /** Global plugin IDs — lowest priority, overridden by modelname.json and GLB extras. */
+  plugins?: string[];
+  /** Global per-plugin config — lowest priority, deep-merged with model-specific config. */
+  pluginConfig?: Record<string, Record<string, unknown>>;
+
   /** Partial overrides merged on top of localStorage values. */
   visual?: Partial<VisualSettings>;
   physics?: Partial<PhysicsSettings>;

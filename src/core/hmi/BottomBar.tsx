@@ -9,7 +9,8 @@ import { CameraBar } from './CameraBar';
 import { GroupsOverlay } from './GroupsOverlay';
 import { useNodeFilter } from '../../hooks/use-node-filter';
 import { useMobileLayout, isMobileDevice } from '../../hooks/use-mobile-layout';
-import { useFpvActive, type FpvPlugin } from '../../plugins/fpv-plugin';
+import { useFpvActive } from '../../plugins/fpv-plugin';
+import type { FpvPluginAPI } from '../types/plugin-types';
 import { useViewer } from '../../hooks/use-viewer';
 import {
   loadSearchSettings, saveSearchSettings,
@@ -429,7 +430,7 @@ function FpvBarButton() {
   const active = useFpvActive();
   if (isMobileDevice()) return null;
   const handleClick = () => {
-    const plugin = viewer.getPlugin<FpvPlugin>('fpv');
+    const plugin = viewer.getPlugin<FpvPluginAPI>('fpv');
     plugin?.toggle();
   };
   return (

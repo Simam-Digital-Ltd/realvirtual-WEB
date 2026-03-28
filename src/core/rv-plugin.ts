@@ -24,6 +24,13 @@ export interface RVViewerPlugin {
   /** When true: plugin handles transport (transportManager.update is skipped). */
   readonly handlesTransport?: boolean;
 
+  /**
+   * When true: plugin always activates, even in selective mode (rv_plugins declared).
+   * Core plugins provide essential infrastructure (drive sorting, physics, etc.)
+   * and cannot be skipped. Default: false (plugin is optional/skippable).
+   */
+  readonly core?: boolean;
+
   /** UI slot entries this plugin provides (KPI cards, buttons, messages, etc.). */
   readonly slots?: UISlotEntry[];
 

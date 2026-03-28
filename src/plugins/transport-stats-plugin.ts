@@ -12,6 +12,7 @@ import { RingBuffer } from '../core/engine/rv-ring-buffer';
 
 export class TransportStatsPlugin implements RVViewerPlugin {
   readonly id = 'transport-stats';
+  readonly core = true;
 
   readonly timeBuffer = new RingBuffer<number>(3000);
   readonly spawnedBuffer = new RingBuffer<number>(3000);

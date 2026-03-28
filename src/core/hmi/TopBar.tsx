@@ -4,7 +4,7 @@ import { Typography, Box, IconButton, Paper, Button, CircularProgress, Tabs, Tab
 import { Settings, Close, PlayArrow, CheckCircle, Error as ErrorIcon, RestartAlt, AccountTree, ViewInAr, People } from '@mui/icons-material';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { useViewer } from '../../hooks/use-viewer';
-import type { WebXRPlugin } from '../../plugins/webxr-plugin';
+import type { WebXRPluginAPI } from '../types/plugin-types';
 import { loadVisualSettings, saveVisualSettings, LIGHTING_MODES, TONE_MAPPING_OPTIONS, SHADOW_QUALITY_OPTIONS, type VisualSettings, type LightingMode, type ToneMappingType, type ShadowQuality, type ProjectionType } from './visual-settings-store';
 import { loadPhysicsSettings, savePhysicsSettings, type PhysicsSettings } from './physics-settings-store';
 import { loadInterfaceSettings, saveInterfaceSettings, type InterfaceSettings, type InterfaceType, INTERFACE_DEFAULTS } from '../../interfaces/interface-settings-store';
@@ -20,8 +20,7 @@ import { MultiuserPanel } from './MultiuserPanel';
 import { useMcpBridge } from '../../hooks/use-mcp-bridge';
 import { useMultiuser } from '../../hooks/use-multiuser';
 import { loadMultiuserSettings, saveMultiuserSettings, type MultiuserSettings } from './multiuser-settings-store';
-import type { McpBridgePlugin } from '../../plugins/mcp-bridge-plugin';
-import type { MultiuserPlugin } from '../../plugins/multiuser-plugin';
+import type { McpBridgePluginAPI, MultiuserPluginAPI } from '../types/plugin-types';
 
 export function TopBar() {
   const viewer = useViewer();
@@ -73,11 +72,11 @@ export function TopBar() {
   const isMobile = useMobileLayout();
 
   // WebXR plugin for AR button on mobile
-  const xrPlugin = viewer.getPlugin<WebXRPlugin>('webxr');
+  const xrPlugin = viewer.getPlugin<WebXRPluginAPI>('webxr');
   const showMobileAR = isMobile && xrPlugin?.arSupported;
 
   // Multiuser plugin — only show button when enabled in settings
-  const muPlugin = viewer.getPlugin<MultiuserPlugin>('multiuser');
+  const muPlugin = viewer.getPlugin<MultiuserPluginAPI>('multiuser');
   const muState = useMultiuser();
   const [muEnabled, setMuEnabled] = useState(() => loadMultiuserSettings().enabled);
   const showMultiuser = !!muPlugin && muEnabled;
@@ -1475,7 +1474,7 @@ function TestsTab() {
 function McpTab() {
   const viewer = useViewer();
   const mcp = useMcpBridge();
-  const mcpPlugin = viewer.getPlugin<McpBridgePlugin>('mcp-bridge');
+  const mcpPlugin = viewer.getPlugin<McpBridgePluginAPI>('mcp-bridge');
   const [portInput, setPortInput] = useState(mcp.port);
   const [portError, setPortError] = useState(false);
 
@@ -1585,7 +1584,7 @@ function McpTab() {
 function MultiuserTab({ muEnabled, onMuEnabledChange }: { muEnabled: boolean; onMuEnabledChange: (v: boolean) => void }) {
   const viewer = useViewer();
   const mu = useMultiuser();
-  const muPlugin = viewer.getPlugin<MultiuserPlugin>('multiuser');
+  const muPlugin = viewer.getPlugin<MultiuserPluginAPI>('multiuser');
 
   // Load persisted settings
   const settingsRef = useRef(loadMultiuserSettings());

@@ -4,8 +4,14 @@ import react from '@vitejs/plugin-react';
 // import { VitePWA } from 'vite-plugin-pwa';
 import { playwright } from '@vitest/browser-playwright';
 import { readdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+
+// ─── Private content detection ──────────────────────────────────────────
+const PRIVATE_DIR = resolve(__dirname, '../realvirtual-WebViewer-Private~/src');
+const HAS_PRIVATE = existsSync(PRIVATE_DIR);
+console.log(`[rv-build] ${HAS_PRIVATE ? 'Private' : 'Public'} build`);
 import { exec } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 /** Vite plugin: exposes /__api/tests endpoints so the app can discover and run vitest tests */
 function testRunnerPlugin() {
@@ -197,14 +203,67 @@ function debugApiPlugin() {
   };
 }
 
+/**
+ * Vite plugin: Resolve bare imports from private folder files via the main project's node_modules.
+ *
+ * When HAS_PRIVATE is true, files in realvirtual-WebViewer-Private~/src/ may import npm packages
+ * (react, @mui/icons-material, etc.). Rollup resolves node_modules by walking up from the
+ * importing file's directory, which fails because the private folder has no node_modules.
+ * This plugin intercepts unresolved bare imports from the private folder and resolves them
+ * from the main project's node_modules instead.
+ */
+function privateResolverPlugin() {
+  if (!HAS_PRIVATE) return null;
+  // Use createRequire to get a CJS-style require.resolve that works in Vite's ESM context.
+  const mainRequire = createRequire(resolve(__dirname, 'package.json'));
+  return {
+    name: 'rv-private-resolver',
+    enforce: 'pre' as const,
+    resolveId(source: string, importer: string | undefined) {
+      // Only intercept bare imports from files in the private folder
+      if (!importer) return null;
+      const normalizedImporter = importer.replace(/\\/g, '/');
+      if (!normalizedImporter.includes('realvirtual-WebViewer-Private')) return null;
+      // Skip relative/absolute imports, virtual modules, and already-resolved paths
+      if (source.startsWith('.') || source.startsWith('/') || source.startsWith('\0')) return null;
+      if (/^[A-Za-z]:/.test(source)) return null; // Windows absolute paths like C:\...
+      // Try resolving from main project's node_modules via createRequire
+      try {
+        const resolved = mainRequire.resolve(source);
+        return resolved;
+      } catch {
+        return null; // Let Vite handle it normally
+      }
+    },
+  };
+}
+
 export default defineConfig({
   base: process.env.VITE_BASE || './',
   plugins: [
+    privateResolverPlugin(),
     react(),
     // VitePWA disabled – no service worker, always fresh content
     testRunnerPlugin(),
     debugApiPlugin(),
-  ],
+  ].filter(Boolean),
+  resolve: {
+    alias: {
+      '@rv-private': HAS_PRIVATE
+        ? PRIVATE_DIR
+        : resolve(__dirname, 'src/private-stubs'),
+      // Explicit aliases for React JSX runtime — needed so that files imported from
+      // the private folder (outside the project root) resolve the JSX runtime from
+      // the main project's node_modules, not from the (non-existent) private node_modules.
+      ...(HAS_PRIVATE ? {
+        'react/jsx-runtime': resolve(__dirname, 'node_modules/react/jsx-runtime.js'),
+        'react/jsx-dev-runtime': resolve(__dirname, 'node_modules/react/jsx-dev-runtime.js'),
+      } : {}),
+    },
+  },
+  define: {
+    __RV_HAS_PRIVATE__: JSON.stringify(HAS_PRIVATE),
+  },
   server: {
     open: true,
     https: !!process.env.HTTPS,

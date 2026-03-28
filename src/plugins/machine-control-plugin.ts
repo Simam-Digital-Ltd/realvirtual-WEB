@@ -17,28 +17,9 @@ import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
 import type { RVViewer } from '../core/rv-viewer';
 
-// ─── Types ──────────────────────────────────────────────────────────────
-
-export type MachineState = 'STOPPED' | 'IDLE' | 'RUNNING' | 'HELD' | 'ERROR';
-export type MachineMode = 'AUTO' | 'MANUAL' | 'MAINTENANCE';
-
-export type ComponentType = 'drive' | 'sensor';
-export type ComponentStatus = 'running' | 'stopped' | 'active' | 'inactive' | 'error';
-
-export interface MachineComponent {
-  name: string;
-  path: string;
-  type: ComponentType;
-  status: ComponentStatus;
-}
-
-export interface MachineControlState {
-  state: MachineState;
-  mode: MachineMode;
-  components: MachineComponent[];
-  /** Index into components[] of the component in error state (E-Stop demo). -1 = none. */
-  errorComponentIdx: number;
-}
+// Re-export shared types from core (canonical source of truth)
+export type { MachineState, MachineMode, ComponentType, ComponentStatus, MachineComponent, MachineControlState } from '../core/types/plugin-types';
+import type { MachineState, MachineMode, MachineComponent, MachineControlState } from '../core/types/plugin-types';
 
 // ─── Plugin ─────────────────────────────────────────────────────────────
 

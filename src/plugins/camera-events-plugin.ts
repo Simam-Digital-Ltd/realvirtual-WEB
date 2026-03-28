@@ -10,6 +10,7 @@ import type { LoadResult } from '../core/engine/rv-scene-loader';
 
 export class CameraEventsPlugin implements RVViewerPlugin {
   readonly id = 'camera-events';
+  readonly core = true;
   private viewer: RVViewer | null = null;
   private wasAnimating = false;
 

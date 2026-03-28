@@ -30,19 +30,9 @@ import {
   clearMaintenanceProgress,
 } from '../core/hmi/maintenance-progress-store';
 
-// ─── Types ──────────────────────────────────────────────────────────────
-
-export type MaintenanceMode = 'idle' | 'dialog' | 'flythrough' | 'stepbystep' | 'completed';
-export type StepResult = 'pass' | 'fail' | 'skipped' | null;
-
-export interface MaintenanceState {
-  mode: MaintenanceMode;
-  procedure: MaintenanceProcedure | null;
-  currentStep: number;
-  stepResults: StepResult[];
-  /** Whether a camera animation is currently in progress. */
-  isCameraAnimating: boolean;
-}
+// Re-export shared types from core (canonical source of truth)
+export type { MaintenanceMode, StepResult, MaintenanceState } from '../core/types/plugin-types';
+import type { MaintenanceMode, StepResult, MaintenanceState } from '../core/types/plugin-types';
 
 // ─── Plugin ─────────────────────────────────────────────────────────────
 

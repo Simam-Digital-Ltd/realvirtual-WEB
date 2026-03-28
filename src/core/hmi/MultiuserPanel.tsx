@@ -26,7 +26,7 @@ import { Close, PersonOutline, WifiOff, Wifi } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useMultiuser } from '../../hooks/use-multiuser';
 import { loadMultiuserSettings, saveMultiuserSettings } from './multiuser-settings-store';
-import type { MultiuserPlugin } from '../../plugins/multiuser-plugin';
+import type { MultiuserPluginAPI } from '../types/plugin-types';
 import type { PlayerInfo } from '../engine/rv-avatar-manager';
 
 // ── Styling constants ─────────────────────────────────────────────────────
@@ -95,7 +95,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
 
   // Sync from plugin/URL on mount
   useEffect(() => {
-    const plugin = viewer.getPlugin<MultiuserPlugin>('multiuser');
+    const plugin = viewer.getPlugin<MultiuserPluginAPI>('multiuser');
     if (plugin) {
       const rec = plugin as unknown as Record<string, string>;
       if (rec['_serverUrl'] && !serverUrl) setServerUrl(rec['_serverUrl']);
@@ -118,9 +118,9 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
   }, [mu.connected, mu.localName, mu.serverUrl]);
 
   const handleJoin = useCallback(() => {
-    const plugin = viewer.getPlugin<MultiuserPlugin>('multiuser');
+    const plugin = viewer.getPlugin<MultiuserPluginAPI>('multiuser');
     if (!plugin) {
-      console.warn('[MultiuserPanel] MultiuserPlugin not found.');
+      console.warn('[MultiuserPanel] MultiuserPluginAPI not found.');
       return;
     }
     // Persist current values
@@ -138,7 +138,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
   }, [viewer, connectionMode, serverUrl, relayUrl, localName, joinCode]);
 
   const handleDisconnect = useCallback(() => {
-    const plugin = viewer.getPlugin<MultiuserPlugin>('multiuser');
+    const plugin = viewer.getPlugin<MultiuserPluginAPI>('multiuser');
     plugin?.leaveSession();
   }, [viewer]);
 

@@ -19,6 +19,7 @@ export interface SensorEvent {
 
 export class SensorMonitorPlugin implements RVViewerPlugin {
   readonly id = 'sensor-monitor';
+  readonly core = true;
   readonly eventHistory = new RingBuffer<SensorEvent>(500);
 
   private viewer: RVViewer | null = null;

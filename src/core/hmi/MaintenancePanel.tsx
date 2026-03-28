@@ -38,7 +38,7 @@ import {
 } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useMaintenanceMode } from '../../hooks/use-maintenance-mode';
-import type { MaintenancePlugin } from '../../plugins/maintenance-plugin';
+import type { MaintenancePluginAPI } from '../types/plugin-types';
 import type { MaintenanceStep } from '../maintenance-parser';
 
 // ─── ISA-101 Colors ──────────────────────────────────────────────────────
@@ -50,8 +50,8 @@ const COLOR_WARNING = '#ef5350';
 
 // ─── Helper: Get plugin instance ────────────────────────────────────────
 
-function getPlugin(viewer: ReturnType<typeof useViewer>): MaintenancePlugin | null {
-  return viewer.getPlugin<MaintenancePlugin>('maintenance') ?? null;
+function getPlugin(viewer: ReturnType<typeof useViewer>): MaintenancePluginAPI | null {
+  return viewer.getPlugin<MaintenancePluginAPI>('maintenance') ?? null;
 }
 
 // ─── Step Icon ──────────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ function StepIcon({ stepIndex, currentStep, stepResults }: {
 function CompletionUI({ step, stepIndex, plugin }: {
   step: MaintenanceStep;
   stepIndex: number;
-  plugin: MaintenancePlugin;
+  plugin: MaintenancePluginAPI;
 }) {
   const handleComplete = useCallback(() => {
     plugin.completeStep(stepIndex, 'pass');
@@ -183,7 +183,7 @@ function CompletionUI({ step, stepIndex, plugin }: {
 
 // ─── Mode Dialog (flythrough vs step-by-step) ───────────────────────────
 
-function ModeDialog({ plugin }: { plugin: MaintenancePlugin }) {
+function ModeDialog({ plugin }: { plugin: MaintenancePluginAPI }) {
   const state = plugin.getState();
   const proc = state.procedure;
   if (!proc) return null;
@@ -250,7 +250,7 @@ function ModeDialog({ plugin }: { plugin: MaintenancePlugin }) {
 
 // ─── Completion Summary ─────────────────────────────────────────────────
 
-function CompletionSummary({ plugin }: { plugin: MaintenancePlugin }) {
+function CompletionSummary({ plugin }: { plugin: MaintenancePluginAPI }) {
   const state = plugin.getState();
   const proc = state.procedure;
   if (!proc) return null;
@@ -330,7 +330,7 @@ function CompletionSummary({ plugin }: { plugin: MaintenancePlugin }) {
 
 // ─── Step-by-Step Stepper ───────────────────────────────────────────────
 
-function StepperView({ plugin, isFlythrough }: { plugin: MaintenancePlugin; isFlythrough: boolean }) {
+function StepperView({ plugin, isFlythrough }: { plugin: MaintenancePluginAPI; isFlythrough: boolean }) {
   const state = plugin.getState();
   const proc = state.procedure;
   if (!proc) return null;
@@ -458,7 +458,7 @@ function StepItem({ step, stepIndex, currentStep, stepResults, isActive, plugin,
   currentStep: number;
   stepResults: (string | null)[];
   isActive: boolean;
-  plugin: MaintenancePlugin;
+  plugin: MaintenancePluginAPI;
   isFlythrough: boolean;
 }) {
   const handleStepClick = useCallback(() => {
