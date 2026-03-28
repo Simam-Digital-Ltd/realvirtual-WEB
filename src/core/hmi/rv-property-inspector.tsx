@@ -18,8 +18,9 @@
  * - rv-component-section.tsx — Collapsible component section
  */
 
-import { useState, useMemo, useCallback, useSyncExternalStore } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useSignalTick } from '../../hooks/use-signal-tick';
+import { useEditorPlugin } from '../../hooks/use-editor-plugin';
 import {
   Box,
   Typography,
@@ -34,7 +35,6 @@ import {
   FilterList,
 } from '@mui/icons-material';
 import type { RVViewer } from '../rv-viewer';
-import { RvExtrasEditorPlugin } from './rv-extras-editor';
 import { getOverriddenFields } from '../engine/rv-extras-overlay-store';
 import { LeftPanel } from './LeftPanel';
 import { INSPECTOR_PANEL_WIDTH } from './layout-constants';
@@ -194,10 +194,7 @@ export interface PropertyInspectorProps {
 }
 
 export function PropertyInspector({ viewer }: PropertyInspectorProps) {
-  const plugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
-  if (!plugin) return null;
-
-  const state = useSyncExternalStore(plugin.subscribe, plugin.getSnapshot);
+  const { plugin, state } = useEditorPlugin();
   const selectedPath = state.selectedNodePath;
 
   // Find the selected node in the scene and read its userData
@@ -265,7 +262,7 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
 
   const handleFieldEdit = useCallback(
     (componentType: string, fieldName: string, value: unknown) => {
-      if (!selectedPath) return;
+      if (!selectedPath || !plugin) return;
       plugin.updateOverlayField(selectedPath, componentType, fieldName, value);
     },
     [plugin, selectedPath],
@@ -273,7 +270,7 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
 
   const handleFieldReset = useCallback(
     (componentType: string, fieldName: string) => {
-      if (!selectedPath) return;
+      if (!selectedPath || !plugin) return;
       plugin.resetField(selectedPath, componentType, fieldName);
     },
     [plugin, selectedPath],
@@ -281,18 +278,19 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
 
   const handleComponentReset = useCallback(
     (componentType: string) => {
-      if (!selectedPath) return;
+      if (!selectedPath || !plugin) return;
       plugin.resetComponent(selectedPath, componentType);
     },
     [plugin, selectedPath],
   );
 
   const handleResetAll = useCallback(() => {
-    if (!selectedPath) return;
+    if (!selectedPath || !plugin) return;
     plugin.resetNode(selectedPath);
   }, [plugin, selectedPath]);
 
   const handleClose = useCallback(() => {
+    if (!plugin) return;
     plugin.clearSelection();
   }, [plugin]);
 
@@ -310,7 +308,7 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
   const signalStore = viewer.signalStore;
   useSignalTick(signalStore, 200);
 
-  if (!selectedPath || !nodeData) return null;
+  if (!plugin || !selectedPath || !nodeData) return null;
 
   const nodeName = selectedPath.split('/').pop() ?? selectedPath;
 

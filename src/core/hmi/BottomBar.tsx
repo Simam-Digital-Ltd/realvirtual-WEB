@@ -4,11 +4,12 @@ import {
   Popover, Switch, FormControlLabel, Typography, Divider,
   List, ListItemButton,
 } from '@mui/material';
-import { Search, Clear, MoreHoriz, CenterFocusStrong, Layers } from '@mui/icons-material';
+import { Search, Clear, MoreHoriz, CenterFocusStrong, Layers, DirectionsWalk } from '@mui/icons-material';
 import { CameraBar } from './CameraBar';
 import { GroupsOverlay } from './GroupsOverlay';
 import { useNodeFilter } from '../../hooks/use-node-filter';
-import { useMobileLayout } from '../../hooks/use-mobile-layout';
+import { useMobileLayout, isMobileDevice } from '../../hooks/use-mobile-layout';
+import { useFpvActive, type FpvPlugin } from '../../plugins/fpv-plugin';
 import { useViewer } from '../../hooks/use-viewer';
 import {
   loadSearchSettings, saveSearchSettings,
@@ -362,6 +363,7 @@ export function BottomBar() {
             <Layers fontSize="small" />
           </IconButton>
         )}
+        <FpvBarButton />
       </Paper>
       <GroupsOverlay />
 
@@ -418,5 +420,27 @@ export function BottomBar() {
       </Popover>
     </Box>
     </>
+  );
+}
+
+/** FPV walk button for the bottom-right camera bar. Hidden on mobile. */
+function FpvBarButton() {
+  const viewer = useViewer();
+  const active = useFpvActive();
+  if (isMobileDevice()) return null;
+  const handleClick = () => {
+    const plugin = viewer.getPlugin<FpvPlugin>('fpv');
+    plugin?.toggle();
+  };
+  return (
+    <IconButton
+      size="small"
+      color="inherit"
+      title="First-Person View (F)"
+      onClick={handleClick}
+      sx={{ color: active ? '#4fc3f7' : 'inherit' }}
+    >
+      <DirectionsWalk fontSize="small" />
+    </IconButton>
   );
 }

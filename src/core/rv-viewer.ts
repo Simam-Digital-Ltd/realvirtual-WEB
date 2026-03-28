@@ -84,6 +84,27 @@ import { INSPECTOR_PANEL_WIDTH } from './hmi/layout-constants';
 import type { RvExtrasEditorPlugin } from './hmi/rv-extras-editor';
 import { isMobileDevice } from '../hooks/use-mobile-layout';
 
+// ─── Plugin Error Isolation ──────────────────────────────────────────────
+
+/**
+ * Call a plugin method with error isolation. If the method doesn't exist
+ * or throws, the error is logged with the plugin's ID and swallowed.
+ * Exported for unit testing — only used internally by RVViewer.
+ */
+export function callPlugin(
+  plugin: RVViewerPlugin,
+  method: string,
+  ...args: unknown[]
+): void {
+  const fn = (plugin as unknown as Record<string, unknown>)[method];
+  if (typeof fn !== 'function') return;
+  try {
+    fn.apply(plugin, args);
+  } catch (e) {
+    console.error(`[RVViewer] Plugin '${plugin.id}' ${method} error:`, e);
+  }
+}
+
 // ─── Public Types ───────────────────────────────────────────────────────
 
 /** Pixel offsets for panels obscuring the 3D viewport. Used to shift
@@ -201,10 +222,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     // Notify plugins
     for (const p of this._plugins) {
-      if (p.onConnectionStateChanged) {
-        try { p.onConnectionStateChanged(state, this); }
-        catch (e) { console.error(`[RVViewer] Plugin '${p.id}' onConnectionStateChanged error:`, e); }
-      }
+      callPlugin(p, 'onConnectionStateChanged', state, this);
     }
 
     this.emit('connection-state-changed', { state, previous });
@@ -866,10 +884,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     // Plugin lifecycle: onModelLoaded (before event, with error isolation)
     this._lastLoadResult = result;
     for (const p of this._plugins) {
-      if (p.onModelLoaded) {
-        try { p.onModelLoaded(result, this); }
-        catch (e) { console.error(`[RVViewer] Plugin '${p.id}' onModelLoaded error:`, e); }
-      }
+      callPlugin(p, 'onModelLoaded', result, this);
     }
 
     // Re-evaluate _physicsPluginActive — plugins may have changed handlesTransport in onModelLoaded
@@ -889,10 +904,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   clearModel(): void {
     // Plugin lifecycle: onModelCleared (before state reset)
     for (const p of this._plugins) {
-      if (p.onModelCleared) {
-        try { p.onModelCleared(this); }
-        catch (e) { console.error(`[RVViewer] Plugin '${p.id}' onModelCleared error:`, e); }
-      }
+      callPlugin(p, 'onModelCleared', this);
     }
     this._lastLoadResult = null;
 
@@ -977,10 +989,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   dispose(): void {
     // Plugin lifecycle: dispose (before everything else)
     for (const p of this._plugins) {
-      if (p.dispose) {
-        try { p.dispose(); }
-        catch (e) { console.error(`[RVViewer] Plugin '${p.id}' dispose error:`, e); }
-      }
+      callPlugin(p, 'dispose');
     }
     this.loop.stop();
     this.clearModel();
@@ -1579,8 +1588,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     // ── Plugins Pre (interface signals, replay, CAM) ──
     for (const p of this._prePlugins) {
-      try { p.onFixedUpdatePre!(dt); }
-      catch (e) { console.error(`[RVViewer] Plugin '${p.id}' onFixedUpdatePre error:`, e); }
+      callPlugin(p, 'onFixedUpdatePre', dt);
     }
 
     // ── Core Drive Physics (behaviors + motion, drives[] may be topologically sorted) ──
@@ -1625,8 +1633,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     // ── Plugins Post (recorder, sensor monitor, interface readback) ──
     for (const p of this._postPlugins) {
-      try { p.onFixedUpdatePost!(dt); }
-      catch (e) { console.error(`[RVViewer] Plugin '${p.id}' onFixedUpdatePost error:`, e); }
+      callPlugin(p, 'onFixedUpdatePost', dt);
     }
 
   }
@@ -1672,8 +1679,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     // ── Plugins Render ──
     for (const p of this._renderPlugins) {
-      try { p.onRender!(frameDt); }
-      catch (e) { console.error(`[RVViewer] Plugin '${p.id}' onRender error:`, e); }
+      callPlugin(p, 'onRender', frameDt);
     }
 
     // Emit object-hover + backward-compatible drive-hover events

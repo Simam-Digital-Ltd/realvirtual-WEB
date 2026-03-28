@@ -5,11 +5,12 @@
  * Each 30-minute bucket sums to 100%.
  */
 
-import { useRef, useEffect } from 'react';
+import { useEffect } from 'react';
 import { Box } from '@mui/material';
-import { echarts } from '../core/hmi/echarts-setup';
 import { ChartPanel } from '../core/hmi/ChartPanel';
 import { useKpiData } from '../hooks/use-kpi-data';
+import { useEChart } from '../hooks/use-echart';
+import { createBaseChartOption, DARK_TOOLTIP_BASE } from '../core/hmi/chart-theme';
 
 const CATEGORIES = [
   { key: 'production', name: 'Production', color: '#22c55e' },
@@ -27,34 +28,7 @@ interface OeeChartProps {
 
 export function OeeChart({ open, onClose }: OeeChartProps) {
   const kpi = useKpiData();
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstance = useRef<echarts.ECharts | null>(null);
-
-  // Init chart
-  useEffect(() => {
-    if (!open) return;
-    const timer = setTimeout(() => {
-      if (!chartInstance.current && chartRef.current) {
-        chartInstance.current = echarts.init(chartRef.current, undefined, { renderer: 'canvas' });
-      }
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [open]);
-
-  // Dispose on close
-  useEffect(() => {
-    if (open) return;
-    chartInstance.current?.dispose();
-    chartInstance.current = null;
-  }, [open]);
-
-  // Resize
-  useEffect(() => {
-    if (!open || !chartRef.current) return;
-    const observer = new ResizeObserver(() => chartInstance.current?.resize());
-    observer.observe(chartRef.current);
-    return () => observer.disconnect();
-  }, [open]);
+  const { containerRef: chartRef, chartInstance } = useEChart({ open });
 
   // Set chart data
   useEffect(() => {
@@ -78,28 +52,18 @@ export function OeeChart({ open, onClose }: OeeChartProps) {
         barMaxWidth: 14,
       }));
 
+      const base = createBaseChartOption({
+        title: 'OEE Breakdown \u2014 Last 24h',
+        legendData: CATEGORIES.map((c) => c.name),
+        grid: { left: 45, right: 12, top: 24, bottom: 42 },
+        animate: true,
+      });
+
       chart.setOption(
         {
-          backgroundColor: 'transparent',
-          textStyle: { fontFamily: 'Inter, Roboto, Arial, sans-serif', color: 'rgba(255,255,255,0.7)' },
-          title: {
-            text: 'OEE Breakdown — Last 24h',
-            left: 8,
-            top: 2,
-            textStyle: { color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 500 },
-          },
-          legend: {
-            data: CATEGORIES.map((c) => c.name),
-            bottom: 0,
-            textStyle: { color: 'rgba(255,255,255,0.5)', fontSize: 10 },
-            itemWidth: 12,
-            itemHeight: 8,
-          },
+          ...base,
           tooltip: {
-            trigger: 'axis',
-            backgroundColor: 'rgba(10,10,10,0.92)',
-            borderColor: 'rgba(255,255,255,0.06)',
-            textStyle: { color: '#fff', fontSize: 11 },
+            ...DARK_TOOLTIP_BASE,
             formatter: (params: unknown) => {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const ps = params as any[];
@@ -111,32 +75,25 @@ export function OeeChart({ open, onClose }: OeeChartProps) {
               return html;
             },
           },
-          grid: { left: 45, right: 12, top: 24, bottom: 42 },
           xAxis: {
-            type: 'category',
+            ...(base.xAxis as object),
             data: xLabels,
-            axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
             axisLabel: {
               color: 'rgba(255,255,255,0.3)',
               fontSize: 10,
-              interval: 1, // Show every other label (hourly)
+              interval: 1,
             },
-            splitLine: { show: false },
           },
           yAxis: {
-            type: 'value',
+            ...(base.yAxis as object),
             max: 100,
-            axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
             axisLabel: {
               color: 'rgba(255,255,255,0.3)',
               fontSize: 10,
               formatter: '{value}%',
             },
-            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
           },
           series,
-          animationDuration: 500,
-          animationEasing: 'cubicOut',
         },
         { notMerge: true },
       );

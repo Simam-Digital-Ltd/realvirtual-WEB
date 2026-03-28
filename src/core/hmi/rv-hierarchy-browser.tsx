@@ -14,7 +14,8 @@
  *   to expand ancestor tree nodes and scroll the selected node into view
  */
 
-import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore, memo } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
+import { useEditorPlugin } from '../../hooks/use-editor-plugin';
 import { useSignalTick } from '../../hooks/use-signal-tick';
 import {
   Box,
@@ -31,7 +32,7 @@ import {
   ChevronRight,
 } from '@mui/icons-material';
 import type { RVViewer } from '../rv-viewer';
-import { RvExtrasEditorPlugin, HIERARCHY_MIN_WIDTH, HIERARCHY_MAX_WIDTH, type EditableNodeInfo } from './rv-extras-editor';
+import { HIERARCHY_MIN_WIDTH, HIERARCHY_MAX_WIDTH, type EditableNodeInfo } from './rv-extras-editor';
 import { LeftPanel } from './LeftPanel';
 import type { RVExtrasOverlay } from '../engine/rv-extras-overlay-store';
 import type { SignalStore } from '../engine/rv-signal-store';
@@ -714,13 +715,12 @@ export interface HierarchyBrowserProps {
 }
 
 export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
-  const plugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
-  if (!plugin) return null;
+  const { plugin, state } = useEditorPlugin();
 
   // Ensure pulse animation CSS is injected
   useEffect(() => { ensurePulseAnimation(); }, []);
 
-  const state = useSyncExternalStore(plugin.subscribe, plugin.getSnapshot);
+  if (!plugin) return null;
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilterRaw] = useState<TypeFilter>(() => {
     try { const v = localStorage.getItem('rv-hierarchy-type-filter'); return (v as TypeFilter) ?? 'all'; } catch { return 'all'; }

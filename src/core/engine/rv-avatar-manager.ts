@@ -247,21 +247,33 @@ export class AvatarManager {
     }
   }
 
+  /** Reference frame rate for frame-rate independent lerp (matches Unity AvatarLerp). */
+  private static readonly REFERENCE_FPS = 60;
+
   /**
    * Smooth all avatars toward their targets. Call this each render frame.
+   * Uses frame-rate independent exponential lerp so behaviour is identical at 30fps and 60fps.
    * Applies distance-based LOD: avatars further than LOD_DISTANCE_FULL from
    * the camera scale down to reduce visual clutter.
-   * @param dt Frame delta time in seconds (unused for lerp — kept for API consistency).
+   * @param dt Frame delta time in seconds.
    */
-  lerpAvatars(_dt: number): void {
+  lerpAvatars(dt: number): void {
+    // Frame-rate independent lerp: identical behaviour at 30fps and 60fps
+    const t = 1 - Math.pow(1 - this.lerpFactor, dt * AvatarManager.REFERENCE_FPS);
+
+    // Cache camera world position ONCE per frame (not per avatar)
+    let camPos: Vector3 | null = null;
+    if (this._camera) {
+      camPos = this._camera.getWorldPosition(this._lodVec);
+    }
+
     for (const avatar of this.avatars.values()) {
-      avatar.group.position.lerp(avatar.targetPosition, this.lerpFactor);
-      avatar.group.quaternion.slerp(avatar.targetQuaternion, this.lerpFactor);
+      avatar.group.position.lerp(avatar.targetPosition, t);
+      avatar.group.quaternion.slerp(avatar.targetQuaternion, t);
 
       // Distance-based LOD — only when a camera is set
-      if (this._camera) {
-        this._camera.getWorldPosition(this._lodVec);
-        const dist = avatar.group.position.distanceTo(this._lodVec);
+      if (camPos) {
+        const dist = avatar.group.position.distanceTo(camPos);
         const showFull = dist <= LOD_DISTANCE_FULL;
         // Scale card down at distance
         const scale = showFull ? CARD_SIZE : CARD_SIZE * 0.6;

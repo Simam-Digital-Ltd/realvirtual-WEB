@@ -4,16 +4,13 @@ import { Circle } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useSlot } from '../../hooks/use-slot';
 import { useMcpBridge } from '../../hooks/use-mcp-bridge';
-import { RvExtrasEditorPlugin, HIERARCHY_DEFAULT_WIDTH } from './rv-extras-editor';
+import { useEditorPlugin } from '../../hooks/use-editor-plugin';
 import { SETTINGS_PANEL_WIDTH, INSPECTOR_PANEL_WIDTH } from './layout-constants';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { WelcomeModal } from './WelcomeModal';
 
 /* Logo URL: use BASE_URL so it resolves correctly under sub-folder deploys (e.g. Bunny CDN /demo/) */
 const logoUrl = `${import.meta.env.BASE_URL}logo.png`;
-
-const EMPTY_SNAPSHOT = { panelOpen: false, panelWidth: HIERARCHY_DEFAULT_WIDTH, overlay: null, editableNodes: [], selectedNodePath: null, revealPath: null, showInspector: false, settingsOpen: false };
-const NOOP_UNSUB = () => () => {};
 
 /** Core layout for the left sidebar: logo + status header, slot-driven button group. */
 export function ButtonPanel() {
@@ -22,11 +19,7 @@ export function ButtonPanel() {
   const [aboutOpen, setAboutOpen] = useState(false);
 
   // Check if hierarchy panel is open (and its width) to shift the button group right
-  const plugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
-  const editorState = useSyncExternalStore(
-    plugin?.subscribe ?? NOOP_UNSUB,
-    plugin?.getSnapshot ?? (() => EMPTY_SNAPSHOT),
-  );
+  const { state: editorState } = useEditorPlugin();
 
   const isMobile = useMobileLayout();
   const mcp = useMcpBridge();

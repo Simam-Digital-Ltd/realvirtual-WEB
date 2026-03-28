@@ -9,28 +9,32 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Box, ToggleButtonGroup, ToggleButton } from '@mui/material';
-import { echarts } from '../core/hmi/echarts-setup';
 import { useViewer } from '../hooks/use-viewer';
+import { useEChart } from '../hooks/use-echart';
 import { useSensorChartOpen } from '../hooks/use-sensor-chart';
 import { useMaintenanceMode } from '../hooks/use-maintenance-mode';
 import { BOTTOM_BAR_HEIGHT } from '../core/hmi/layout-constants';
 import { ChartPanel } from '../core/hmi/ChartPanel';
 import { SensorRecorderPlugin } from '../plugins/sensor-recorder-plugin';
+import { NodeRegistry } from '../core/engine/rv-node-registry';
+import {
+  type TimePeriod,
+  PERIOD_OPTIONS,
+  CHART_SAMPLE_RATE,
+  CHART_REFRESH_INTERVAL,
+  CHART_DEFAULT_WIDTH,
+  SENSOR_PALETTE,
+} from '../core/hmi/chart-constants';
+import { compactToggleGroupSx } from '../core/hmi/shared-sx';
+import {
+  DARK_TEXT_STYLE,
+  DARK_TITLE_STYLE,
+  DARK_AXIS_LINE,
+  DARK_AXIS_LABEL,
+  DARK_TOOLTIP_BASE,
+} from '../core/hmi/chart-theme';
 
-const PALETTE = [
-  '#66bb6a', '#4fc3f7', '#ffa726', '#ef5350', '#ab47bc',
-  '#26c6da', '#e94078', '#ffee58', '#8d6e63', '#78909c',
-  '#ec407a', '#7e57c2', '#29b6f6', '#9ccc65', '#ff7043',
-  '#5c6bc0', '#26a69a', '#d4e157', '#f44336', '#42a5f5',
-];
-
-type TimePeriod = 30 | 60 | 120 | 300;
-const PERIOD_OPTIONS: TimePeriod[] = [30, 60, 120, 300];
-const SAMPLE_RATE = 10;
-
-const DEFAULT_W = 700;
 const DEFAULT_H = 340;
-const REFRESH_INTERVAL = 200;
 const BOTTOM_MARGIN = BOTTOM_BAR_HEIGHT + 12;
 
 /** Vertical spacing between stacked sensors. */
@@ -55,9 +59,6 @@ export function SensorChartOverlay() {
 
   const [period, setPeriod] = useState<TimePeriod>(60);
 
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstance = useRef<echarts.ECharts | null>(null);
-
   // Short display name from full path
   const shortName = useCallback((path: string) => {
     const parts = path.split('/');
@@ -73,69 +74,33 @@ export function SensorChartOverlay() {
       if (!s) return;
       const sensor = sensors.find((sen) => sen === s.sensor);
       if (!sensor) return;
-      const pathParts: string[] = [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let cur: any = sensor.node;
-      while (cur && cur.name) {
-        pathParts.unshift(cur.name);
-        cur = cur.parent;
-      }
-      if (pathParts[0] === 'Scene' || pathParts[0] === '') pathParts.shift();
-      const path = pathParts.join('/');
+      const path = NodeRegistry.computeNodePath(sensor.node);
       viewer.highlightByPath(path, true);
       viewer.focusByPath(path);
     },
     [viewer, shortName],
   );
 
-  // Init ECharts — only once when opened
+  // Shared EChart lifecycle (init/dispose/resize/window-resize)
   const handleClickRef = useRef(handleSensorClick);
   handleClickRef.current = handleSensorClick;
 
-  useEffect(() => {
-    if (!open) return;
-    const timer = setTimeout(() => {
-      if (!chartInstance.current && chartRef.current) {
-        chartInstance.current = echarts.init(chartRef.current, undefined, { renderer: 'canvas' });
-        chartInstance.current.on('click', (params: unknown) => {
-          const p = params as { seriesName?: string };
-          if (p.seriesName) handleClickRef.current(p.seriesName);
-        });
-        chartInstance.current.on('legendselectchanged', (params: unknown) => {
-          const p = params as { name: string; selected: Record<string, boolean> };
-          // Re-select (don't hide — just focus)
-          chartInstance.current!.dispatchAction({ type: 'legendSelect', name: p.name });
-          handleClickRef.current(p.name);
-        });
-      }
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [open]);
-
-  // Dispose on close
-  useEffect(() => {
-    if (open) return;
-    chartInstance.current?.dispose();
-    chartInstance.current = null;
-  }, [open]);
-
-  // Resize chart
-  useEffect(() => {
-    if (!open) return;
-    const observer = chartRef.current
-      ? new ResizeObserver(() => chartInstance.current?.resize())
-      : null;
-    if (chartRef.current && observer) observer.observe(chartRef.current);
-    return () => observer?.disconnect();
-  }, [open]);
-
-  // Window resize
-  useEffect(() => {
-    if (!open) return;
-    const onResize = () => chartInstance.current?.resize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [open]);
+  const { containerRef: chartRef, chartInstance } = useEChart({
+    open,
+    enableWindowResize: true,
+    onInit: (chart) => {
+      chart.on('click', (params: unknown) => {
+        const p = params as { seriesName?: string };
+        if (p.seriesName) handleClickRef.current(p.seriesName);
+      });
+      chart.on('legendselectchanged', (params: unknown) => {
+        const p = params as { name: string; selected: Record<string, boolean> };
+        // Re-select (don't hide — just focus)
+        chart.dispatchAction({ type: 'legendSelect', name: p.name });
+        handleClickRef.current(p.name);
+      });
+    },
+  });
 
   // Periodic data refresh
   useEffect(() => {
@@ -147,7 +112,7 @@ export function SensorChartOverlay() {
       const recorder = ensureSensorRecorder(viewer).recorder;
       if (recorder.timeBuffer.count === 0) return;
 
-      const samplesToShow = period * SAMPLE_RATE;
+      const samplesToShow = period * CHART_SAMPLE_RATE;
       const timeData = recorder.timeBuffer.lastN(samplesToShow);
       if (timeData.length === 0) return;
 
@@ -160,7 +125,7 @@ export function SensorChartOverlay() {
       for (let i = 0; i < sensorCount; i++) {
         const s = recorder.series[i];
         const name = shortName(s.path);
-        const color = PALETTE[i % PALETTE.length];
+        const color = SENSOR_PALETTE[i % SENSOR_PALETTE.length];
         const offset = (sensorCount - 1 - i) * SENSOR_SPACING;
 
         legendData.push(name);
@@ -202,12 +167,12 @@ export function SensorChartOverlay() {
       chart.setOption(
         {
           backgroundColor: 'transparent',
-          textStyle: { fontFamily: 'Inter, Roboto, Arial, sans-serif', color: 'rgba(255,255,255,0.7)' },
+          textStyle: DARK_TEXT_STYLE,
           title: {
             text: 'Sensor Timeline',
             left: 8,
             top: 2,
-            textStyle: { color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 500 },
+            textStyle: DARK_TITLE_STYLE,
           },
           legend: {
             data: legendData,
@@ -221,18 +186,15 @@ export function SensorChartOverlay() {
             itemHeight: 8,
           },
           tooltip: {
-            trigger: 'axis',
-            backgroundColor: 'rgba(10,10,10,0.92)',
-            borderColor: 'rgba(255,255,255,0.06)',
-            textStyle: { color: '#fff', fontSize: 11 },
+            ...DARK_TOOLTIP_BASE,
             axisPointer: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
           },
           grid: { left: 12, right: 12, top: 24, bottom: 42 },
           xAxis: {
             type: 'category',
             data: xData,
-            axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
-            axisLabel: { color: 'rgba(255,255,255,0.3)', fontSize: 10 },
+            axisLine: DARK_AXIS_LINE,
+            axisLabel: DARK_AXIS_LABEL,
             splitLine: { show: false },
           },
           yAxis: {
@@ -250,7 +212,7 @@ export function SensorChartOverlay() {
     };
 
     const initTimer = setTimeout(update, 100);
-    const interval = setInterval(update, REFRESH_INTERVAL);
+    const interval = setInterval(update, CHART_REFRESH_INTERVAL);
     return () => {
       clearTimeout(initTimer);
       clearInterval(interval);
@@ -267,33 +229,7 @@ export function SensorChartOverlay() {
         exclusive
         onChange={(_, v) => { if (v) setPeriod(v as TimePeriod); }}
         size="small"
-        sx={{
-          ml: 'auto',
-          height: 22,
-          '& .MuiToggleButtonGroup-grouped': {
-            border: '1px solid rgba(255,255,255,0.1) !important',
-          },
-          '& .MuiToggleButton-root': {
-            color: 'rgba(255,255,255,0.4)',
-            bgcolor: 'transparent',
-            borderColor: 'rgba(255,255,255,0.1)',
-            fontSize: 10,
-            lineHeight: 1,
-            px: 0.6,
-            py: 0,
-            minWidth: 0,
-            textTransform: 'none',
-            '&.Mui-selected': {
-              color: '#66bb6a',
-              bgcolor: 'rgba(102,187,106,0.12)',
-              borderColor: 'rgba(102,187,106,0.3) !important',
-            },
-            '&.Mui-selected:hover': {
-              bgcolor: 'rgba(102,187,106,0.18)',
-            },
-            '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
-          },
-        }}
+        sx={compactToggleGroupSx('#66bb6a', '102,187,106', { ml: 'auto' })}
       >
         {PERIOD_OPTIONS.map((p) => (
           <ToggleButton key={p} value={p}>
@@ -311,7 +247,7 @@ export function SensorChartOverlay() {
       title="Sensor Monitor"
       titleColor="#66bb6a"
       subtitle={`${sensorCount} sensors`}
-      defaultWidth={DEFAULT_W}
+      defaultWidth={CHART_DEFAULT_WIDTH}
       defaultHeight={DEFAULT_H}
       defaultPosition={{ x: 64, y: window.innerHeight - DEFAULT_H - BOTTOM_MARGIN }}
       zIndex={1500}

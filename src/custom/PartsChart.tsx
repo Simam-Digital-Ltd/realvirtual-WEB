@@ -5,12 +5,13 @@
  * Includes a dashed target markLine and a 3-hour moving average line.
  */
 
-import { useRef, useEffect } from 'react';
+import { useEffect } from 'react';
 import { Box } from '@mui/material';
-import { echarts } from '../core/hmi/echarts-setup';
 import { ChartPanel } from '../core/hmi/ChartPanel';
 import { useKpiData } from '../hooks/use-kpi-data';
 import { movingAverage } from '../core/hmi/kpi-utils';
+import { useEChart } from '../hooks/use-echart';
+import { createBaseChartOption } from '../core/hmi/chart-theme';
 
 interface PartsChartProps {
   open: boolean;
@@ -26,31 +27,7 @@ function barColor(value: number, target: number): string {
 
 export function PartsChart({ open, onClose }: PartsChartProps) {
   const kpi = useKpiData();
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstance = useRef<echarts.ECharts | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const timer = setTimeout(() => {
-      if (!chartInstance.current && chartRef.current) {
-        chartInstance.current = echarts.init(chartRef.current, undefined, { renderer: 'canvas' });
-      }
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [open]);
-
-  useEffect(() => {
-    if (open) return;
-    chartInstance.current?.dispose();
-    chartInstance.current = null;
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !chartRef.current) return;
-    const observer = new ResizeObserver(() => chartInstance.current?.resize());
-    observer.observe(chartRef.current);
-    return () => observer.disconnect();
-  }, [open]);
+  const { containerRef: chartRef, chartInstance } = useEChart({ open });
 
   useEffect(() => {
     if (!open || !kpi) return;
@@ -63,42 +40,19 @@ export function PartsChart({ open, onClose }: PartsChartProps) {
       const values = data.map((d) => d.parts);
       const ma = movingAverage(values, 3);
 
+      const base = createBaseChartOption({
+        title: 'Parts per Hour \u2014 Last 24h',
+        legendData: ['Parts/h', '3h Average'],
+        grid: { left: 45, right: 12, top: 24, bottom: 42 },
+        animate: true,
+      });
+
       chart.setOption(
         {
-          backgroundColor: 'transparent',
-          textStyle: { fontFamily: 'Inter, Roboto, Arial, sans-serif', color: 'rgba(255,255,255,0.7)' },
-          title: {
-            text: 'Parts per Hour — Last 24h',
-            left: 8,
-            top: 2,
-            textStyle: { color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 500 },
-          },
-          legend: {
-            data: ['Parts/h', '3h Average'],
-            bottom: 0,
-            textStyle: { color: 'rgba(255,255,255,0.5)', fontSize: 10 },
-            itemWidth: 12,
-            itemHeight: 8,
-          },
-          tooltip: {
-            trigger: 'axis',
-            backgroundColor: 'rgba(10,10,10,0.92)',
-            borderColor: 'rgba(255,255,255,0.06)',
-            textStyle: { color: '#fff', fontSize: 11 },
-          },
-          grid: { left: 45, right: 12, top: 24, bottom: 42 },
+          ...base,
           xAxis: {
-            type: 'category',
+            ...(base.xAxis as object),
             data: data.map((d) => d.hour),
-            axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
-            axisLabel: { color: 'rgba(255,255,255,0.3)', fontSize: 10 },
-            splitLine: { show: false },
-          },
-          yAxis: {
-            type: 'value',
-            axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
-            axisLabel: { color: 'rgba(255,255,255,0.3)', fontSize: 10 },
-            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
           },
           series: [
             {
@@ -131,8 +85,6 @@ export function PartsChart({ open, onClose }: PartsChartProps) {
               itemStyle: { color: '#a78bfa' },
             },
           ],
-          animationDuration: 500,
-          animationEasing: 'cubicOut',
         },
         { notMerge: true },
       );

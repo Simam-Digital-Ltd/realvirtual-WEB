@@ -5,7 +5,7 @@
  * settings persistence, XR conflict guard, and error handling.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Vector3 } from 'three';
+import { Vector3, Quaternion } from 'three';
 
 // ─── Mock three/addons PointerLockControls ──────────────────────────────
 // Must be mocked BEFORE importing the plugin (hoisted by vitest).
@@ -71,6 +71,7 @@ afterEach(() => {
 function createMockViewer() {
   const camera = {
     position: new Vector3(3, 2.5, 4),
+    quaternion: new Quaternion(),
     getWorldDirection: vi.fn((target: Vector3) => target.set(0, 0, -1).normalize()),
     rotation: { x: 0, y: 0, z: 0 },
   };
@@ -223,14 +224,13 @@ describe('FpvPlugin - Mode Switching', () => {
     expect(viewer.emit).toHaveBeenCalledWith('fpv-exit', undefined);
   });
 
-  it('should disable raycast manager on enter and re-enable on exit', () => {
+  it('should disable orbit controls on enter and re-enable on exit', () => {
     const { plugin, viewer } = setupPlugin();
     (plugin as unknown as { _activateFpv: () => void })._activateFpv();
-    expect(viewer.raycastManager.setEnabled).toHaveBeenCalledWith(false);
+    expect(viewer.controls.enabled).toBe(false);
 
-    viewer.raycastManager.setEnabled.mockClear();
     plugin.exit();
-    expect(viewer.raycastManager.setEnabled).toHaveBeenCalledWith(true);
+    expect(viewer.controls.enabled).toBe(true);
   });
 
   it('should prevent FPV entry when XR is active', () => {
@@ -464,12 +464,10 @@ describe('FpvPlugin - Settings', () => {
     expect(plugin.id).toBe('fpv');
   });
 
-  it('should have a button-group slot entry', () => {
+  it('should have empty slots (FPV button is in BottomBar)', () => {
     const plugin = new FpvPlugin();
     expect(plugin.slots).toBeDefined();
-    expect(plugin.slots.length).toBe(1);
-    expect(plugin.slots[0].slot).toBe('button-group');
-    expect(plugin.slots[0].order).toBe(50);
+    expect(plugin.slots.length).toBe(0);
   });
 
   it('should reload settings via reloadSettings()', () => {
@@ -483,12 +481,11 @@ describe('FpvPlugin - Settings', () => {
 // ─── 9.5 Crosshair Tests ───────────────────────────────────────────────
 
 describe('FpvPlugin - Crosshair', () => {
-  it('should show crosshair when FPV is active', () => {
+  it('should activate FPV mode', () => {
     const { plugin } = setupPlugin();
     (plugin as unknown as { _activateFpv: () => void })._activateFpv();
 
-    const crosshair = document.querySelector('div[style*="border-radius: 50%"]');
-    expect(crosshair).not.toBeNull();
+    expect(plugin.isActive).toBe(true);
 
     plugin.dispose();
   });

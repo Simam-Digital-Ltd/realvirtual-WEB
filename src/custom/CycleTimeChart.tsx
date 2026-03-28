@@ -5,12 +5,13 @@
  * Includes a takt time markLine and 10-cycle moving average.
  */
 
-import { useRef, useEffect } from 'react';
+import { useEffect } from 'react';
 import { Box } from '@mui/material';
-import { echarts } from '../core/hmi/echarts-setup';
 import { ChartPanel } from '../core/hmi/ChartPanel';
 import { useKpiData } from '../hooks/use-kpi-data';
 import { movingAverage } from '../core/hmi/kpi-utils';
+import { useEChart } from '../hooks/use-echart';
+import { createBaseChartOption, DARK_TOOLTIP_BASE } from '../core/hmi/chart-theme';
 
 interface CycleTimeChartProps {
   open: boolean;
@@ -27,31 +28,7 @@ function dotColor(ms: number, takt: number): string {
 
 export function CycleTimeChart({ open, onClose }: CycleTimeChartProps) {
   const kpi = useKpiData();
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstance = useRef<echarts.ECharts | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const timer = setTimeout(() => {
-      if (!chartInstance.current && chartRef.current) {
-        chartInstance.current = echarts.init(chartRef.current, undefined, { renderer: 'canvas' });
-      }
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [open]);
-
-  useEffect(() => {
-    if (open) return;
-    chartInstance.current?.dispose();
-    chartInstance.current = null;
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || !chartRef.current) return;
-    const observer = new ResizeObserver(() => chartInstance.current?.resize());
-    observer.observe(chartRef.current);
-    return () => observer.disconnect();
-  }, [open]);
+  const { containerRef: chartRef, chartInstance } = useEChart({ open });
 
   useEffect(() => {
     if (!open || !kpi) return;
@@ -69,28 +46,17 @@ export function CycleTimeChart({ open, onClose }: CycleTimeChartProps) {
       const greenUpper = taktS * 1.05;  // 126s at 120s takt
       const amberUpper = taktS * 1.20;  // 144s at 120s takt
 
+      const base = createBaseChartOption({
+        title: 'Cycle Time \u2014 Last 100 Cycles',
+        legendData: ['Cycle Time', '10-Cycle Avg'],
+        animate: true,
+      });
+
       chart.setOption(
         {
-          backgroundColor: 'transparent',
-          textStyle: { fontFamily: 'Inter, Roboto, Arial, sans-serif', color: 'rgba(255,255,255,0.7)' },
-          title: {
-            text: 'Cycle Time — Last 100 Cycles',
-            left: 8,
-            top: 2,
-            textStyle: { color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 500 },
-          },
-          legend: {
-            data: ['Cycle Time', '10-Cycle Avg'],
-            bottom: 0,
-            textStyle: { color: 'rgba(255,255,255,0.5)', fontSize: 10 },
-            itemWidth: 12,
-            itemHeight: 8,
-          },
+          ...base,
           tooltip: {
-            trigger: 'axis',
-            backgroundColor: 'rgba(10,10,10,0.92)',
-            borderColor: 'rgba(255,255,255,0.06)',
-            textStyle: { color: '#fff', fontSize: 11 },
+            ...DARK_TOOLTIP_BASE,
             formatter: (params: unknown) => {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const ps = params as any[];
@@ -103,27 +69,22 @@ export function CycleTimeChart({ open, onClose }: CycleTimeChartProps) {
               return html;
             },
           },
-          grid: { left: 50, right: 12, top: 24, bottom: 42 },
           xAxis: {
-            type: 'category',
+            ...(base.xAxis as object),
             data: xData,
-            axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
             axisLabel: {
               color: 'rgba(255,255,255,0.3)',
               fontSize: 10,
-              interval: 9, // Show every 10th cycle
+              interval: 9,
             },
-            splitLine: { show: false },
           },
           yAxis: {
-            type: 'value',
-            axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
+            ...(base.yAxis as object),
             axisLabel: {
               color: 'rgba(255,255,255,0.3)',
               fontSize: 10,
               formatter: (v: number) => `${(v / 1000).toFixed(0)}s`,
             },
-            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
           },
           series: [
             // Zone bands (invisible lines with area fill)
@@ -179,8 +140,6 @@ export function CycleTimeChart({ open, onClose }: CycleTimeChartProps) {
               itemStyle: { color: '#a78bfa' },
             },
           ],
-          animationDuration: 500,
-          animationEasing: 'cubicOut',
         },
         { notMerge: true },
       );

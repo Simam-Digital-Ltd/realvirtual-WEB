@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
+import { useEditorPlugin } from '../../hooks/use-editor-plugin';
 import { Typography, Box, IconButton, Paper, Button, CircularProgress, Tabs, Tab, Switch, Slider, Tooltip, Select, MenuItem, TextField } from '@mui/material';
 import { Settings, Close, PlayArrow, CheckCircle, Error as ErrorIcon, RestartAlt, AccountTree, ViewInAr, People } from '@mui/icons-material';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
@@ -10,7 +11,6 @@ import { loadInterfaceSettings, saveInterfaceSettings, type InterfaceSettings, t
 import { InterfaceManager } from '../../interfaces/interface-manager';
 import { ALL_RV_STORAGE_KEYS } from './rv-storage-keys';
 import { isSettingsLocked, isTabLocked } from './rv-app-config';
-import { RvExtrasEditorPlugin, HIERARCHY_DEFAULT_WIDTH } from './rv-extras-editor';
 import { HierarchyBrowser } from './rv-hierarchy-browser';
 import { PropertyInspector } from './rv-property-inspector';
 import { LeftPanel } from './LeftPanel';
@@ -30,11 +30,7 @@ export function TopBar() {
   const [muOpen, setMuOpen] = useState(false);
 
   // Hierarchy panel state from plugin
-  const plugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
-  const pluginState = useSyncExternalStore(
-    plugin?.subscribe ?? (() => () => {}),
-    plugin?.getSnapshot ?? (() => ({ panelOpen: false, panelWidth: HIERARCHY_DEFAULT_WIDTH, overlay: null, editableNodes: [], selectedNodePath: null, revealPath: null, showInspector: false, settingsOpen: false })),
-  );
+  const { plugin, state: pluginState } = useEditorPlugin();
   const hierarchyOpen = pluginState.panelOpen;
   const settingsOpen = pluginState.settingsOpen;
 
@@ -91,55 +87,65 @@ export function TopBar() {
       {/* Hierarchy + VR + Settings buttons — fixed top-right */}
       <Paper elevation={4} data-ui-panel sx={{ position: 'fixed', top: 8, right: 8, borderRadius: 2, pointerEvents: 'auto', zIndex: 9001, display: 'flex', gap: isMobile ? 0.5 : 0.25, px: isMobile ? 0.5 : 0.25 }}>
         {plugin && !isMobile && (
-          <IconButton
-            size="small"
-            color={hierarchyOpen ? 'primary' : 'inherit'}
-            sx={{ p: 0.75 }}
-            onClick={toggleHierarchy}
-          >
-            {hierarchyOpen ? <Close fontSize="small" /> : <AccountTree fontSize="small" />}
-          </IconButton>
+          <Tooltip title={hierarchyOpen ? 'Close Hierarchy' : 'Hierarchy'} placement="bottom">
+            <IconButton
+              size="small"
+              color={hierarchyOpen ? 'primary' : 'inherit'}
+              sx={{ p: 0.75 }}
+              onClick={toggleHierarchy}
+            >
+              {hierarchyOpen ? <Close fontSize="small" /> : <AccountTree fontSize="small" />}
+            </IconButton>
+          </Tooltip>
         )}
         {showMultiuser && !isMobile && (
-          <IconButton
-            size="small"
-            color={muOpen ? 'primary' : 'inherit'}
-            sx={{ p: 0.75, position: 'relative' }}
-            onClick={() => { setMuOpen(!muOpen); setVrOpen(false); setSettingsOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
-          >
-            {muOpen ? <Close fontSize="small" /> : <People fontSize="small" />}
-            {muState.connected && !muOpen && (
-              <Box sx={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: '50%', bgcolor: '#66bb6a' }} />
-            )}
-          </IconButton>
+          <Tooltip title={muOpen ? 'Close Multiuser' : 'Multiuser'} placement="bottom">
+            <IconButton
+              size="small"
+              color={muOpen ? 'primary' : 'inherit'}
+              sx={{ p: 0.75, position: 'relative' }}
+              onClick={() => { setMuOpen(!muOpen); setVrOpen(false); setSettingsOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
+            >
+              {muOpen ? <Close fontSize="small" /> : <People fontSize="small" />}
+              {muState.connected && !muOpen && (
+                <Box sx={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: '50%', bgcolor: '#66bb6a' }} />
+              )}
+            </IconButton>
+          </Tooltip>
         )}
         {!isMobile && (
-          <IconButton
-            size="small"
-            color={vrOpen ? 'primary' : 'inherit'}
-            sx={{ p: 0.75 }}
-            onClick={() => { setVrOpen(!vrOpen); setMuOpen(false); setSettingsOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
-          >
-            {vrOpen ? <Close fontSize="small" /> : <Typography sx={{ fontSize: 11, fontWeight: 700, px: 0.25 }}>VR</Typography>}
-          </IconButton>
+          <Tooltip title={vrOpen ? 'Close VR/AR' : 'VR / AR'} placement="bottom">
+            <IconButton
+              size="small"
+              color={vrOpen ? 'primary' : 'inherit'}
+              sx={{ p: 0.75 }}
+              onClick={() => { setVrOpen(!vrOpen); setMuOpen(false); setSettingsOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
+            >
+              {vrOpen ? <Close fontSize="small" /> : <Typography sx={{ fontSize: 11, fontWeight: 700, px: 0.25 }}>VR</Typography>}
+            </IconButton>
+          </Tooltip>
         )}
         {showMobileAR && (
-          <IconButton
-            sx={{ p: 1, color: '#81c784' }}
-            onClick={() => xrPlugin?.startAR()}
-          >
-            <ViewInAr />
-          </IconButton>
+          <Tooltip title="Start AR" placement="bottom">
+            <IconButton
+              sx={{ p: 1, color: '#81c784' }}
+              onClick={() => xrPlugin?.startAR()}
+            >
+              <ViewInAr />
+            </IconButton>
+          </Tooltip>
         )}
         {!isSettingsLocked() && (
-          <IconButton
-            size={isMobile ? 'medium' : 'small'}
-            color={settingsOpen ? 'primary' : 'inherit'}
-            sx={{ p: isMobile ? 1 : 0.75 }}
-            onClick={() => { setSettingsOpen(!settingsOpen); setVrOpen(false); setMuOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
-          >
-            {settingsOpen ? <Close fontSize={isMobile ? 'medium' : 'small'} /> : <Settings fontSize={isMobile ? 'medium' : 'small'} />}
-          </IconButton>
+          <Tooltip title={settingsOpen ? 'Close Settings' : 'Settings'} placement="bottom">
+            <IconButton
+              size={isMobile ? 'medium' : 'small'}
+              color={settingsOpen ? 'primary' : 'inherit'}
+              sx={{ p: isMobile ? 1 : 0.75 }}
+              onClick={() => { setSettingsOpen(!settingsOpen); setVrOpen(false); setMuOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
+            >
+              {settingsOpen ? <Close fontSize={isMobile ? 'medium' : 'small'} /> : <Settings fontSize={isMobile ? 'medium' : 'small'} />}
+            </IconButton>
+          </Tooltip>
         )}
       </Paper>
 

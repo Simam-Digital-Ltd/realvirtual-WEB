@@ -78,6 +78,52 @@ export class RVHighlightManager {
 
   constructor(private readonly scene: Scene) {}
 
+  // ─── Private helpers ─────────────────────────────────────────────────
+
+  /**
+   * Create a fill overlay + edge outline pair for a single geometry,
+   * positioned via `matrix`. Used by highlight(), highlightMultiple(),
+   * and highlightInstancedMU() to avoid triplicating overlay creation.
+   */
+  private _createOverlayPair(
+    geometry: BufferGeometry,
+    matrix: Matrix4,
+    sourceMesh: Mesh,
+    namePrefix: string,
+    thresholdRad: number,
+  ): OverlayPair {
+    const overlay = new Mesh(geometry, overlayMat);
+    overlay.name = `${namePrefix}_hlOverlay`;
+    overlay.userData._highlightOverlay = true;
+    overlay.renderOrder = 1000;
+    overlay.raycast = () => {};
+    overlay.matrixAutoUpdate = false;
+    overlay.matrixWorldAutoUpdate = false;
+    overlay.matrix.copy(matrix);
+    overlay.matrixWorld.copy(matrix);
+    this.scene.add(overlay);
+
+    let edgeGeo = edgeGeometryCache.get(geometry);
+    if (!edgeGeo) {
+      edgeGeo = new EdgesGeometry(geometry, thresholdRad);
+      edgeGeometryCache.set(geometry, edgeGeo);
+    }
+    const edgeLines = new LineSegments(edgeGeo, edgeMat);
+    edgeLines.name = `${namePrefix}_hlEdge`;
+    edgeLines.userData._highlightOverlay = true;
+    edgeLines.renderOrder = 1001;
+    edgeLines.raycast = () => {};
+    edgeLines.matrixAutoUpdate = false;
+    edgeLines.matrixWorldAutoUpdate = false;
+    edgeLines.matrix.copy(matrix);
+    edgeLines.matrixWorld.copy(matrix);
+    this.scene.add(edgeLines);
+
+    return { source: sourceMesh, fill: overlay, edge: edgeLines };
+  }
+
+  // ─── Public API ──────────────────────────────────────────────────────
+
   /**
    * Highlight a subtree with orange overlay + edge glow.
    * Replaces any previous highlight.
@@ -95,37 +141,8 @@ export class RVHighlightManager {
     const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
 
     for (const mesh of meshes) {
-      // Semi-transparent fill overlay
-      const overlay = new Mesh(mesh.geometry, overlayMat);
-      overlay.name = `${mesh.name}_hlOverlay`;
-      overlay.userData._highlightOverlay = true;
-      overlay.renderOrder = 1000;
-      overlay.raycast = () => {};
-      overlay.matrixAutoUpdate = false;
-      overlay.matrixWorldAutoUpdate = false;
       mesh.updateWorldMatrix(true, false);
-      overlay.matrix.copy(mesh.matrixWorld);
-      overlay.matrixWorld.copy(mesh.matrixWorld);
-      this.scene.add(overlay);
-
-      // Edge outline (cached per source geometry)
-      let edgeGeo = edgeGeometryCache.get(mesh.geometry);
-      if (!edgeGeo) {
-        edgeGeo = new EdgesGeometry(mesh.geometry, thresholdRad);
-        edgeGeometryCache.set(mesh.geometry, edgeGeo);
-      }
-      const edgeLines = new LineSegments(edgeGeo, edgeMat);
-      edgeLines.name = `${mesh.name}_hlEdge`;
-      edgeLines.userData._highlightOverlay = true;
-      edgeLines.renderOrder = 1001;
-      edgeLines.raycast = () => {};
-      edgeLines.matrixAutoUpdate = false;
-      edgeLines.matrixWorldAutoUpdate = false;
-      edgeLines.matrix.copy(mesh.matrixWorld);
-      edgeLines.matrixWorld.copy(mesh.matrixWorld);
-      this.scene.add(edgeLines);
-
-      this.pairs.push({ source: mesh, fill: overlay, edge: edgeLines });
+      this.pairs.push(this._createOverlayPair(mesh.geometry, mesh.matrixWorld, mesh, mesh.name, thresholdRad));
     }
   }
 
@@ -151,38 +168,13 @@ export class RVHighlightManager {
     const mat = new Matrix4();
     mu.node.getMatrixAt(mu.slotIndex, mat);
 
-    // Semi-transparent fill overlay
-    const overlay = new Mesh(geometry, overlayMat);
-    overlay.name = `__imu_hlOverlay`;
-    overlay.userData._highlightOverlay = true;
-    overlay.renderOrder = 1000;
-    overlay.raycast = () => {};
-    overlay.matrixAutoUpdate = false;
-    overlay.matrixWorldAutoUpdate = false;
-    overlay.matrix.copy(mat);
-    overlay.matrixWorld.copy(mat);
-    this.scene.add(overlay);
-
-    // Edge outline
     const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
-    let edgeGeo = edgeGeometryCache.get(geometry);
-    if (!edgeGeo) {
-      edgeGeo = new EdgesGeometry(geometry, thresholdRad);
-      edgeGeometryCache.set(geometry, edgeGeo);
-    }
-    const edgeLines = new LineSegments(edgeGeo, edgeMat);
-    edgeLines.name = `__imu_hlEdge`;
-    edgeLines.userData._highlightOverlay = true;
-    edgeLines.renderOrder = 1001;
-    edgeLines.raycast = () => {};
-    edgeLines.matrixAutoUpdate = false;
-    edgeLines.matrixWorldAutoUpdate = false;
-    edgeLines.matrix.copy(mat);
-    edgeLines.matrixWorld.copy(mat);
-    this.scene.add(edgeLines);
-
-    // Use a dummy source mesh (overlay itself) — not tracked, so update() won't be called
-    this.pairs.push({ source: overlay, fill: overlay, edge: edgeLines });
+    // Create pair with a dummy source, then fix source to overlay (self-referential).
+    // Instanced MU has no per-instance Object3D, so use overlay itself.
+    // Since tracked=false, update() won't be called and the self-referential source is harmless.
+    const pair = this._createOverlayPair(geometry, mat, null as unknown as Mesh, '__imu', thresholdRad);
+    pair.source = pair.fill;
+    this.pairs.push(pair);
   }
 
   /**
@@ -213,35 +205,8 @@ export class RVHighlightManager {
     for (const root of roots) {
       const meshes = this.collectMeshes(root, includeSensorViz);
       for (const mesh of meshes) {
-        const overlay = new Mesh(mesh.geometry, overlayMat);
-        overlay.name = `${mesh.name}_hlOverlay`;
-        overlay.userData._highlightOverlay = true;
-        overlay.renderOrder = 1000;
-        overlay.raycast = () => {};
-        overlay.matrixAutoUpdate = false;
-        overlay.matrixWorldAutoUpdate = false;
         mesh.updateWorldMatrix(true, false);
-        overlay.matrix.copy(mesh.matrixWorld);
-        overlay.matrixWorld.copy(mesh.matrixWorld);
-        this.scene.add(overlay);
-
-        let edgeGeo = edgeGeometryCache.get(mesh.geometry);
-        if (!edgeGeo) {
-          edgeGeo = new EdgesGeometry(mesh.geometry, thresholdRad);
-          edgeGeometryCache.set(mesh.geometry, edgeGeo);
-        }
-        const edgeLines = new LineSegments(edgeGeo, edgeMat);
-        edgeLines.name = `${mesh.name}_hlEdge`;
-        edgeLines.userData._highlightOverlay = true;
-        edgeLines.renderOrder = 1001;
-        edgeLines.raycast = () => {};
-        edgeLines.matrixAutoUpdate = false;
-        edgeLines.matrixWorldAutoUpdate = false;
-        edgeLines.matrix.copy(mesh.matrixWorld);
-        edgeLines.matrixWorld.copy(mesh.matrixWorld);
-        this.scene.add(edgeLines);
-
-        this.pairs.push({ source: mesh, fill: overlay, edge: edgeLines });
+        this.pairs.push(this._createOverlayPair(mesh.geometry, mesh.matrixWorld, mesh, mesh.name, thresholdRad));
       }
     }
   }

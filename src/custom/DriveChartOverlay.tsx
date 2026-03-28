@@ -9,8 +9,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Box, ToggleButtonGroup, ToggleButton, Chip } from '@mui/material';
 import { FilterAltOff } from '@mui/icons-material';
-import { echarts } from '../core/hmi/echarts-setup';
 import { useViewer } from '../hooks/use-viewer';
+import { useEChart } from '../hooks/use-echart';
 import { useDriveChartOpen } from '../hooks/use-drive-chart';
 import { useDrives } from '../hooks/use-drives';
 import { useDriveFilter } from '../hooks/use-drive-filter';
@@ -18,22 +18,28 @@ import { useMaintenanceMode } from '../hooks/use-maintenance-mode';
 import { BOTTOM_BAR_HEIGHT } from '../core/hmi/layout-constants';
 import { ChartPanel } from '../core/hmi/ChartPanel';
 import { DriveRecorderPlugin } from '../plugins/drive-recorder-plugin';
-
-const PALETTE = [
-  '#4fc3f7', '#e94078', '#66bb6a', '#ffa726', '#ab47bc',
-  '#26c6da', '#ef5350', '#ffee58', '#8d6e63', '#78909c',
-  '#ec407a', '#7e57c2', '#29b6f6', '#9ccc65', '#ff7043',
-  '#5c6bc0', '#26a69a', '#d4e157', '#f44336', '#42a5f5',
-];
+import { NodeRegistry } from '../core/engine/rv-node-registry';
+import {
+  type TimePeriod,
+  PERIOD_OPTIONS,
+  CHART_SAMPLE_RATE,
+  CHART_REFRESH_INTERVAL,
+  CHART_DEFAULT_WIDTH,
+  DRIVE_PALETTE,
+} from '../core/hmi/chart-constants';
+import { compactToggleGroupSx } from '../core/hmi/shared-sx';
+import {
+  DARK_TEXT_STYLE,
+  DARK_TITLE_STYLE,
+  DARK_AXIS_LINE,
+  DARK_AXIS_LABEL,
+  DARK_SPLIT_LINE,
+  DARK_TOOLTIP_BASE,
+} from '../core/hmi/chart-theme';
 
 type ChartMode = 'position' | 'speed' | 'both';
-type TimePeriod = 30 | 60 | 120 | 300;
-const PERIOD_OPTIONS: TimePeriod[] = [30, 60, 120, 300];
-const SAMPLE_RATE = 10;
 
-const DEFAULT_W = 700;
 const DEFAULT_H = 300;
-const REFRESH_INTERVAL = 200;
 const BOTTOM_MARGIN = BOTTOM_BAR_HEIGHT + 12;
 
 // ─── Component ───────────────────────────────────────────────────────────
@@ -62,79 +68,40 @@ export function DriveChartOverlay() {
   const [mode, setMode] = useState<ChartMode>('position');
   const [period, setPeriod] = useState<TimePeriod>(60);
 
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstance = useRef<echarts.ECharts | null>(null);
-
   // Handle clicking a series -> focus drive
   const handleDriveClick = useCallback(
     (driveName: string) => {
       const cleanName = driveName.replace(/ \((pos|spd)\)$/, '');
       const drive = drives.find((d) => d.name === cleanName);
       if (!drive) return;
-      const pathParts: string[] = [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let cur: any = drive.node;
-      while (cur && cur.name) {
-        pathParts.unshift(cur.name);
-        cur = cur.parent;
-      }
-      if (pathParts[0] === 'Scene' || pathParts[0] === '') pathParts.shift();
-      const path = pathParts.join('/');
+      const path = NodeRegistry.computeNodePath(drive.node);
       viewer.highlightByPath(path, true);
       viewer.focusByPath(path);
     },
     [drives, viewer],
   );
 
-  // Init ECharts — only once when opened
+  // Shared EChart lifecycle (init/dispose/resize/window-resize)
   const handleDriveClickRef = useRef(handleDriveClick);
   handleDriveClickRef.current = handleDriveClick;
 
-  useEffect(() => {
-    if (!open) return;
-    const timer = setTimeout(() => {
-      if (!chartInstance.current && chartRef.current) {
-        chartInstance.current = echarts.init(chartRef.current, undefined, { renderer: 'canvas' });
-        chartInstance.current.on('click', (params: unknown) => {
-          const p = params as { seriesName?: string };
-          if (p.seriesName) handleDriveClickRef.current(p.seriesName);
-        });
-        chartInstance.current.on('legendselectchanged', (params: unknown) => {
-          const p = params as { name: string; selected: Record<string, boolean> };
-          const allSelected: Record<string, boolean> = {};
-          for (const key of Object.keys(p.selected)) allSelected[key] = true;
-          chartInstance.current!.dispatchAction({ type: 'legendSelect', name: p.name });
-          handleDriveClickRef.current(p.name);
-        });
-      }
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [open]);
-
-  // Dispose on close
-  useEffect(() => {
-    if (open) return;
-    chartInstance.current?.dispose();
-    chartInstance.current = null;
-  }, [open]);
-
-  // Resize chart on size changes (ChartPanel handles expand via CSS transition)
-  useEffect(() => {
-    if (!open) return;
-    const observer = chartRef.current
-      ? new ResizeObserver(() => chartInstance.current?.resize())
-      : null;
-    if (chartRef.current && observer) observer.observe(chartRef.current);
-    return () => observer?.disconnect();
-  }, [open]);
-
-  // Window resize
-  useEffect(() => {
-    if (!open) return;
-    const onResize = () => chartInstance.current?.resize();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, [open]);
+  const { containerRef: chartRef, chartInstance } = useEChart({
+    open,
+    enableWindowResize: true,
+    onInit: (chart) => {
+      chart.on('click', (params: unknown) => {
+        const p = params as { seriesName?: string };
+        if (p.seriesName) handleDriveClickRef.current(p.seriesName);
+      });
+      chart.on('legendselectchanged', (params: unknown) => {
+        const p = params as { name: string; selected: Record<string, boolean> };
+        const allSelected: Record<string, boolean> = {};
+        for (const key of Object.keys(p.selected)) allSelected[key] = true;
+        chart.dispatchAction({ type: 'legendSelect', name: p.name });
+        handleDriveClickRef.current(p.name);
+      });
+    },
+  });
 
   // Periodic data refresh
   useEffect(() => {
@@ -146,7 +113,7 @@ export function DriveChartOverlay() {
       const recorder = ensureDriveRecorder(viewer).recorder;
       if (recorder.timeBuffer.count === 0) return;
 
-      const samplesToShow = period * SAMPLE_RATE;
+      const samplesToShow = period * CHART_SAMPLE_RATE;
       const timeData = recorder.timeBuffer.lastN(samplesToShow);
       if (timeData.length === 0) return;
 
@@ -164,7 +131,7 @@ export function DriveChartOverlay() {
         const driveName = s.drive.name;
         if (!activeDriveNames.has(driveName)) continue;
 
-        const color = PALETTE[i % PALETTE.length];
+        const color = DRIVE_PALETTE[i % DRIVE_PALETTE.length];
         const unit = s.drive.isRotary ? '\u00B0' : 'mm';
 
         if (mode === 'position' || mode === 'both') {
@@ -204,9 +171,9 @@ export function DriveChartOverlay() {
       const filterInfo = filter ? ` (filter: "${filter}")` : '';
 
       const yAxisStyle = {
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
-        axisLabel: { color: 'rgba(255,255,255,0.3)', fontSize: 10 },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
+        axisLine: DARK_AXIS_LINE,
+        axisLabel: DARK_AXIS_LABEL,
+        splitLine: DARK_SPLIT_LINE,
       };
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -231,12 +198,12 @@ export function DriveChartOverlay() {
       chart.setOption(
         {
           backgroundColor: 'transparent',
-          textStyle: { fontFamily: 'Inter, Roboto, Arial, sans-serif', color: 'rgba(255,255,255,0.7)' },
+          textStyle: DARK_TEXT_STYLE,
           title: {
             text: titleText + filterInfo,
             left: 8,
             top: 2,
-            textStyle: { color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 500 },
+            textStyle: DARK_TITLE_STYLE,
           },
           legend: {
             data: legendData,
@@ -250,18 +217,15 @@ export function DriveChartOverlay() {
             itemHeight: 8,
           },
           tooltip: {
-            trigger: 'axis',
-            backgroundColor: 'rgba(10,10,10,0.92)',
-            borderColor: 'rgba(255,255,255,0.06)',
-            textStyle: { color: '#fff', fontSize: 11 },
+            ...DARK_TOOLTIP_BASE,
             axisPointer: { lineStyle: { color: 'rgba(255,255,255,0.12)' } },
           },
           grid: { left: 50, right: dualAxis ? 50 : 12, top: 24, bottom: 42 },
           xAxis: {
             type: 'category',
             data: xData,
-            axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
-            axisLabel: { color: 'rgba(255,255,255,0.3)', fontSize: 10 },
+            axisLine: DARK_AXIS_LINE,
+            axisLabel: DARK_AXIS_LABEL,
             splitLine: { show: false },
           },
           yAxis,
@@ -272,7 +236,7 @@ export function DriveChartOverlay() {
     };
 
     const initTimer = setTimeout(update, 100);
-    const interval = setInterval(update, REFRESH_INTERVAL);
+    const interval = setInterval(update, CHART_REFRESH_INTERVAL);
     return () => {
       clearTimeout(initTimer);
       clearInterval(interval);
@@ -309,33 +273,7 @@ export function DriveChartOverlay() {
         exclusive
         onChange={(_, v) => { if (v) setPeriod(v as TimePeriod); }}
         size="small"
-        sx={{
-          ml: 'auto',
-          height: 22,
-          '& .MuiToggleButtonGroup-grouped': {
-            border: '1px solid rgba(255,255,255,0.1) !important',
-          },
-          '& .MuiToggleButton-root': {
-            color: 'rgba(255,255,255,0.4)',
-            bgcolor: 'transparent',
-            borderColor: 'rgba(255,255,255,0.1)',
-            fontSize: 10,
-            lineHeight: 1,
-            px: 0.6,
-            py: 0,
-            minWidth: 0,
-            textTransform: 'none',
-            '&.Mui-selected': {
-              color: '#66bb6a',
-              bgcolor: 'rgba(102,187,106,0.12)',
-              borderColor: 'rgba(102,187,106,0.3) !important',
-            },
-            '&.Mui-selected:hover': {
-              bgcolor: 'rgba(102,187,106,0.18)',
-            },
-            '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
-          },
-        }}
+        sx={compactToggleGroupSx('#66bb6a', '102,187,106', { ml: 'auto' })}
       >
         {PERIOD_OPTIONS.map((p) => (
           <ToggleButton key={p} value={p}>
@@ -350,32 +288,7 @@ export function DriveChartOverlay() {
         exclusive
         onChange={(_, v) => { if (v) setMode(v as ChartMode); }}
         size="small"
-        sx={{
-          height: 22,
-          '& .MuiToggleButtonGroup-grouped': {
-            border: '1px solid rgba(255,255,255,0.1) !important',
-          },
-          '& .MuiToggleButton-root': {
-            color: 'rgba(255,255,255,0.4)',
-            bgcolor: 'transparent',
-            borderColor: 'rgba(255,255,255,0.1)',
-            fontSize: 10,
-            lineHeight: 1,
-            px: 0.8,
-            py: 0,
-            minWidth: 0,
-            textTransform: 'none',
-            '&.Mui-selected': {
-              color: '#4fc3f7',
-              bgcolor: 'rgba(79,195,247,0.12)',
-              borderColor: 'rgba(79,195,247,0.3) !important',
-            },
-            '&.Mui-selected:hover': {
-              bgcolor: 'rgba(79,195,247,0.18)',
-            },
-            '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
-          },
-        }}
+        sx={compactToggleGroupSx('#4fc3f7', '79,195,247')}
       >
         <ToggleButton value="position">Position</ToggleButton>
         <ToggleButton value="speed">Speed</ToggleButton>
@@ -391,7 +304,7 @@ export function DriveChartOverlay() {
       title="Drive Monitor"
       titleColor="#4fc3f7"
       subtitle={driveCount}
-      defaultWidth={DEFAULT_W}
+      defaultWidth={CHART_DEFAULT_WIDTH}
       defaultHeight={DEFAULT_H}
       defaultPosition={{ x: 64, y: window.innerHeight - DEFAULT_H - BOTTOM_MARGIN }}
       zIndex={1500}

@@ -1,30 +1,25 @@
 /**
  * FpvPlugin — First-Person View walkthrough navigation for desktop browsers.
  *
- * Uses Three.js PointerLockControls for mouse look and WASD for movement.
+ * Right-click drag for mouse look, WASD for movement.
+ * Left-click remains free for UI interaction and object selection.
  * Disables OrbitControls when active (same pattern as WebXRPlugin).
  * Snaps camera Y to ground plane + eye height via downward raycast.
  *
  * Mobile FPV (nipplejs virtual joystick) is deferred to a future phase.
  */
 
-import { useState, useCallback, useEffect } from 'react';
-import { Vector3, Raycaster, Object3D } from 'three';
-import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
-import { DirectionsWalk } from '@mui/icons-material';
+import { useState, useEffect } from 'react';
+import { Vector3, Raycaster, Object3D, Euler, MathUtils } from 'three';
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
-import type { UISlotEntry, UISlotProps } from '../core/rv-ui-plugin';
-import { NavButton } from '../core/hmi/NavButton';
+import type { UISlotEntry } from '../core/rv-ui-plugin';
 import { isMobileDevice } from '../hooks/use-mobile-layout';
 import { loadVisualSettings } from '../core/hmi/visual-settings-store';
 import type { WebXRPlugin } from './webxr-plugin';
 
 // ─── Constants ──────────────────────────────────────────────────────────
-
-/** Minimum ms between pointer lock requests to avoid DOMException. */
-const LOCK_COOLDOWN_MS = 300;
 
 /** Ground snap Y interpolation factor per second (exponential lerp). */
 const GROUND_SNAP_LERP = 8;
@@ -37,6 +32,9 @@ const DEFAULT_SPEED = 2.5;
 const DEFAULT_SPRINT_SPEED = 5.0;
 const DEFAULT_SENSITIVITY = 0.002;
 const DEFAULT_EYE_HEIGHT = 1.7;
+
+/** Max pitch angle in radians (slightly less than 90° to avoid gimbal lock). */
+const MAX_PITCH = MathUtils.degToRad(85);
 
 // ─── Key codes for WASD + arrows ────────────────────────────────────────
 
@@ -89,41 +87,44 @@ export class FpvPlugin implements RVViewerPlugin {
   sensitivity = DEFAULT_SENSITIVITY;
   eyeHeight = DEFAULT_EYE_HEIGHT;
 
-  // ── Plugin slots (button in left sidebar) ──
-  readonly slots: UISlotEntry[] = [
-    { slot: 'button-group', component: FpvButton, order: 50 },
-  ];
+  // ── Plugin slots (FPV button is in BottomBar, not left sidebar) ──
+  readonly slots: UISlotEntry[] = [];
 
   // ── Private state ──
   private _viewer: RVViewer | null = null;
   private _active = false;
   private _isTransitioning = false;
-  private _plControls: PointerLockControls | null = null;
   private _keys = new Set<string>();
   private _groundTargets: Object3D[] = [];
   private _groundRaycaster = new Raycaster();
   private _currentGroundY = 0;
   private _hasGroundHit = false;
 
+  // Camera Euler angles (yaw = Y rotation, pitch = X rotation)
+  private _yaw = 0;
+  private _pitch = 0;
+
+  // Right-click drag state
+  private _isLooking = false;
+
   // Saved orbit state for restore on exit
   private _savedCamPos = new Vector3();
   private _savedCamTarget = new Vector3();
 
-  // Pointer lock timing
-  private _lastLockTime = 0;
-
-  // Crosshair DOM element
-  private _crosshair: HTMLDivElement | null = null;
-
-  // Pointer lock overlay
+  // Info overlay
   private _overlay: HTMLDivElement | null = null;
   private _overlayClickHandler: (() => void) | null = null;
+
+  // Track whether listeners have been set up
+  private _listenersSetUp = false;
 
   // Bound event handlers (for removeEventListener)
   private _onKeyDown: ((e: KeyboardEvent) => void) | null = null;
   private _onKeyUp: ((e: KeyboardEvent) => void) | null = null;
-  private _onPointerLockChange: (() => void) | null = null;
-  private _onPointerLockError: (() => void) | null = null;
+  private _onPointerDown: ((e: PointerEvent) => void) | null = null;
+  private _onPointerMove: ((e: PointerEvent) => void) | null = null;
+  private _onPointerUp: ((e: PointerEvent) => void) | null = null;
+  private _onContextMenu: ((e: Event) => void) | null = null;
   private _onBlur: (() => void) | null = null;
   private _onVisibilityChange: (() => void) | null = null;
 
@@ -147,18 +148,7 @@ export class FpvPlugin implements RVViewerPlugin {
       }
     }
 
-    // Initialize PointerLockControls (lazy — only on first model load)
-    if (!this._plControls) {
-      this._plControls = new PointerLockControls(viewer.camera, viewer.renderer.domElement);
-      // PointerLockControls fires 'change' on mouse move — mark render dirty
-      this._plControls.addEventListener('change', () => {
-        if (this._active) viewer.markRenderDirty();
-      });
-      this._setupEventListeners(viewer);
-    } else {
-      // Update camera reference (new camera after model load)
-      this._plControls.getObject(); // PointerLockControls holds camera ref from constructor
-    }
+    this._setupEventListeners(viewer);
 
     // Listen for XR session start to exit FPV
     const unsubXrStart = viewer.on('xr-session-start', () => {
@@ -193,8 +183,8 @@ export class FpvPlugin implements RVViewerPlugin {
     _forward.y = 0;
     _forward.normalize();
 
-    // Right vector: perpendicular to forward on XZ
-    _right.set(_forward.z, 0, -_forward.x);
+    // Right vector: perpendicular to forward on XZ (90° clockwise from above)
+    _right.set(-_forward.z, 0, _forward.x);
 
     let hasInput = false;
     for (const code of this._keys) {
@@ -218,13 +208,8 @@ export class FpvPlugin implements RVViewerPlugin {
 
   dispose(): void {
     if (this._active) this._exitImmediate();
-    this._removeEventListeners();
-    if (this._plControls) {
-      this._plControls.dispose();
-      this._plControls = null;
-    }
-    this._removeCrosshair();
     this._removeOverlay();
+    this._removeEventListeners();
     this._unsubs.forEach((u) => u());
     this._unsubs = [];
   }
@@ -233,26 +218,22 @@ export class FpvPlugin implements RVViewerPlugin {
 
   /** Enter FPV mode. Called from button click or F key. */
   enter(): void {
-    if (this._active || this._isTransitioning || !this._viewer || !this._plControls) return;
+    if (this._active || this._isTransitioning || !this._viewer) return;
 
     // XR conflict guard
     const xrPlugin = this._viewer.getPlugin<WebXRPlugin>('webxr');
     if (xrPlugin?.isPresenting) return;
 
-    // Show pointer lock overlay (user must click to acquire lock)
+    // Show info overlay — user clicks to start
     this._showOverlay();
   }
 
-  /** Exit FPV mode. Called from ESC, button click, or pointer lock loss. */
+  /** Exit FPV mode. Called from button click or F key. */
   exit(): void {
     if (!this._active || this._isTransitioning || !this._viewer) return;
 
     this._isTransitioning = true;
-
-    // Unlock pointer
-    if (document.pointerLockElement) {
-      document.exitPointerLock();
-    }
+    this._removeOverlay();
 
     // Restore orbit state
     const viewer = this._viewer;
@@ -261,16 +242,10 @@ export class FpvPlugin implements RVViewerPlugin {
     viewer.controls.enabled = true;
     viewer.controls.update();
 
-    // Re-enable raycast manager
-    if (viewer.raycastManager) viewer.raycastManager.setEnabled(true);
-
-    // Clean up UI
-    this._removeCrosshair();
-    this._removeOverlay();
-
     // Update state
     this._active = false;
     _fpvActive = false;
+    this._isLooking = false;
     notifyListeners();
     this._keys.clear();
     this._isTransitioning = false;
@@ -295,10 +270,10 @@ export class FpvPlugin implements RVViewerPlugin {
 
   // ── Private: Enter flow ────────────────────────────────────────────
 
-  /** Actually activate FPV after pointer lock is acquired. */
+  /** Actually activate FPV. */
   private _activateFpv(): void {
     const viewer = this._viewer;
-    if (!viewer || !this._plControls) return;
+    if (!viewer) return;
 
     this._isTransitioning = true;
 
@@ -312,8 +287,11 @@ export class FpvPlugin implements RVViewerPlugin {
     // Disable orbit controls
     viewer.controls.enabled = false;
 
-    // Disable raycast manager (left click is used for pointer lock, not selection)
-    if (viewer.raycastManager) viewer.raycastManager.setEnabled(false);
+    // Initialize yaw/pitch from current camera orientation
+    const euler = new Euler();
+    euler.setFromQuaternion(viewer.camera.quaternion, 'YXZ');
+    this._yaw = euler.y;
+    this._pitch = euler.x;
 
     // Position camera at current orbit position but at eye height
     const camPos = viewer.camera.position;
@@ -335,17 +313,11 @@ export class FpvPlugin implements RVViewerPlugin {
     } catch { /* raycast can fail in test environments with mock objects */ }
     camPos.y = this._currentGroundY + this.eyeHeight;
 
-    // Show crosshair
-    this._showCrosshair();
-
     // Update state
     this._active = true;
     _fpvActive = true;
     notifyListeners();
     this._isTransitioning = false;
-
-    // Set PointerLockControls sensitivity
-    this._plControls.pointerSpeed = this.sensitivity / 0.002; // normalize to default
 
     viewer.emit('fpv-enter', undefined as never);
     viewer.markRenderDirty();
@@ -355,19 +327,13 @@ export class FpvPlugin implements RVViewerPlugin {
   private _exitImmediate(): void {
     if (!this._viewer) return;
 
-    if (document.pointerLockElement) {
-      document.exitPointerLock();
-    }
-
     const viewer = this._viewer;
     viewer.controls.enabled = true;
-    if (viewer.raycastManager) viewer.raycastManager.setEnabled(true);
-
-    this._removeCrosshair();
     this._removeOverlay();
 
     this._active = false;
     _fpvActive = false;
+    this._isLooking = false;
     notifyListeners();
     this._keys.clear();
     this._isTransitioning = false;
@@ -395,11 +361,9 @@ export class FpvPlugin implements RVViewerPlugin {
         this._hasGroundHit = true;
       }
     } catch { /* raycast can fail with non-standard geometry objects */ }
-    // If no hit, keep last known ground Y
 
     if (this._hasGroundHit) {
       const targetY = this._currentGroundY + this.eyeHeight;
-      // Smooth lerp to avoid jitter
       camPos.y += (targetY - camPos.y) * Math.min(1, GROUND_SNAP_LERP * dt);
     }
   }
@@ -414,107 +378,7 @@ export class FpvPlugin implements RVViewerPlugin {
     this.eyeHeight = s.fpvEyeHeight ?? DEFAULT_EYE_HEIGHT;
   }
 
-  // ── Private: Event listeners ───────────────────────────────────────
-
-  private _setupEventListeners(viewer: RVViewer): void {
-    // Keyboard
-    this._onKeyDown = (e: KeyboardEvent) => {
-      // Input focus guard: skip WASD when typing in input/textarea
-      const tag = (document.activeElement as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-
-      if (!this._active) {
-        // F key toggle (only when not in input)
-        if (e.code === TOGGLE_KEY && !isMobileDevice()) {
-          e.preventDefault();
-          this.toggle();
-        }
-        return;
-      }
-
-      this._keys.add(e.code);
-    };
-
-    this._onKeyUp = (e: KeyboardEvent) => {
-      this._keys.delete(e.code);
-    };
-
-    window.addEventListener('keydown', this._onKeyDown);
-    window.addEventListener('keyup', this._onKeyUp);
-
-    // Pointer lock change
-    this._onPointerLockChange = () => {
-      if (document.pointerLockElement === viewer.renderer.domElement) {
-        // Lock acquired — activate FPV
-        this._removeOverlay();
-        if (!this._active) this._activateFpv();
-      } else {
-        // Lock lost — exit FPV
-        if (this._active) this.exit();
-      }
-    };
-    document.addEventListener('pointerlockchange', this._onPointerLockChange);
-
-    // Pointer lock error
-    this._onPointerLockError = () => {
-      console.warn('[FPV] Pointer lock request denied');
-      this._removeOverlay();
-      // Re-enable orbit controls if they were disabled
-      if (!this._active && viewer.controls) {
-        viewer.controls.enabled = true;
-      }
-      this._isTransitioning = false;
-    };
-    document.addEventListener('pointerlockerror', this._onPointerLockError);
-
-    // Sticky keys guard: clear keys on window blur / visibility change
-    this._onBlur = () => { this._keys.clear(); };
-    window.addEventListener('blur', this._onBlur);
-
-    this._onVisibilityChange = () => {
-      if (document.hidden) this._keys.clear();
-    };
-    document.addEventListener('visibilitychange', this._onVisibilityChange);
-  }
-
-  private _removeEventListeners(): void {
-    if (this._onKeyDown) window.removeEventListener('keydown', this._onKeyDown);
-    if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp);
-    if (this._onPointerLockChange) document.removeEventListener('pointerlockchange', this._onPointerLockChange);
-    if (this._onPointerLockError) document.removeEventListener('pointerlockerror', this._onPointerLockError);
-    if (this._onBlur) window.removeEventListener('blur', this._onBlur);
-    if (this._onVisibilityChange) document.removeEventListener('visibilitychange', this._onVisibilityChange);
-  }
-
-  // ── Private: Crosshair ─────────────────────────────────────────────
-
-  private _showCrosshair(): void {
-    if (this._crosshair) return;
-    this._crosshair = document.createElement('div');
-    this._crosshair.style.cssText = [
-      'position: fixed',
-      'top: 50%',
-      'left: 50%',
-      'transform: translate(-50%, -50%)',
-      'width: 6px',
-      'height: 6px',
-      'border-radius: 50%',
-      'background: rgba(255, 255, 255, 0.6)',
-      'border: 1px solid rgba(0, 0, 0, 0.3)',
-      'pointer-events: none',
-      'z-index: 10000',
-    ].join('; ');
-    document.body.appendChild(this._crosshair);
-  }
-
-  private _removeCrosshair(): void {
-    if (this._crosshair) {
-      this._crosshair.remove();
-      this._crosshair = null;
-    }
-  }
-
-  // ── Private: Pointer Lock Overlay ──────────────────────────────────
+  // ── Private: Info Overlay ───────────────────────────────────────────
 
   private _showOverlay(): void {
     if (this._overlay) return;
@@ -541,26 +405,17 @@ export class FpvPlugin implements RVViewerPlugin {
         <div style="font-size: 16px; margin-bottom: 24px;">First-Person View</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; color: rgba(255,255,255,0.8);">
           <div><b>WASD</b> &mdash; Move</div>
-          <div><b>Mouse</b> &mdash; Look</div>
+          <div><b>Right-drag</b> &mdash; Look</div>
           <div><b>Shift</b> &mdash; Sprint</div>
-          <div><b>ESC</b> &mdash; Exit</div>
+          <div><b>F</b> &mdash; Exit</div>
         </div>
         <div style="margin-top: 24px; font-size: 13px; color: rgba(255,255,255,0.5);">Click anywhere to start</div>
       </div>
     `;
 
     this._overlayClickHandler = () => {
-      const now = performance.now();
-      if (now - this._lastLockTime < LOCK_COOLDOWN_MS) return;
-      this._lastLockTime = now;
-
-      try {
-        this._viewer?.renderer.domElement.requestPointerLock();
-      } catch (err) {
-        console.warn('[FPV] requestPointerLock failed:', err);
-        this._removeOverlay();
-        this._isTransitioning = false;
-      }
+      this._removeOverlay();
+      this._activateFpv();
     };
     this._overlay.addEventListener('click', this._overlayClickHandler);
 
@@ -577,21 +432,120 @@ export class FpvPlugin implements RVViewerPlugin {
       this._overlay = null;
     }
   }
-}
 
-// ─── FPV Button (React, registered via plugin slots) ────────────────────
+  // ── Private: Mouse look (right-click drag) ─────────────────────────
 
-function FpvButton({ viewer }: UISlotProps) {
-  const active = useFpvActive();
-  const isMobile = isMobileDevice();
+  private _applyMouseLook(movementX: number, movementY: number): void {
+    if (!this._viewer) return;
 
-  const handleClick = useCallback(() => {
-    const plugin = viewer.getPlugin<FpvPlugin>('fpv');
-    plugin?.toggle();
-  }, [viewer]);
+    this._yaw -= movementX * this.sensitivity;
+    this._pitch -= movementY * this.sensitivity;
 
-  // Hide on mobile (no pointer lock support)
-  if (isMobile) return null;
+    // Clamp pitch to avoid flipping
+    this._pitch = MathUtils.clamp(this._pitch, -MAX_PITCH, MAX_PITCH);
 
-  return <NavButton icon={<DirectionsWalk />} label="First-Person View (F)" active={active} onClick={handleClick} />;
+    // Apply rotation via Euler (YXZ order: yaw first, then pitch)
+    const euler = new Euler(this._pitch, this._yaw, 0, 'YXZ');
+    this._viewer.camera.quaternion.setFromEuler(euler);
+
+    this._viewer.markRenderDirty();
+  }
+
+  // ── Private: Event listeners ───────────────────────────────────────
+
+  private _setupEventListeners(viewer: RVViewer): void {
+    if (this._listenersSetUp) return;
+    this._listenersSetUp = true;
+
+    const canvas = viewer.renderer.domElement;
+
+    // Keyboard
+    this._onKeyDown = (e: KeyboardEvent) => {
+      // Input focus guard: skip WASD when typing in input/textarea
+      const tag = (document.activeElement as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      if (!this._active) {
+        // F key toggle (only when not in input)
+        if (e.code === TOGGLE_KEY && !isMobileDevice()) {
+          e.preventDefault();
+          this.toggle();
+        }
+        return;
+      }
+
+      this._keys.add(e.code);
+    };
+
+    this._onKeyUp = (e: KeyboardEvent) => {
+      this._keys.delete(e.code);
+    };
+
+    window.addEventListener('keydown', this._onKeyDown);
+    window.addEventListener('keyup', this._onKeyUp);
+
+    // Right-click drag for mouse look (pointer events — fire before mouse events)
+    this._onPointerDown = (e: PointerEvent) => {
+      if (!this._active) return;
+      if (e.button === 2) {
+        this._isLooking = true;
+        // Capture pointer so we keep receiving events even outside canvas
+        canvas.setPointerCapture(e.pointerId);
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    this._onPointerMove = (e: PointerEvent) => {
+      if (!this._active || !this._isLooking) return;
+      this._applyMouseLook(e.movementX, e.movementY);
+    };
+
+    this._onPointerUp = (e: PointerEvent) => {
+      if (e.button === 2) {
+        this._isLooking = false;
+        if (canvas.hasPointerCapture(e.pointerId)) {
+          canvas.releasePointerCapture(e.pointerId);
+        }
+      }
+    };
+
+    // Prevent context menu on right-click when FPV is active
+    this._onContextMenu = (e: Event) => {
+      if (this._active) {
+        e.preventDefault();
+      }
+    };
+
+    canvas.addEventListener('pointerdown', this._onPointerDown);
+    canvas.addEventListener('pointermove', this._onPointerMove);
+    canvas.addEventListener('pointerup', this._onPointerUp);
+    canvas.addEventListener('contextmenu', this._onContextMenu);
+
+    // Sticky keys guard: clear keys on window blur / visibility change
+    this._onBlur = () => { this._keys.clear(); this._isLooking = false; };
+    window.addEventListener('blur', this._onBlur);
+
+    this._onVisibilityChange = () => {
+      if (document.hidden) { this._keys.clear(); this._isLooking = false; }
+    };
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
+  }
+
+  private _removeEventListeners(): void {
+    if (this._onKeyDown) window.removeEventListener('keydown', this._onKeyDown);
+    if (this._onKeyUp) window.removeEventListener('keyup', this._onKeyUp);
+    if (this._onBlur) window.removeEventListener('blur', this._onBlur);
+    if (this._onVisibilityChange) document.removeEventListener('visibilitychange', this._onVisibilityChange);
+
+    // Canvas-bound listeners
+    const canvas = this._viewer?.renderer?.domElement;
+    if (canvas) {
+      if (this._onPointerDown) canvas.removeEventListener('pointerdown', this._onPointerDown);
+      if (this._onPointerMove) canvas.removeEventListener('pointermove', this._onPointerMove);
+      if (this._onPointerUp) canvas.removeEventListener('pointerup', this._onPointerUp);
+      if (this._onContextMenu) canvas.removeEventListener('contextmenu', this._onContextMenu);
+    }
+    this._listenersSetUp = false;
+  }
 }

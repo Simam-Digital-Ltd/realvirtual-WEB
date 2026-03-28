@@ -32,6 +32,7 @@ import type { LoadResult } from '../core/engine/rv-scene-loader';
 import { AvatarManager } from '../core/engine/rv-avatar-manager';
 import type { PlayerInfo, AvatarBroadcast } from '../core/engine/rv-avatar-manager';
 import { RVMovingUnit, computeTemplateAABBInfo } from '../core/engine/rv-mu';
+import type { InstancedMovingUnit } from '../core/engine/rv-mu';
 import type { WebXRPlugin } from './webxr-plugin';
 
 // ── Public snapshot emitted on every state transition ───────────────────────
@@ -676,13 +677,16 @@ export class MultiuserPlugin extends RVBehavior {
       // O(1) lookup: try full path first, then last segment
       let drive = this._driveMap!.get(d.path);
       if (!drive) {
-        const lastSeg = d.path.split('/').pop() ?? d.path;
+        const slashIdx = d.path.lastIndexOf('/');
+        const lastSeg = slashIdx >= 0 ? d.path.substring(slashIdx + 1) : d.path;
         drive = this._driveMap!.get(lastSeg);
       }
       if (drive) {
         drive.applySyncData(d.position, d.speed);
       } else if (!this._loggedUnmatched) {
-        console.warn(`[multiuser] Unmatched drive from server: "${d.path}" (lastSeg="${d.path.split('/').pop()}")`);
+        const slashIdx = d.path.lastIndexOf('/');
+        const seg = slashIdx >= 0 ? d.path.substring(slashIdx + 1) : d.path;
+        console.warn(`[multiuser] Unmatched drive from server: "${d.path}" (lastSeg="${seg}")`);
       }
     }
     if (!this._loggedUnmatched) {
@@ -718,38 +722,36 @@ export class MultiuserPlugin extends RVBehavior {
       console.log('[multiuser] Disabled local Source/Sink — server is authority for MU lifecycle.');
     }
 
-    // Build set of incoming MU paths
-    const incomingPaths = new Set<string>();
+    // Build O(1) lookup maps for incoming MUs (keyed by last path segment AND name)
+    const incomingByKey = new Map<string, MUSnapshot>();
     for (const muData of mus) {
-      incomingPaths.add(muData.path);
+      const slashIdx = muData.path.lastIndexOf('/');
+      const lastSeg = slashIdx >= 0 ? muData.path.substring(slashIdx + 1) : muData.path;
+      incomingByKey.set(lastSeg, muData);
+      if (muData.name !== lastSeg) incomingByKey.set(muData.name, muData);
     }
 
-    // Remove local MUs that are no longer in the server's list
+    // Remove local MUs not in server's list — O(N) instead of O(N×M)
     for (let i = tm.mus.length - 1; i >= 0; i--) {
       const localMU = tm.mus[i];
-      const localName = localMU.getName();
-      // Check if this MU's name matches any incoming path (by last segment)
-      let found = false;
-      for (const muData of mus) {
-        const lastSeg = muData.path.split('/').pop() ?? muData.path;
-        if (localName === lastSeg || localName === muData.name) {
-          found = true;
-          break;
-        }
-      }
-      if (!found && !localMU.markedForRemoval) {
+      if (!localMU.markedForRemoval && !incomingByKey.has(localMU.getName())) {
         localMU.markedForRemoval = true;
       }
     }
 
-    // Update positions of existing MUs or create new ones
-    for (const muData of mus) {
-      const lastSeg = muData.path.split('/').pop() ?? muData.path;
+    // Build O(1) lookup for local MUs
+    const localByName = new Map<string, RVMovingUnit | InstancedMovingUnit>();
+    for (const m of tm.mus) {
+      if (!m.markedForRemoval) localByName.set(m.getName(), m);
+    }
 
-      // Find existing MU by name
-      let localMU = tm.mus.find(m =>
-        !m.markedForRemoval && (m.getName() === lastSeg || m.getName() === muData.name),
-      );
+    // Update positions of existing MUs or create new ones — O(N) lookups
+    for (const muData of mus) {
+      const slashIdx = muData.path.lastIndexOf('/');
+      const lastSeg = slashIdx >= 0 ? muData.path.substring(slashIdx + 1) : muData.path;
+
+      // Find existing MU by name — O(1) lookup
+      const localMU = localByName.get(lastSeg) ?? localByName.get(muData.name);
 
       if (localMU) {
         // Gripped MUs: reparent under grip node, use local coords (eliminates jitter)
@@ -763,7 +765,10 @@ export class MultiuserPlugin extends RVBehavior {
           }
         } else if (!muData.parent) {
           // Not gripped — ensure MU is under its spawn parent (not a grip node)
-          const sourceName = muData.source ? (muData.source.split('/').pop() ?? '') : '';
+          const sourceSlash = muData.source ? muData.source.lastIndexOf('/') : -1;
+          const sourceName = muData.source
+            ? (sourceSlash >= 0 ? muData.source.substring(sourceSlash + 1) : muData.source)
+            : '';
           const source = tm.sources.find(s => s.node.name === sourceName);
           const defaultParent = source?.spawnParent ?? this.scene;
           if (defaultParent && node.parent !== defaultParent) {
@@ -776,7 +781,10 @@ export class MultiuserPlugin extends RVBehavior {
         localMU.updateAABB();
       } else {
         // Create new MU from matching Source template
-        const sourceName = muData.source ? (muData.source.split('/').pop() ?? '') : '';
+        const sourceSlash = muData.source ? muData.source.lastIndexOf('/') : -1;
+        const sourceName = muData.source
+          ? (sourceSlash >= 0 ? muData.source.substring(sourceSlash + 1) : muData.source)
+          : '';
         const source = tm.sources.find(s => s.node.name === sourceName);
         if (source?.muTemplate && source.spawnParent) {
           const template = source.muTemplate;
