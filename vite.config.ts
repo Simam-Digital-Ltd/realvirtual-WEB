@@ -11,7 +11,7 @@ const PRIVATE_DIR = resolve(__dirname, '../realvirtual-WebViewer-Private~/src');
 const HAS_PRIVATE = existsSync(PRIVATE_DIR);
 console.log(`[rv-build] ${HAS_PRIVATE ? 'Private' : 'Public'} build`);
 import { exec } from 'node:child_process';
-import { createRequire } from 'node:module';
+
 
 /** Vite plugin: exposes /__api/tests endpoints so the app can discover and run vitest tests */
 function testRunnerPlugin() {
@@ -214,12 +214,13 @@ function debugApiPlugin() {
  */
 function privateResolverPlugin() {
   if (!HAS_PRIVATE) return null;
-  // Use createRequire to get a CJS-style require.resolve that works in Vite's ESM context.
-  const mainRequire = createRequire(resolve(__dirname, 'package.json'));
+  // A virtual importer inside the main project so Vite/Rollup resolves
+  // bare npm imports using the main project's node_modules with proper ESM handling.
+  const mainImporter = resolve(__dirname, 'src/main.ts');
   return {
     name: 'rv-private-resolver',
     enforce: 'pre' as const,
-    resolveId(source: string, importer: string | undefined) {
+    async resolveId(source: string, importer: string | undefined) {
       // Only intercept bare imports from files in the private folder
       if (!importer) return null;
       const normalizedImporter = importer.replace(/\\/g, '/');
@@ -227,13 +228,10 @@ function privateResolverPlugin() {
       // Skip relative/absolute imports, virtual modules, and already-resolved paths
       if (source.startsWith('.') || source.startsWith('/') || source.startsWith('\0')) return null;
       if (/^[A-Za-z]:/.test(source)) return null; // Windows absolute paths like C:\...
-      // Try resolving from main project's node_modules via createRequire
-      try {
-        const resolved = mainRequire.resolve(source);
-        return resolved;
-      } catch {
-        return null; // Let Vite handle it normally
-      }
+      // Re-resolve using Vite's own resolver as if the import came from the main project.
+      // This ensures ESM exports maps are respected (unlike createRequire which returns CJS paths).
+      const resolved = await this.resolve(source, mainImporter, { skipSelf: true });
+      return resolved;
     },
   };
 }
