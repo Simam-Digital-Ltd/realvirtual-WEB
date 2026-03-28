@@ -17,6 +17,7 @@ import { LeftPanel } from './LeftPanel';
 import { SETTINGS_PANEL_WIDTH } from './layout-constants';
 import { MachineControlPanel } from './MachineControlPanel';
 import { MultiuserPanel } from './MultiuserPanel';
+import { LayoutLibraryPanel, LayoutPlannerButton } from './LayoutLibraryPanel';
 import { useMcpBridge } from '../../hooks/use-mcp-bridge';
 import { useMultiuser } from '../../hooks/use-multiuser';
 import { loadMultiuserSettings, saveMultiuserSettings, type MultiuserSettings } from './multiuser-settings-store';
@@ -97,6 +98,7 @@ export function TopBar() {
             </IconButton>
           </Tooltip>
         )}
+        {!isMobile && <LayoutPlannerButton />}
         {showMultiuser && !isMobile && (
           <Tooltip title={muOpen ? 'Close Multiuser' : 'Multiuser'} placement="bottom">
             <IconButton
@@ -156,6 +158,9 @@ export function TopBar() {
 
       {/* Machine Control Panel */}
       <MachineControlPanel />
+
+      {/* Layout Planner Panel */}
+      <LayoutLibraryPanel />
 
       {/* Multiuser popup */}
       {muOpen && <MultiuserPanel onClose={() => setMuOpen(false)} />}

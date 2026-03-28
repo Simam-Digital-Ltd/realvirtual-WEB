@@ -535,6 +535,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this._renderDirty = true;
   }
 
+  /** The ground plane mesh, or null if ground was disabled. */
+  get groundMesh(): Mesh | null {
+    return this._groundMesh;
+  }
+
   /**
    * Cancel any in-progress camera animation immediately.
    * Used by FPV to prevent the animation overwriting the camera position.
@@ -712,6 +717,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       const ground = this.createGround();
       this.scene.add(ground);
       this.sceneFixtures.add(ground);
+      this._groundMesh = ground;
     }
 
     // --- Renderer-dependent init ---
@@ -1661,6 +1667,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _dampingFramesRemaining = 0;
   /** Previous MU count — used to detect spawn/despawn for shadow dirty flag. */
   private _prevMuCount = 0;
+  /** Reference to the ground plane mesh (if created). */
+  private _groundMesh: Mesh | null = null;
 
   private fixedUpdate(dt: number): void {
     this.simTickCount++;

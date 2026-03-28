@@ -23,3 +23,6 @@ export const INSPECTOR_PANEL_WIDTH = 320;
 
 /** Width of the Machine Control panel. */
 export const MACHINE_PANEL_WIDTH = 370;
+
+/** Width of the Layout Planner library panel. */
+export const LAYOUT_PANEL_WIDTH = 340;

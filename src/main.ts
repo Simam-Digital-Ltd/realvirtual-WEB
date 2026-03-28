@@ -49,6 +49,9 @@ import { MultiuserPlugin } from './plugins/multiuser-plugin';
 // First-Person View plugin (desktop WASD + mouse look walkthrough)
 import { FpvPlugin } from './plugins/fpv-plugin';
 
+// Layout Planner plugin (factory layout planning with GLB library drag & drop)
+import { LayoutPlannerPlugin } from './plugins/layout-planner-plugin';
+
 // Microsoft Teams JS SDK (lazy-loaded when ?teams=1)
 import * as microsoftTeams from '@microsoft/teams-js';
 
@@ -166,6 +169,7 @@ async function init() {
     .use(new MachineControlPlugin())
     .use(new MultiuserPlugin())
     .use(new FpvPlugin())
+    .use(new LayoutPlannerPlugin())
     .use(new RvExtrasEditorPlugin());
 
   // --- Register Private Plugins (no-op in public build) ---
