@@ -54,6 +54,7 @@ export class RVDrive implements RVComponent {
 
   readonly node: Object3D;
   readonly name: string;
+  isOwner = true;
 
   // Properties — exact C# Inspector field names
   Direction: DriveDirection = DriveDirection.LinearX;
@@ -90,6 +91,8 @@ export class RVDrive implements RVComponent {
   jogForward = false;
   /** Continuous backward motion at targetSpeed (set by Drive_Simple signal) */
   jogBackward = false;
+  /** True if this drive is used by a TransportSurface (set by TransportSurface.init). */
+  isTransportSurface = false;
 
   /** When true, update() skips physics and only applies transform (for DrivesPlayback) */
   positionOverwrite = false;
@@ -168,6 +171,10 @@ export class RVDrive implements RVComponent {
 
   /** Update drive physics - called every fixed timestep */
   update(dt: number) {
+    // When not owner (multiuser client), skip ALL local physics.
+    // Position/speed are applied externally via applySyncData().
+    if (!this.isOwner) return;
+
     // Early-return for completely idle drives (no motion, no behaviors)
     if (this.isIdle) return;
 
@@ -242,6 +249,36 @@ export class RVDrive implements RVComponent {
     this.currentPosition = nextPos;
     this.applyToNode();
     this.onAfterUpdate?.(this);
+  }
+
+  /**
+   * Called when ownership changes (multiuser connect/disconnect).
+   * When not owner, the drive skips all local physics in update().
+   * Position/speed are applied externally via applySyncData().
+   */
+  onOwnershipChanged(isOwner: boolean): void {
+    if (isOwner) {
+      this.positionOverwrite = false;
+    }
+    // When !isOwner: don't set positionOverwrite here — applySyncData handles it.
+    // update() checks isOwner directly and skips all local physics.
+  }
+
+  /**
+   * Apply sync data from the multiuser server.
+   * Transport surface drives: apply speed only — position would displace the mesh.
+   * Positioning drives: apply position and update the node transform directly.
+   * Uses isTransportSurface flag (set by TransportSurface.init, matches Unity's _istransportsurface).
+   */
+  applySyncData(position: number, speed?: number): void {
+    if (this.isTransportSurface) {
+      // Conveyor: only sync speed — the mesh stays in place, belt scrolls via speed
+      this.currentSpeed = speed ?? this.targetSpeed;
+    } else {
+      // Positioning drive: apply position and update transform immediately
+      this.currentPosition = position;
+      this.applyToNode();
+    }
   }
 
   /** Apply current position to Three.js node transform */

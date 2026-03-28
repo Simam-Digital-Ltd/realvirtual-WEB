@@ -1241,6 +1241,42 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.infoPanel = null;
   }
 
+  // ── Public getters for controller positions (Phase 2: multiuser VR avatar) ──
+
+  /** True while a VR or AR session is active. */
+  get isPresenting(): boolean { return this.presenting; }
+
+  /** Current session mode: 'none' | 'vr' | 'ar'. */
+  get currentSessionMode(): SessionMode { return this.sessionMode; }
+
+  /**
+   * World position of the left controller, or null when not presenting.
+   * The returned Vector3 is a snapshot (cloned) — safe to cache for one frame.
+   */
+  getLeftControllerPosition(): Vector3 | null {
+    if (!this.leftController || !this.presenting) return null;
+    const v = new Vector3();
+    this.leftController.getWorldPosition(v);
+    return v;
+  }
+
+  /**
+   * World position of the right controller, or null when not presenting.
+   * The returned Vector3 is a snapshot (cloned) — safe to cache for one frame.
+   */
+  getRightControllerPosition(): Vector3 | null {
+    if (!this.rightController || !this.presenting) return null;
+    const v = new Vector3();
+    this.rightController.getWorldPosition(v);
+    return v;
+  }
+
+  /**
+   * Camera-rig (dolly) group, or null before XR is initialised.
+   * Read-only — do not modify.
+   */
+  getDolly(): Group | null { return this.dolly; }
+
   dispose(): void {
     if (this.vrButton) { this.vrButton.remove(); this.vrButton = null; }
     if (this.arButton) { this.arButton.remove(); this.arButton = null; }

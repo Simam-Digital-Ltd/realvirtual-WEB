@@ -125,6 +125,7 @@ export class RVSensor implements RVComponent {
 
   readonly node: Object3D;
   readonly aabb: AABB;
+  isOwner = true;
 
   // Properties — exact C# Inspector field names
   UseRaycast = false;

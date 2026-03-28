@@ -21,6 +21,7 @@ export const ALL_RV_STORAGE_KEYS = [
   'rv-group-visibility',
   'rv-maintenance-progress',
   'rv-ai-bridge',
+  'rv-multiuser-settings',
 ] as const;
 
 /**

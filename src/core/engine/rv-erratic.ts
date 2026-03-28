@@ -30,6 +30,7 @@ export class RVErraticDriver implements IDriveBehavior, RVComponent {
   };
 
   readonly node: Object3D;
+  isOwner = true;
 
   // Schema-mapped properties (PascalCase = C# Inspector field names)
   MinPos = 0;

@@ -15,6 +15,7 @@ export class RVSink implements RVComponent {
 
   readonly node: Object3D;
   readonly aabb: AABB;
+  isOwner = true;
 
   /** Callback when a MU is consumed */
   onConsumed?: (mu: RVMovingUnit | InstancedMovingUnit, sink: RVSink) => void;
@@ -37,6 +38,7 @@ export class RVSink implements RVComponent {
    * Skips gripped MUs — they are controlled by the Grip system.
    */
   markOverlapping(mus: (RVMovingUnit | InstancedMovingUnit)[]): void {
+    if (!this.isOwner) return; // Server controls MU removal in multiuser
     for (const mu of mus) {
       if (mu.markedForRemoval) continue;
       if (!mu.isInstanced && (mu as RVMovingUnit).isGripped) continue;

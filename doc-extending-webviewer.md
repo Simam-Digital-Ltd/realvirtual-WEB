@@ -586,6 +586,90 @@ export interface ViewerEvents {
 }
 ```
 
+### MultiuserPlugin
+
+The `MultiuserPlugin` provides real-time presence and avatar synchronization across browser, VR, and AR clients.
+
+```typescript
+import { MultiuserPlugin } from './plugins/multiuser-plugin';
+
+// Plugin is registered automatically via plugin system in main.ts.
+// Access the running instance via the viewer plugin registry:
+const multiuser = viewer.getPlugin('multiuser') as MultiuserPlugin;
+
+// Join a session (connect to MultiplayerWEB server on Port 7000)
+multiuser.joinSession('ws://192.168.1.5:7000', 'MyName');
+
+// Join with a specific role and color
+multiuser.joinSession('ws://192.168.1.5:7000', 'MyName', '#FF5722', 'operator');
+
+// Leave session — removes all remote avatars and closes the connection
+multiuser.leaveSession();
+
+// Get currently visible remote players
+const users = multiuser.getConnectedUsers();  // PlayerInfo[]
+
+// Write signals (operator role only — enforced on Unity side)
+multiuser.writeSignal('Cell/Signals/ConveyorStart', true);
+
+// Jog drives (operator role only)
+multiuser.jogDrive('Cell/Conveyor/Drive', true);   // forward
+multiuser.jogDrive('Cell/Conveyor/Drive', false);  // backward
+multiuser.stopDrive('Cell/Conveyor/Drive');
+
+// Broadcast a cursor ray so others see where you are pointing
+multiuser.sendCursorRay([1, 1, 0], [0, 0, 1]);  // origin, direction (unit vector)
+```
+
+#### URL Join Parameters
+
+Users can join a session directly from a URL without opening the UI panel:
+
+| Parameter | Alias | Description |
+|-----------|-------|-------------|
+| `?server=ws://host:7000` | `multiuserServer` | Server WebSocket URL |
+| `?name=Alice` | `multiuserName` | Display name |
+| `?role=operator` | `multiuserRole` | Role (`operator` or `observer`) |
+| `?multiuserColor=#FF5722` | — | Avatar color (hex) |
+
+Example shareable link:
+
+```
+https://viewer.acme.com/webviewer?server=ws://192.168.1.5:7000&name=Alice&role=operator
+```
+
+#### Events
+
+Subscribe to state changes via the `multiuser-changed` event:
+
+```typescript
+viewer.on('multiuser-changed', (snapshot) => {
+  console.log('Connected:', snapshot.connected);
+  console.log('Players:', snapshot.players);
+  console.log('Player count:', snapshot.playerCount);
+  console.log('Local role:', snapshot.localRole);
+});
+```
+
+The `MultiuserSnapshot` type:
+
+```typescript
+interface MultiuserSnapshot {
+  connected: boolean;     // WebSocket open and room_join sent
+  serverUrl: string;      // Current server URL
+  localName: string;      // Local player's display name
+  localRole: string;      // 'operator' | 'observer'
+  playerCount: number;    // Number of remote avatars visible
+  players: PlayerInfo[];  // Full list of remote players
+}
+```
+
+#### Rate Limits
+
+- **Outgoing**: Avatar position updates are capped at 20 Hz. The hard cap is enforced in `onLateFixedUpdate` via a time accumulator — `_send` is never called more often than `1 / MAX_OUTGOING_HZ`.
+- **Incoming**: If the server sends more than 100 messages per second, a `console.warn` is emitted. No messages are silently dropped — this is a monitoring signal only.
+- **Unity side**: The `MultiplayerWEB` component enforces a `MaxMessagesPerSecond` limit per client (default: 100). Excess messages are dropped with a `Logger.Warning`. The client is not disconnected.
+
 ### Retroactive Registration
 
 If a plugin is registered after a model is already loaded, `onModelLoaded` is called immediately:

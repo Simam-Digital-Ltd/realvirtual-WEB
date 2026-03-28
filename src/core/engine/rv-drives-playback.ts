@@ -91,9 +91,15 @@ export class RVDrivesPlayback {
     return this.recording.sequences ?? [];
   }
 
-  /** Start playback — enables positionOverwrite on all bound drives */
+  /** Start playback — enables positionOverwrite on all bound drives.
+   *  Skips drives with isOwner=false (multiuser: server has authority). */
   play(): void {
     if (this.recording.numberFrames <= 0) return;
+    // Don't start if drives are not owned (multiuser client mode)
+    if (this.driveBindings.some(d => d && !d.isOwner)) {
+      debug('playback', 'play() skipped — drives are not owned (multiuser client mode)');
+      return;
+    }
     this._isPlaying = true;
     this._pendingRelease = false;
     this.currentFrame = this._startFrame;
@@ -125,6 +131,11 @@ export class RVDrivesPlayback {
     const seq = this.recording.sequences?.find((s) => s.name === name);
     if (!seq) {
       debugWarn('playback', `Sequence "${name}" not found`);
+      return false;
+    }
+    // Don't start if drives are not owned (multiuser client mode)
+    if (this.driveBindings.some(d => d && !d.isOwner)) {
+      debug('playback', `playSequence("${name}") skipped — drives not owned (multiuser client)`);
       return false;
     }
     debug('playback', `playSequence("${name}") frames [${seq.startFrame}..${seq.endFrame}] (${seq.endFrame - seq.startFrame} frames, ${((seq.endFrame - seq.startFrame) * this.recording.fixedDeltaTime).toFixed(1)}s)`);

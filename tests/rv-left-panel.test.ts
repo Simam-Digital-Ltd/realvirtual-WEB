@@ -11,8 +11,7 @@ import { describe, it, expect } from 'vitest';
 
 // Vite ?raw imports — source text for regression checks (browser-compatible)
 import buttonPanelSrc from '../src/core/hmi/ButtonPanel.tsx?raw';
-import bottomBarSrc from '../src/core/hmi/BottomBar.tsx?raw';
-import hierarchyBrowserSrc from '../src/core/hmi/rv-hierarchy-browser.tsx?raw';
+import viewerSrc from '../src/core/rv-viewer.ts?raw';
 
 // ── 9.1 TestLayoutConstants ──────────────────────────────────────────────
 
@@ -159,11 +158,8 @@ describe('No hardcoded panel widths', () => {
     expect(buttonPanelSrc).toContain('INSPECTOR_PANEL_WIDTH');
   });
 
-  it('BottomBar.tsx imports INSPECTOR_PANEL_WIDTH', () => {
-    expect(bottomBarSrc).toContain('INSPECTOR_PANEL_WIDTH');
-  });
-
-  it('rv-hierarchy-browser.tsx imports INSPECTOR_PANEL_WIDTH for fitToNodes offset', () => {
-    expect(hierarchyBrowserSrc).toContain('INSPECTOR_PANEL_WIDTH');
+  it('rv-viewer.ts imports INSPECTOR_PANEL_WIDTH for getCurrentViewportOffset', () => {
+    expect(viewerSrc).toContain('INSPECTOR_PANEL_WIDTH');
+    expect(viewerSrc).toContain('getCurrentViewportOffset');
   });
 });

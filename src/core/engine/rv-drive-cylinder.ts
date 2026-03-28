@@ -31,6 +31,7 @@ export class RVDriveCylinder implements RVComponent {
   };
 
   readonly node: Object3D;
+  isOwner = true;
 
   // Schema properties (PascalCase matching C#)
   MinPos = 0;

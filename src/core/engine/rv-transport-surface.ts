@@ -28,6 +28,7 @@ export class RVTransportSurface implements RVComponent {
 
   readonly node: Object3D;
   readonly aabb: AABB;
+  isOwner = true;
 
   // Properties — exact C# Inspector field names
   TransportDirection = new Vector3(1, 0, 0);
@@ -90,6 +91,12 @@ export class RVTransportSurface implements RVComponent {
     }
     if (!this.drive) {
       console.warn(`  TransportSurface "${this.node.name}": no Drive found - will not transport`);
+    }
+
+    // Mark drive as transport surface drive (matches Unity's _istransportsurface flag).
+    // This is used by multiuser sync to distinguish conveyor drives from positioning drives.
+    if (this.drive) {
+      this.drive.isTransportSurface = true;
     }
 
     // Auto-start: if the drive has a target speed but isn't jogging (Forward signal was false/missing),

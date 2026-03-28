@@ -29,6 +29,7 @@ export class RVSource implements RVComponent {
   };
 
   readonly node: Object3D;
+  isOwner = true;
 
   // Properties — exact C# Inspector field names
   AutomaticGeneration = true;
@@ -181,6 +182,7 @@ export class RVSource implements RVComponent {
    * Returns new MU (clone or instanced) or null.
    */
   update(dt: number): (RVMovingUnit | InstancedMovingUnit) | null {
+    if (!this.isOwner) return null; // Server is authority for MU lifecycle
     if (!this.muTemplate || !this.spawnParent) return null;
 
     if (this.spawnMode === 'Interval') {

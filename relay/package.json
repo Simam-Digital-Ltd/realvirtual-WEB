@@ -1,0 +1,26 @@
+{
+  "name": "realvirtual-relay",
+  "version": "1.0.0",
+  "description": "Standalone relay server for realvirtual WebViewer multiuser sessions",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "npx tsx src/server.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  }
+}

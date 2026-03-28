@@ -47,8 +47,14 @@ export interface ComponentContext {
 /** Interface all auto-mapped components implement */
 export interface RVComponent {
   readonly node: Object3D;
+  /** True when this component owns its simulation (local authority).
+   *  Set to false by MultiuserPlugin when server is authority. Default: true. */
+  isOwner: boolean;
   init(context: ComponentContext): void;
   dispose?(): void;
+  /** Called when ownership changes (e.g. multiuser connect/disconnect).
+   *  Components self-manage their multiuser behavior in this callback. */
+  onOwnershipChanged?(isOwner: boolean): void;
 }
 
 // ─── Schema Application ─────────────────────────────────────────

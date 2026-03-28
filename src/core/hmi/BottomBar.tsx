@@ -17,7 +17,6 @@ import {
 import type { NodeSearchResult } from '../engine/rv-node-registry';
 import { RvExtrasEditorPlugin } from './rv-extras-editor';
 export { BOTTOM_BAR_HEIGHT } from './layout-constants';
-import { INSPECTOR_PANEL_WIDTH } from './layout-constants';
 
 const DEBOUNCE_MS = 250;
 const MAX_VISIBLE_RESULTS = 8;
@@ -85,30 +84,19 @@ export function BottomBar() {
     setSettingsAnchor(null);
   }, [setFilter]);
 
-  /** Compute viewport offset for camera framing when hierarchy/inspector panels are open. */
-  const getViewportOffset = useCallback(() => {
-    const plugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
-    if (!plugin) return undefined;
-    const state = plugin.getSnapshot();
-    if (!state.panelOpen) return undefined;
-    // Hierarchy panel width + inspector if a node is selected
-    const leftPx = state.panelWidth + (state.selectedNodePath ? INSPECTOR_PANEL_WIDTH : 0);
-    return leftPx > 0 ? { left: leftPx } : undefined;
-  }, [viewer]);
-
   // Enter → focus camera on highlighted nodes
   const handleFocus = useCallback(() => {
     if (filteredNodes.length > 0 && !tooMany) {
       const nodes = filteredNodes.map(r => r.node);
-      viewer.fitToNodes(nodes, getViewportOffset());
+      viewer.fitToNodes(nodes);
     }
-  }, [viewer, filteredNodes, tooMany, getViewportOffset]);
+  }, [viewer, filteredNodes, tooMany]);
 
   // Click/select result → focus by path, select in hierarchy, hide dropdown
   const handleResultClick = useCallback(
     (result: NodeSearchResult) => {
-      // Focus camera on the result
-      viewer.focusByPath(result.path, getViewportOffset());
+      // Focus camera on the result (viewer auto-applies panel offset)
+      viewer.focusByPath(result.path);
       // Select and reveal in hierarchy (opens panel if needed, expands ancestors, scrolls)
       const editorPlugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
       if (editorPlugin) editorPlugin.selectAndReveal(result.path);
@@ -116,7 +104,7 @@ export function BottomBar() {
       setDropdownVisible(false);
       setSelectedIdx(-1);
     },
-    [viewer, getViewportOffset],
+    [viewer],
   );
 
   const visibleCount = filteredNodes.length;

@@ -80,6 +80,8 @@ import type { RVViewerPlugin } from './rv-plugin';
 import { UIPluginRegistry } from './rv-ui-registry';
 import { isActiveForState } from './engine/rv-active-only';
 import { LeftPanelManager } from './hmi/left-panel-manager';
+import { INSPECTOR_PANEL_WIDTH } from './hmi/layout-constants';
+import type { RvExtrasEditorPlugin } from './hmi/rv-extras-editor';
 import { isMobileDevice } from '../hooks/use-mobile-layout';
 
 // ─── Public Types ───────────────────────────────────────────────────────
@@ -150,6 +152,10 @@ export interface ViewerEvents {
   'xr-session-end': undefined;
   'xr-hit-test': { position: Float32Array; matrix: Float32Array };
   'xr-controller-select': { hand: 'left' | 'right'; position: { x: number; y: number; z: number } };
+
+  // ── FPV events ──
+  'fpv-enter': undefined;
+  'fpv-exit': undefined;
 }
 
 // ─── RVViewer ───────────────────────────────────────────────────────────
@@ -436,6 +442,22 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   markShadowsDirty(): void {
     this._shadowsDirty = true;
     this._renderDirty = true;
+  }
+
+  /**
+   * Mark the render pass as dirty so the next frame renders.
+   * Call from plugins that need continuous rendering (e.g. FPV movement).
+   */
+  markRenderDirty(): void {
+    this._renderDirty = true;
+  }
+
+  /**
+   * Cancel any in-progress camera animation immediately.
+   * Used by FPV to prevent the animation overwriting the camera position.
+   */
+  cancelCameraAnimation(): void {
+    this.cameraAnim = null;
   }
 
   // ─── Unified Node Filter ──────────────────────────────────────────
@@ -1036,7 +1058,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     // Keep current viewing direction — just move along it to frame the target
     const dir = new Vector3().subVectors(this.camera.position, this.controls.target).normalize();
-    const adjustedCenter = this.applyViewportOffset(center, dist, offset);
+    const effectiveOffset = offset ?? this.getCurrentViewportOffset();
+    const adjustedCenter = this.applyViewportOffset(center, dist, effectiveOffset);
     const endPos = adjustedCenter.clone().add(dir.multiplyScalar(dist));
     this.animateCameraTo(endPos, adjustedCenter);
   }
@@ -1072,7 +1095,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     const dist = (maxDim / (2 * Math.tan(fov / 2))) * 1.8;
 
     const dir = new Vector3().subVectors(this.camera.position, this.controls.target).normalize();
-    const adjustedCenter = this.applyViewportOffset(center, dist, offset);
+    const effectiveOffset = offset ?? this.getCurrentViewportOffset();
+    const adjustedCenter = this.applyViewportOffset(center, dist, effectiveOffset);
     const endPos = adjustedCenter.clone().add(dir.multiplyScalar(dist));
     this.animateCameraTo(endPos, adjustedCenter);
   }
@@ -1400,6 +1424,28 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   }
 
   // ─── Viewport Offset ─────────────────────────────────────────────
+
+  /** Compute current viewport offset from open panels (hierarchy, inspector, left panels).
+   *  Returns undefined when no panels obscure the viewport. */
+  getCurrentViewportOffset(): ViewportOffset | undefined {
+    let left = 0;
+
+    // Check hierarchy + inspector via rv-extras-editor plugin
+    const editorPlugin = this.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
+    if (editorPlugin) {
+      const state = editorPlugin.getSnapshot();
+      if (state.panelOpen) {
+        left = state.panelWidth + (state.selectedNodePath && state.showInspector ? INSPECTOR_PANEL_WIDTH : 0);
+      }
+    }
+
+    // Check other left panels via leftPanelManager (settings, machine control, etc.)
+    if (left === 0 && this.leftPanelManager.activePanelWidth > 0) {
+      left = this.leftPanelManager.activePanelWidth;
+    }
+
+    return left > 0 ? { left } : undefined;
+  }
 
   /**
    * Shift a world-space target point so the focused object appears centered

@@ -22,6 +22,7 @@ export class RVDriveSimple implements RVComponent {
   };
 
   readonly node: Object3D;
+  isOwner = true;
 
   /** Forward jog signal address (resolved from Forward componentRef) */
   Forward: string | null = null;

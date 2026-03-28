@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import { Typography, Box, IconButton, Paper, Button, CircularProgress, Tabs, Tab, Switch, Slider, Tooltip, Select, MenuItem, TextField } from '@mui/material';
-import { Settings, Close, PlayArrow, CheckCircle, Error as ErrorIcon, RestartAlt, AccountTree, ViewInAr } from '@mui/icons-material';
+import { Settings, Close, PlayArrow, CheckCircle, Error as ErrorIcon, RestartAlt, AccountTree, ViewInAr, People } from '@mui/icons-material';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { useViewer } from '../../hooks/use-viewer';
 import type { WebXRPlugin } from '../../plugins/webxr-plugin';
@@ -16,13 +16,18 @@ import { PropertyInspector } from './rv-property-inspector';
 import { LeftPanel } from './LeftPanel';
 import { SETTINGS_PANEL_WIDTH } from './layout-constants';
 import { MachineControlPanel } from './MachineControlPanel';
+import { MultiuserPanel } from './MultiuserPanel';
 import { useMcpBridge } from '../../hooks/use-mcp-bridge';
+import { useMultiuser } from '../../hooks/use-multiuser';
+import { loadMultiuserSettings, saveMultiuserSettings, type MultiuserSettings } from './multiuser-settings-store';
 import type { McpBridgePlugin } from '../../plugins/mcp-bridge-plugin';
+import type { MultiuserPlugin } from '../../plugins/multiuser-plugin';
 
 export function TopBar() {
   const viewer = useViewer();
   const [settingsTab, setSettingsTab] = useState(0);
   const [vrOpen, setVrOpen] = useState(false);
+  const [muOpen, setMuOpen] = useState(false);
 
   // Hierarchy panel state from plugin
   const plugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
@@ -75,6 +80,12 @@ export function TopBar() {
   const xrPlugin = viewer.getPlugin<WebXRPlugin>('webxr');
   const showMobileAR = isMobile && xrPlugin?.arSupported;
 
+  // Multiuser plugin — only show button when enabled in settings
+  const muPlugin = viewer.getPlugin<MultiuserPlugin>('multiuser');
+  const muState = useMultiuser();
+  const [muEnabled, setMuEnabled] = useState(() => loadMultiuserSettings().enabled);
+  const showMultiuser = !!muPlugin && muEnabled;
+
   return (
     <>
       {/* Hierarchy + VR + Settings buttons — fixed top-right */}
@@ -89,12 +100,25 @@ export function TopBar() {
             {hierarchyOpen ? <Close fontSize="small" /> : <AccountTree fontSize="small" />}
           </IconButton>
         )}
+        {showMultiuser && !isMobile && (
+          <IconButton
+            size="small"
+            color={muOpen ? 'primary' : 'inherit'}
+            sx={{ p: 0.75, position: 'relative' }}
+            onClick={() => { setMuOpen(!muOpen); setVrOpen(false); setSettingsOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
+          >
+            {muOpen ? <Close fontSize="small" /> : <People fontSize="small" />}
+            {muState.connected && !muOpen && (
+              <Box sx={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: '50%', bgcolor: '#66bb6a' }} />
+            )}
+          </IconButton>
+        )}
         {!isMobile && (
           <IconButton
             size="small"
             color={vrOpen ? 'primary' : 'inherit'}
             sx={{ p: 0.75 }}
-            onClick={() => { setVrOpen(!vrOpen); setSettingsOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
+            onClick={() => { setVrOpen(!vrOpen); setMuOpen(false); setSettingsOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
           >
             {vrOpen ? <Close fontSize="small" /> : <Typography sx={{ fontSize: 11, fontWeight: 700, px: 0.25 }}>VR</Typography>}
           </IconButton>
@@ -112,7 +136,7 @@ export function TopBar() {
             size={isMobile ? 'medium' : 'small'}
             color={settingsOpen ? 'primary' : 'inherit'}
             sx={{ p: isMobile ? 1 : 0.75 }}
-            onClick={() => { setSettingsOpen(!settingsOpen); setVrOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
+            onClick={() => { setSettingsOpen(!settingsOpen); setVrOpen(false); setMuOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
           >
             {settingsOpen ? <Close fontSize={isMobile ? 'medium' : 'small'} /> : <Settings fontSize={isMobile ? 'medium' : 'small'} />}
           </IconButton>
@@ -127,6 +151,9 @@ export function TopBar() {
 
       {/* Machine Control Panel */}
       <MachineControlPanel />
+
+      {/* Multiuser popup */}
+      {muOpen && <MultiuserPanel onClose={() => setMuOpen(false)} />}
 
       {/* VR/AR modal */}
       {vrOpen && <VRModal onClose={() => setVrOpen(false)} />}
@@ -156,9 +183,10 @@ export function TopBar() {
             {!isTabLocked('visual') && <Tab label="Visual" value={1} />}
             {!isTabLocked('physics') && <Tab label="Physics" value={2} />}
             {!isTabLocked('interfaces') && <Tab label="Interfaces" value={3} />}
-            {!isTabLocked('devtools') && <Tab label="Dev Tools" value={4} />}
-            {!isTabLocked('tests') && <Tab label="Tests" value={5} />}
-            {!isTabLocked('mcp') && viewer.getPlugin('mcp-bridge') && <Tab label="AI" value={6} />}
+            {!isTabLocked('multiuser') && muPlugin && <Tab label="Multiuser" value={4} />}
+            {!isTabLocked('mcp') && viewer.getPlugin('mcp-bridge') && <Tab label="AI" value={5} />}
+            {!isTabLocked('devtools') && <Tab label="Dev Tools" value={6} />}
+            {!isTabLocked('tests') && <Tab label="Tests" value={7} />}
           </Tabs>
 
           {/* Tab content - minHeight: 0 for correct flexbox scrolling */}
@@ -167,9 +195,10 @@ export function TopBar() {
             {settingsTab === 1 && !isTabLocked('visual') && <VisualTab />}
             {settingsTab === 2 && !isTabLocked('physics') && <PhysicsTab />}
             {settingsTab === 3 && !isTabLocked('interfaces') && <InterfacesTab />}
-            {settingsTab === 4 && !isTabLocked('devtools') && <DevToolsTab />}
-            {settingsTab === 5 && !isTabLocked('tests') && <TestsTab />}
-            {settingsTab === 6 && !isTabLocked('mcp') && viewer.getPlugin('mcp-bridge') && <McpTab />}
+            {settingsTab === 4 && !isTabLocked('multiuser') && muPlugin && <MultiuserTab muEnabled={muEnabled} onMuEnabledChange={setMuEnabled} />}
+            {settingsTab === 5 && !isTabLocked('mcp') && viewer.getPlugin('mcp-bridge') && <McpTab />}
+            {settingsTab === 6 && !isTabLocked('devtools') && <DevToolsTab />}
+            {settingsTab === 7 && !isTabLocked('tests') && <TestsTab />}
           </Box>
         </LeftPanel>
       )}
@@ -1537,6 +1566,179 @@ function McpTab() {
                 sx={{ fontFamily: 'monospace', fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>
                 {name}
               </Typography>
+            ))}
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+/* ─── Multiuser Tab ─── */
+
+function MultiuserTab({ muEnabled, onMuEnabledChange }: { muEnabled: boolean; onMuEnabledChange: (v: boolean) => void }) {
+  const viewer = useViewer();
+  const mu = useMultiuser();
+  const muPlugin = viewer.getPlugin<MultiuserPlugin>('multiuser');
+
+  // Load persisted settings
+  const settingsRef = useRef(loadMultiuserSettings());
+  const [serverUrl, setServerUrl] = useState(settingsRef.current.serverUrl);
+  const [role, setRole] = useState<string>(settingsRef.current.role);
+  const [name, setName] = useState(settingsRef.current.displayName);
+  const [joinCode, setJoinCode] = useState(settingsRef.current.joinCode);
+
+  const persist = useCallback((patch: Partial<MultiuserSettings>) => {
+    Object.assign(settingsRef.current, patch);
+    saveMultiuserSettings(settingsRef.current);
+  }, []);
+
+  // Keep in sync when connected
+  useEffect(() => {
+    if (mu.connected) {
+      setServerUrl(mu.serverUrl);
+      setName(mu.localName);
+      setRole(mu.localRole);
+    }
+  }, [mu.connected, mu.serverUrl, mu.localName, mu.localRole]);
+
+  const stateColor = mu.connected ? '#66bb6a' : 'rgba(255,255,255,0.5)';
+  const stateLabel = mu.connected ? `Connected (${mu.playerCount + 1} users)` : 'Disconnected';
+
+  const handleConnect = () => {
+    muPlugin?.joinSession(serverUrl, name, undefined, role, joinCode || undefined);
+  };
+
+  const handleDisconnect = () => {
+    muPlugin?.leaveSession();
+  };
+
+  const handleEnabledToggle = (_: unknown, v: boolean) => {
+    persist({ enabled: v });
+    onMuEnabledChange(v);
+    if (!v && mu.connected) muPlugin?.leaveSession();
+  };
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {/* Enable toggle */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box>
+          <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 500 }}>Multiuser</Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: 10 }}>
+            Show multiuser button in toolbar
+          </Typography>
+        </Box>
+        <Switch size="small" checked={muEnabled} onChange={handleEnabledToggle} />
+      </Box>
+
+      {/* Status */}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+        <StatRow label="State" value={stateLabel} color={stateColor} />
+        {mu.connected && <StatRow label="Server" value={mu.serverUrl} />}
+        {mu.connected && <StatRow label="Role" value={mu.localRole} />}
+      </Box>
+
+      {/* Server URL */}
+      <Box>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5, display: 'block' }}>
+          Server URL
+        </Typography>
+        <TextField
+          fullWidth size="small"
+          placeholder="ws://192.168.1.5:7000"
+          value={serverUrl}
+          onChange={(e) => { setServerUrl(e.target.value); persist({ serverUrl: e.target.value }); }}
+          disabled={mu.connected}
+          sx={{ '& input': { fontFamily: 'monospace', fontSize: 12 } }}
+        />
+      </Box>
+
+      {/* Join Code (optional session/room identifier) */}
+      <Box>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5, display: 'block' }}>
+          Join Code (optional)
+        </Typography>
+        <TextField
+          fullWidth size="small"
+          placeholder="e.g. ABC123"
+          value={joinCode}
+          onChange={(e) => { setJoinCode(e.target.value); persist({ joinCode: e.target.value }); }}
+          disabled={mu.connected}
+          sx={{ '& input': { fontFamily: 'monospace', fontSize: 12, textTransform: 'uppercase' } }}
+        />
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.25, fontSize: 10 }}>
+          Identifies the session on a relay server hosting multiple models
+        </Typography>
+      </Box>
+
+      {/* Display Name */}
+      <Box>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5, display: 'block' }}>
+          Display Name
+        </Typography>
+        <TextField
+          fullWidth size="small"
+          placeholder="Browser"
+          value={name}
+          onChange={(e) => { setName(e.target.value); persist({ displayName: e.target.value }); }}
+          disabled={mu.connected}
+          sx={{ '& input': { fontSize: 12 } }}
+        />
+      </Box>
+
+      {/* Role */}
+      <Box>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, mb: 0.5, display: 'block' }}>
+          Role
+        </Typography>
+        <Select
+          fullWidth size="small"
+          value={role}
+          onChange={(e) => { setRole(e.target.value); persist({ role: e.target.value as 'observer' | 'operator' }); }}
+          disabled={mu.connected}
+          sx={{ fontSize: 12 }}
+        >
+          <MenuItem value="observer" sx={{ fontSize: 12 }}>Observer (watch only)</MenuItem>
+          <MenuItem value="operator" sx={{ fontSize: 12 }}>Operator (full control)</MenuItem>
+        </Select>
+      </Box>
+
+      {/* Connect / Disconnect */}
+      {!mu.connected ? (
+        <Button size="small" variant="contained" onClick={handleConnect}
+          disabled={!serverUrl.trim()}
+          sx={{ alignSelf: 'flex-start', textTransform: 'none', bgcolor: '#1565c0', '&:hover': { bgcolor: '#1976d2' } }}>
+          Connect
+        </Button>
+      ) : (
+        <Button size="small" variant="outlined" onClick={handleDisconnect}
+          sx={{
+            alignSelf: 'flex-start', textTransform: 'none',
+            borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.65)',
+            '&:hover': { borderColor: '#ef5350', color: '#ef5350', bgcolor: 'rgba(239,83,80,0.06)' },
+          }}>
+          Disconnect
+        </Button>
+      )}
+
+      {/* Connected players */}
+      {mu.connected && mu.players.length > 0 && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+            Connected Users ({mu.players.length + 1})
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, pl: 1 }}>
+            {mu.players.map(p => (
+              <Box key={p.id} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: p.color, flexShrink: 0 }} />
+                <Typography variant="caption" sx={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>
+                  {p.name}
+                </Typography>
+                <Typography variant="caption" sx={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', ml: 'auto' }}>
+                  {p.role}
+                </Typography>
+              </Box>
             ))}
           </Box>
         </Box>

@@ -33,7 +33,6 @@ import {
 import type { RVViewer } from '../rv-viewer';
 import { RvExtrasEditorPlugin, HIERARCHY_MIN_WIDTH, HIERARCHY_MAX_WIDTH, type EditableNodeInfo } from './rv-extras-editor';
 import { LeftPanel } from './LeftPanel';
-import { INSPECTOR_PANEL_WIDTH } from './layout-constants';
 import type { RVExtrasOverlay } from '../engine/rv-extras-overlay-store';
 import type { SignalStore } from '../engine/rv-signal-store';
 import type { RVLogicEngine, StepStateInfo } from '../engine/rv-logic-engine';
@@ -900,12 +899,10 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
       if (!viewer.registry) return;
       const node = viewer.registry.getNode(path);
       if (node) {
-        // Compute viewport offset: hierarchy panel + inspector (if node selected)
-        const leftPx = state.panelWidth + (state.selectedNodePath ? INSPECTOR_PANEL_WIDTH : 0);
-        viewer.fitToNodes([node], leftPx > 0 ? { left: leftPx } : undefined);
+        viewer.fitToNodes([node]); // viewer auto-applies panel offset
       }
     },
-    [viewer, state.panelWidth, state.selectedNodePath],
+    [viewer],
   );
 
   // Keep selection highlight in sync when selectedNodePath changes externally

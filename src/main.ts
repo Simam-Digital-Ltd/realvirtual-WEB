@@ -47,8 +47,17 @@ import { MaintenancePlugin } from './plugins/maintenance-plugin';
 // Machine control panel plugin (demo HMI with PackML-inspired state machine)
 import { MachineControlPlugin } from './plugins/machine-control-plugin';
 
+// Multiuser presence plugin (browser ↔ Unity / relay server collaboration)
+import { MultiuserPlugin } from './plugins/multiuser-plugin';
+
+// First-Person View plugin (desktop WASD + mouse look walkthrough)
+import { FpvPlugin } from './plugins/fpv-plugin';
+
 // Performance test plugin (activated via ?perf URL param)
 import { PerfTestPlugin } from './plugins/perf-test-plugin';
+
+// Microsoft Teams JS SDK (lazy-loaded when ?teams=1)
+import * as microsoftTeams from '@microsoft/teams-js';
 
 // --- localStorage keys ---
 const LS_KEY_MODEL = 'rv-webviewer-last-model';
@@ -93,6 +102,20 @@ function hideLoadingOverlay() {
 }
 
 async function init() {
+  // --- Microsoft Teams integration ---
+  // When running inside a Teams tab (?teams=1), initialize the Teams JS SDK
+  // so the iframe handshake completes and Teams shows the content.
+  const isTeams = params.has('teams');
+  if (isTeams) {
+    try {
+      await microsoftTeams.app.initialize();
+      console.log('[main] Teams SDK initialized');
+      microsoftTeams.app.notifySuccess();
+    } catch (e) {
+      console.warn('[main] Teams SDK init failed (running outside Teams?)', e);
+    }
+  }
+
   // --- Load App Config (MUST complete before React mount — no flicker) ---
   const appConfig = await fetchAppConfig();
 
@@ -150,6 +173,8 @@ async function init() {
     .use(new DemoHMIPlugin())
     .use(new MaintenancePlugin())
     .use(new MachineControlPlugin())
+    .use(new MultiuserPlugin())
+    .use(new FpvPlugin())
     .use(new TestAxesPlugin())
     .use(new RvExtrasEditorPlugin());
 

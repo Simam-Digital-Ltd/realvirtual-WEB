@@ -18,6 +18,7 @@ export class RVConnectSignal implements RVComponent {
   };
 
   readonly node: Object3D;
+  isOwner = true;
 
   /** Source signal address (resolved from ConnectedSignal componentRef) */
   ConnectedSignal: string | null = null;

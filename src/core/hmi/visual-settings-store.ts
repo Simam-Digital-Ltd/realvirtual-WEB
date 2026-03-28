@@ -48,6 +48,14 @@ export interface VisualSettings {
   shadowRadius: number;
   /** Maximum device pixel ratio (1.0 = performance, 1.5 = balanced, native = quality). */
   maxDpr: number;
+  /** FPV walk speed in m/s. */
+  fpvSpeed: number;
+  /** FPV sprint speed in m/s. */
+  fpvSprintSpeed: number;
+  /** FPV mouse look sensitivity (radians per pixel). */
+  fpvSensitivity: number;
+  /** FPV eye height above ground in meters. */
+  fpvEyeHeight: number;
 }
 
 const MODE_DEFAULTS: Record<LightingMode, LightingModeSettings> = {
@@ -58,8 +66,8 @@ const MODE_DEFAULTS: Record<LightingMode, LightingModeSettings> = {
     shadowEnabled: false, shadowIntensity: 0.5, shadowQuality: 'medium',
   },
   default: {
-    lightIntensity: 0.4, toneMapping: 'neutral', toneMappingExposure: 1.0,
-    ambientColor: '#ffffff', ambientIntensity: 0.3,
+    lightIntensity: 0.5, toneMapping: 'neutral', toneMappingExposure: 1.0,
+    ambientColor: '#ffffff', ambientIntensity: 1.3,
     dirLightEnabled: true, dirLightColor: '#ffffff', dirLightIntensity: 1.5,
     shadowEnabled: true, shadowIntensity: 0.95, shadowQuality: 'medium',
   },
@@ -78,6 +86,10 @@ const DEFAULTS: VisualSettings = {
   shadowMapSize: 1024,
   shadowRadius: 2,
   maxDpr: 1.5,
+  fpvSpeed: 2.5,
+  fpvSprintSpeed: 5.0,
+  fpvSensitivity: 0.002,
+  fpvEyeHeight: 1.7,
 };
 
 function migrateToneMapping(raw: unknown, mode: LightingMode): ToneMappingType {
@@ -128,6 +140,10 @@ export function loadVisualSettings(): VisualSettings {
     shadowMapSize: fromStorage.shadowMapSize,
     shadowRadius: fromStorage.shadowRadius,
     maxDpr: fromStorage.maxDpr,
+    fpvSpeed: fromStorage.fpvSpeed,
+    fpvSprintSpeed: fromStorage.fpvSprintSpeed,
+    fpvSensitivity: fromStorage.fpvSensitivity,
+    fpvEyeHeight: fromStorage.fpvEyeHeight,
   };
 }
 
@@ -153,6 +169,18 @@ function loadFromLocalStorage(): VisualSettings {
     const maxDprRaw = (parsed as Record<string, unknown>).maxDpr;
     const maxDpr = (typeof maxDprRaw === 'number' && maxDprRaw >= 0.5 && maxDprRaw <= 4)
       ? maxDprRaw : DEFAULTS.maxDpr;
+    const fpvSpeedRaw = (parsed as Record<string, unknown>).fpvSpeed;
+    const fpvSpeed = (typeof fpvSpeedRaw === 'number' && fpvSpeedRaw >= 0.5 && fpvSpeedRaw <= 20)
+      ? fpvSpeedRaw : DEFAULTS.fpvSpeed;
+    const fpvSprintSpeedRaw = (parsed as Record<string, unknown>).fpvSprintSpeed;
+    const fpvSprintSpeed = (typeof fpvSprintSpeedRaw === 'number' && fpvSprintSpeedRaw >= 1 && fpvSprintSpeedRaw <= 40)
+      ? fpvSprintSpeedRaw : DEFAULTS.fpvSprintSpeed;
+    const fpvSensitivityRaw = (parsed as Record<string, unknown>).fpvSensitivity;
+    const fpvSensitivity = (typeof fpvSensitivityRaw === 'number' && fpvSensitivityRaw >= 0.0005 && fpvSensitivityRaw <= 0.01)
+      ? fpvSensitivityRaw : DEFAULTS.fpvSensitivity;
+    const fpvEyeHeightRaw = (parsed as Record<string, unknown>).fpvEyeHeight;
+    const fpvEyeHeight = (typeof fpvEyeHeightRaw === 'number' && fpvEyeHeightRaw >= 0.5 && fpvEyeHeightRaw <= 5)
+      ? fpvEyeHeightRaw : DEFAULTS.fpvEyeHeight;
     return {
       lightingMode: mode,
       modeSettings,
@@ -163,6 +191,10 @@ function loadFromLocalStorage(): VisualSettings {
       shadowMapSize,
       shadowRadius,
       maxDpr,
+      fpvSpeed,
+      fpvSprintSpeed,
+      fpvSensitivity,
+      fpvEyeHeight,
     };
   } catch {
     return { ...DEFAULTS, modeSettings: { simple: { ...MODE_DEFAULTS.simple }, default: { ...MODE_DEFAULTS.default } }, cameras: [...DEFAULTS.cameras] };

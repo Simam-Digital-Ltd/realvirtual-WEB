@@ -17,6 +17,7 @@ export class RVGripTarget implements RVComponent {
   };
 
   readonly node: Object3D;
+  isOwner = true;
   occupiedBy: RVMovingUnit | null = null;
 
   // Properties — exact C# Inspector field names

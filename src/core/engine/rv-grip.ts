@@ -36,6 +36,7 @@ export class RVGrip implements RVComponent {
   };
 
   readonly node: Object3D;
+  isOwner = true;
 
   // Properties — exact C# Inspector field names
   GripRange = 50;

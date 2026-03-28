@@ -543,6 +543,72 @@ Categories: `loader`, `playback`, `drive`, `transport`, `sensor`, `logic`, `sign
 - Materials may differ from Unity URP (PBR mapping differences)
 - OnSignal spawn mode not implemented for Sources
 
+## Multiuser
+
+realvirtual WEB supports real-time multiuser sessions where multiple users see each other as avatars in the same 3D scene. Each user's camera position is shared and rendered as a colored sphere with a name label.
+
+### Quick Start
+
+1. Add the `MultiplayerWEB` component to any GameObject in your Unity scene
+2. Press Play — the WebSocket server starts on Port 7000
+3. Open the WebViewer, click the Multiuser button in the top bar
+4. Enter the server URL (e.g., `ws://192.168.1.5:7000`) and your name
+5. Click Connect — you will see other connected users as avatars
+
+### Features
+
+- **VR/AR Avatars**: VR users show head + controller positions
+- **Roles**: Operator (can control signals and drives) vs Observer (watch only)
+- **Late Join**: New users receive the complete simulation state (all signal values, drive positions, and current avatars)
+- **Cursor Rays**: See where other users are pointing in the 3D scene
+- **URL Join**: Share `?server=ws://host:7000&name=User` links for instant session entry
+- **Rate limiting**: Max 100 messages/second per client on the Unity side; outgoing avatar updates capped at 20 Hz on the browser side
+- **Auto-reconnect**: The browser client reconnects automatically after a 2 s delay
+
+### Web-only Mode (No Unity)
+
+Use the standalone relay server for sessions without a running Unity instance:
+
+```bash
+cd relay
+npm start -- --port 7000 --model ./model.glb
+```
+
+### Microsoft Teams Integration
+
+realvirtual WEB runs natively inside Microsoft Teams as an interactive app — no screen sharing needed. Share 3D digital twins directly in meetings, channels, and chats.
+
+**What it does:**
+- **Meeting stage sharing** — Share the 3D viewer to the meeting stage. All participants can orbit, pan, and zoom the model independently — including external guests who are not in your organization.
+- **Personal tab** — Pin the viewer in your Teams sidebar for quick access.
+- **Channel tab** — Add the viewer to any channel. Configure which model to display per channel via the config page.
+
+**Setup:**
+
+1. Build the Teams app package:
+   ```bash
+   cd teams-app
+   powershell.exe Compress-Archive -Path manifest.json,color.png,outline.png -DestinationPath realvirtual-web-teams.zip
+   ```
+
+2. Install in Teams:
+   - **Personal**: Teams → Apps → Manage your apps → Upload a custom app → select the zip
+   - **Organization-wide**: Teams Admin Center → Manage apps → Upload new app
+
+3. Share in a meeting:
+   - Click **Share** in the meeting toolbar
+   - Select **realvirtual WEB** from the app list
+   - The 3D viewer opens on the meeting stage for all participants
+
+**Key points:**
+- Only the person sharing needs the app installed — guests see it automatically on the meeting stage
+- External participants (outside your org) can interact with the shared 3D viewer
+- The app loads from `https://web.realvirtual.io/demo/` — public URL, no VPN required
+- Teams SDK initialization is automatic when `?teams=1` is in the URL
+- The `teams-app/` directory contains `manifest.json`, `color.png` (192x192), and `outline.png` (32x32)
+
+**Configurable tabs** allow per-channel model selection. The config page (`teams-config.html`) lets users set a custom model URL when adding the tab to a channel.
+
 ## Extending
 
 See **[doc-extending-webviewer.md](doc-extending-webviewer.md)** for:
