@@ -14,6 +14,7 @@ import type { RVDrive } from '../../core/engine/rv-drive';
 import type { ActiveOnly } from '../../core/engine/rv-active-only';
 import { RVBehavior } from '../../core/rv-behavior';
 import { NavButton } from '../../core/hmi/NavButton';
+import { debug } from '../../core/engine/rv-debug';
 
 // ─── Slider Window ──────────────────────────────────────────────────────
 
@@ -169,7 +170,7 @@ export class TestAxesPlugin extends RVBehavior {
 
     this._isOpen = true;
     this._notify();
-    console.log(`[TestAxes] Window opened — ${this._axes.length} axes, recorder deactivated`);
+    debug('drive', `[TestAxes] Window opened — ${this._axes.length} axes, recorder deactivated`);
   }
 
   close(): void {
@@ -177,7 +178,7 @@ export class TestAxesPlugin extends RVBehavior {
     this._restore();
     this._isOpen = false;
     this._notify();
-    console.log('[TestAxes] Window closed — state restored');
+    debug('drive', '[TestAxes] Window closed — state restored');
   }
 
   /** Set a single axis position by index (called from slider). */

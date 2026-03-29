@@ -26,6 +26,7 @@ import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
 import type { SignalStore } from '../core/engine/rv-signal-store';
 import type { InterfaceSettings } from './interface-settings-store';
+import { debug } from '../core/engine/rv-debug';
 
 // ── Public Types ─────────────────────────────────────────────────────────
 
@@ -357,7 +358,7 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
       // Fix 6: Use prefixed path to avoid collision with GLB model paths
       this.signalStore.register(sig.name, `__iface__/${sig.name}`, sig.initialValue);
     }
-    console.log(`[${this.id}] Registered ${signals.length} signals in SignalStore`);
+    debug('interface', `[${this.id}] Registered ${signals.length} signals in SignalStore`);
   }
 
   /**
@@ -393,7 +394,7 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
     const delay = this.getReconnectDelay(this._reconnectAttempt);
     this._reconnectAttempt++;
 
-    console.log(`[${this.id}] Reconnecting in ${delay}ms (attempt ${this._reconnectAttempt})`);
+    debug('interface', `[${this.id}] Reconnecting in ${delay}ms (attempt ${this._reconnectAttempt})`);
 
     this._reconnectTimer = setTimeout(async () => {
       if (this._connectionState !== 'disconnected' && this._connectionState !== 'error') return;

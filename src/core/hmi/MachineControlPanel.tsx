@@ -217,14 +217,23 @@ const HISTORY_INTERVAL = 500;
 /** Hook that reads actual sensor occupied states from the viewer, polled at a fixed interval. */
 function useSensorStates(viewer: ReturnType<typeof useViewer>, interval = HISTORY_INTERVAL): Map<string, boolean> {
   const [states, setStates] = useState<Map<string, boolean>>(new Map());
+  const prevRef = useRef<Map<string, boolean>>(new Map());
 
   useEffect(() => {
     const poll = () => {
       const sensors = viewer.transportManager?.sensors;
       if (!sensors || sensors.length === 0) return;
       const next = new Map<string, boolean>();
-      for (const s of sensors) next.set(s.node.name, s.occupied);
-      setStates(next);
+      let changed = false;
+      for (const s of sensors) {
+        const val = s.occupied;
+        next.set(s.node.name, val);
+        if (prevRef.current.get(s.node.name) !== val) changed = true;
+      }
+      if (changed || next.size !== prevRef.current.size) {
+        prevRef.current = next;
+        setStates(next);
+      }
     };
     poll(); // immediate
     const id = setInterval(poll, interval);
@@ -237,23 +246,21 @@ function useSensorStates(viewer: ReturnType<typeof useViewer>, interval = HISTOR
 /** Hook that samples a boolean value at a fixed interval and returns a rolling history array. */
 function useBoolHistory(value: boolean, maxLen = HISTORY_LENGTH, interval = HISTORY_INTERVAL): boolean[] {
   const histRef = useRef<boolean[]>([]);
+  const valueRef = useRef(value);
   const [history, setHistory] = useState<boolean[]>([]);
+
+  // Keep valueRef in sync so the interval always reads the latest value
+  valueRef.current = value;
 
   useEffect(() => {
     const id = setInterval(() => {
       const h = histRef.current;
-      h.push(value);
+      h.push(valueRef.current);
       if (h.length > maxLen) h.shift();
       setHistory([...h]);
     }, interval);
     return () => clearInterval(id);
-  }, [value, maxLen, interval]);
-
-  // Also capture on mount / value change immediately
-  useEffect(() => {
-    histRef.current.push(value);
-    if (histRef.current.length > maxLen) histRef.current.shift();
-  }, [value, maxLen]);
+  }, [maxLen, interval]);
 
   return history;
 }
@@ -494,12 +501,15 @@ export function MachineControlPanel() {
   // Real sensor states from RVSensor.occupied (polled)
   const sensorStates = useSensorStates(viewer);
 
-  // Sync subsystem states with machine state
+  // Sync subsystem states with machine state (ref-based to avoid double render)
   const isRunning = controlState.state === 'RUNNING';
-  useEffect(() => {
+  const prevRunningRef = useRef(isRunning);
+  if (prevRunningRef.current !== isRunning) {
+    prevRunningRef.current = isRunning;
+    // Inline state update during render — React batches this correctly
     setRobotActive(isRunning);
     setDoorClosed(true);
-  }, [isRunning]);
+  }
 
   // Derive sensor active from actual occupied state
   const entrySensorOccupied = sensorStates.get('EntryConveyorSensor') ?? sensorStates.get('EntrySensor') ?? false;

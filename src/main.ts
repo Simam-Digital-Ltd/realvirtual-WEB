@@ -10,8 +10,9 @@
  */
 
 import { RVViewer } from './core/rv-viewer';
+import { debug, logInfo } from './core/engine/rv-debug';
 import { initTestRunner } from './rv-test-runner';
-import { fetchAppConfig, setAppConfig } from './core/hmi/rv-app-config';
+import { fetchAppConfig, setAppConfig } from './core/rv-app-config';
 import { loadVisualSettings } from './core/hmi/visual-settings-store';
 import { isMobileDevice } from './hooks/use-mobile-layout';
 import { activateContext, registerUIElement } from './core/hmi/ui-context-store';
@@ -26,6 +27,7 @@ import { TransportStatsPlugin } from './plugins/transport-stats-plugin';
 import { CameraEventsPlugin } from './plugins/camera-events-plugin';
 import { DriveOrderPlugin } from './plugins/drive-order-plugin';
 import { RapierPhysicsPlugin } from './core/engine/rapier-physics-plugin';
+import { loadPhysicsSettings } from './core/hmi/physics-settings-store';
 
 // Extras editor plugin (hierarchy browser + property editor)
 import { RvExtrasEditorPlugin } from './core/hmi/rv-extras-editor';
@@ -48,8 +50,7 @@ import { FpvPlugin } from './plugins/fpv-plugin';
 // To add/remove demo plugins, edit plugins/demo/index.ts — no changes needed here.
 import { registerDemoPlugins } from './plugins/demo';
 
-// Microsoft Teams JS SDK (lazy-loaded when ?teams=1)
-import * as microsoftTeams from '@microsoft/teams-js';
+// Microsoft Teams JS SDK — dynamically imported only when ?teams=1
 
 // --- localStorage keys ---
 const LS_KEY_MODEL = 'rv-webviewer-last-model';
@@ -95,13 +96,14 @@ function hideLoadingOverlay() {
 
 async function init() {
   // --- Microsoft Teams integration ---
-  // When running inside a Teams tab (?teams=1), initialize the Teams JS SDK
+  // When running inside a Teams tab (?teams=1), dynamically import the Teams JS SDK
   // so the iframe handshake completes and Teams shows the content.
   const isTeams = params.has('teams');
   if (isTeams) {
     try {
+      const microsoftTeams = await import('@microsoft/teams-js');
       await microsoftTeams.app.initialize();
-      console.log('[main] Teams SDK initialized');
+      logInfo('Teams SDK initialized');
       microsoftTeams.app.notifySuccess();
     } catch (e) {
       console.warn('[main] Teams SDK init failed (running outside Teams?)', e);
@@ -161,7 +163,7 @@ async function init() {
   // Start WASM download in background. If it finishes before model load,
   // physics will be used; otherwise kinematic transport kicks in and
   // physics activates on the next model load.
-  const rapierPlugin = new RapierPhysicsPlugin();
+  const rapierPlugin = new RapierPhysicsPlugin(loadPhysicsSettings);
   const rapierReady = rapierPlugin.preload();
 
   // --- Register Industrial Interfaces ---
@@ -245,7 +247,7 @@ async function init() {
 
       const loadTime = ((performance.now() - loadStart) / 1000).toFixed(1) + 's';
       viewer.lastLoadInfo = { glbSize: sizeMB, loadTime };
-      console.log(`[main] Model loaded: ${sizeMB}, ${loadTime}, ${result.drives.length} drives`);
+      logInfo(`Model loaded: ${sizeMB}, ${loadTime}, ${result.drives.length} drives`);
       hideLoadingOverlay();
     } catch (e) {
       console.error(`[main] Failed to load model: ${url}`, e);
@@ -262,7 +264,7 @@ async function init() {
     const bucketName = 'realvirtual-files.firebasestorage.app';
     const storagePath = `demo/webviewer/${firebaseDemoName}/demo.glb`;
     const firebaseGlbUrl = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(storagePath)}?alt=media`;
-    console.log(`[main] Firebase demo: "${firebaseDemoName}" → ${firebaseGlbUrl}`);
+    debug('config', `Firebase demo: "${firebaseDemoName}" → ${firebaseGlbUrl}`);
     document.title = `${firebaseDemoName} - realvirtual WEB`;
     loadModel(firebaseGlbUrl);
   } else {

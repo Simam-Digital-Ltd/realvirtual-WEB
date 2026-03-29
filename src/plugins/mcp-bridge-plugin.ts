@@ -12,6 +12,7 @@
  */
 
 import { RVBehavior } from '../core/rv-behavior';
+import { lastPathSegment } from '../core/engine/rv-constants';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
 import type { RVLogicStep } from '../core/engine/rv-logic-step';
 import {
@@ -508,7 +509,7 @@ export class McpBridgePlugin extends RVBehavior {
     const results = reg.search(term);
     return JSON.stringify(results.map(r => ({
       path: r.path,
-      name: r.path.substring(r.path.lastIndexOf('/') + 1),
+      name: lastPathSegment(r.path),
       types: r.types,
     })));
   }
@@ -609,7 +610,7 @@ export class McpBridgePlugin extends RVBehavior {
 
     return JSON.stringify(all.map(({ path, instance }) => ({
       path,
-      name: path.substring(path.lastIndexOf('/') + 1),
+      name: lastPathSegment(path),
       properties: serializeProps(instance, 1),
     })));
   }

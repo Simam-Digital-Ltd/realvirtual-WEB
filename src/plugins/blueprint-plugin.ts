@@ -9,6 +9,7 @@
 
 import { RVBehavior } from '../core/rv-behavior';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
+import { debug } from '../core/engine/rv-debug';
 
 export class BlueprintPlugin extends RVBehavior {
   readonly id = 'blueprint';
@@ -31,7 +32,7 @@ export class BlueprintPlugin extends RVBehavior {
   /** Called once after the GLB model is loaded. Viewer, drives, sensors, signals are ready. */
   protected onStart(result: LoadResult): void {
     // Access drives, sensors, signals via convenience getters:
-    console.log(`[${this.id}] Model loaded — ${this.drives.length} drives, ${this.sensors.length} sensors`);
+    debug('loader', `[${this.id}] Model loaded — ${this.drives.length} drives, ${this.sensors.length} sensors`);
 
     // Find a specific drive by name
     // const conveyor = this.drives.find(d => d.name === 'ConveyorDrive');
@@ -71,7 +72,7 @@ export class BlueprintPlugin extends RVBehavior {
 
   /** Called before cleanup when model is cleared or plugin is disposed. */
   protected onDestroy(): void {
-    console.log(`[${this.id}] Destroyed`);
+    debug('loader', `[${this.id}] Destroyed`);
   }
 
   /** 60Hz fixed update, BEFORE drive physics. Set drive targets, replay, CAM here. */

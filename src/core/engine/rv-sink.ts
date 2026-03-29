@@ -3,6 +3,7 @@ import { AABB } from './rv-aabb';
 import type { RVMovingUnit, InstancedMovingUnit } from './rv-mu';
 import type { ComponentSchema, ComponentContext, RVComponent } from './rv-component-registry';
 import { registerComponent } from './rv-component-registry';
+import { debug } from './rv-debug';
 
 /**
  * RVSink - Removes MUs that overlap with this sink's AABB.
@@ -28,7 +29,7 @@ export class RVSink implements RVComponent {
   init(context: ComponentContext): void {
     // Register in transport manager
     context.transportManager.sinks.push(this);
-    console.log(`  Sink: ${this.node.name}`);
+    debug('loader', `Sink: ${this.node.name}`);
   }
 
   /**

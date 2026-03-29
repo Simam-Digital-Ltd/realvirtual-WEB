@@ -1,6 +1,7 @@
 import type { Object3D } from 'three';
 import type { RVDrive } from './rv-drive';
 import type { RVSensor } from './rv-sensor';
+import { lastPathSegment } from './rv-constants';
 
 /**
  * Search result from NodeRegistry.search().
@@ -74,7 +75,7 @@ export class NodeRegistry {
     this.nodePaths.set(node, path);
 
     // Update suffix map for O(1) suffix lookups
-    const suffix = path.substring(path.lastIndexOf('/') + 1);
+    const suffix = lastPathSegment(path);
     let arr = this.suffixMap.get(suffix);
     if (!arr) {
       arr = [];
@@ -94,7 +95,7 @@ export class NodeRegistry {
 
     this.nodes.set(aliasPath, node);
 
-    const suffix = aliasPath.substring(aliasPath.lastIndexOf('/') + 1);
+    const suffix = lastPathSegment(aliasPath);
     let arr = this.suffixMap.get(suffix);
     if (!arr) {
       arr = [];
@@ -140,8 +141,7 @@ export class NodeRegistry {
     }
 
     // Suffix match using the suffix map for O(1) lookup
-    // Extract the last segment of the query path
-    const querySuffix = path.substring(path.lastIndexOf('/') + 1);
+    const querySuffix = lastPathSegment(path);
     const candidates = this.suffixMap.get(querySuffix);
     if (candidates) {
       for (const registeredPath of candidates) {
@@ -171,16 +171,34 @@ export class NodeRegistry {
     }
     // Normalize path: Three.js GLTF loader sanitizes names (spaces → underscores)
     const normalized = path.replace(/ /g, '_');
-    // Path suffix match
-    for (const [registeredPath, compMap2] of this.components) {
-      if (registeredPath.endsWith('/' + path) || registeredPath === path) {
-        const instance = compMap2.get(type);
+    if (normalized !== path) {
+      const normMap = this.components.get(normalized);
+      if (normMap) {
+        const instance = normMap.get(type);
         if (instance !== undefined) return instance as T;
       }
-      // Also try with normalized path (spaces → underscores)
-      if (normalized !== path && (registeredPath.endsWith('/' + normalized) || registeredPath === normalized)) {
-        const instance = compMap2.get(type);
-        if (instance !== undefined) return instance as T;
+    }
+
+    // Suffix match using suffixMap for O(1) lookup (instead of O(n) scan)
+    const querySuffix = lastPathSegment(path);
+    const candidates = this.suffixMap.get(querySuffix);
+    if (candidates) {
+      for (const registeredPath of candidates) {
+        if (registeredPath.endsWith('/' + path) || registeredPath === path) {
+          const cm = this.components.get(registeredPath);
+          if (cm) {
+            const instance = cm.get(type);
+            if (instance !== undefined) return instance as T;
+          }
+        }
+        // Also try with normalized path (spaces → underscores)
+        if (normalized !== path && (registeredPath.endsWith('/' + normalized) || registeredPath === normalized)) {
+          const cm = this.components.get(registeredPath);
+          if (cm) {
+            const instance = cm.get(type);
+            if (instance !== undefined) return instance as T;
+          }
+        }
       }
     }
     return null;
@@ -349,7 +367,7 @@ export class NodeRegistry {
     const lower = term.toLowerCase();
     const results: NodeSearchResult[] = [];
     for (const [path, node] of this.nodes) {
-      const name = path.substring(path.lastIndexOf('/') + 1);
+      const name = lastPathSegment(path);
       if (name.toLowerCase().includes(lower)) {
         const compMap = this.components.get(path);
         const types = compMap ? [...compMap.keys()] : [];
@@ -414,7 +432,7 @@ export class NodeRegistry {
       }
 
       // Remove from suffixMap
-      const suffix = path.substring(path.lastIndexOf('/') + 1);
+      const suffix = lastPathSegment(path);
       const arr = this.suffixMap.get(suffix);
       if (arr) {
         const idx = arr.indexOf(path);

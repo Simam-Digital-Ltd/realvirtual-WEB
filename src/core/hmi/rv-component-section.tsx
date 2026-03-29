@@ -32,11 +32,18 @@ import { FieldRow } from './rv-field-row';
 
 const LS_KEY_COLLAPSED = 'rv-inspector-collapsed';
 
+/** Module-level cache to avoid re-parsing localStorage on every toggle. */
+let _collapsedCache: Set<string> | null = null;
+
 function loadCollapsedSet(): Set<string> {
+  if (_collapsedCache) return _collapsedCache;
   try {
     const raw = localStorage.getItem(LS_KEY_COLLAPSED);
-    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
-  } catch { return new Set(); }
+    _collapsedCache = raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+  } catch {
+    _collapsedCache = new Set();
+  }
+  return _collapsedCache;
 }
 
 function persistCollapsed(key: string, collapsed: boolean): void {

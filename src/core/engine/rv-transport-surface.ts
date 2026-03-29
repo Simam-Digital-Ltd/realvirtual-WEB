@@ -1,4 +1,6 @@
 import { Object3D, Vector3, Quaternion, MathUtils, Mesh, RepeatWrapping } from 'three';
+import { debug } from './rv-debug';
+import { MM_TO_METERS } from './rv-constants';
 import type { MeshStandardMaterial, Texture } from 'three';
 import { AABB } from './rv-aabb';
 import type { RVDrive } from './rv-drive';
@@ -109,8 +111,8 @@ export class RVTransportSurface implements RVComponent {
     // Register in transport manager
     context.transportManager.surfaces.push(this);
 
-    console.log(
-      `  TransportSurface: ${this.node.name}` +
+    debug('transport',
+      `TransportSurface: ${this.node.name}` +
       ` dir=(${this.TransportDirection.x.toFixed(2)}, ${this.TransportDirection.y.toFixed(2)}, ${this.TransportDirection.z.toFixed(2)})` +
       ` radial=${this.Radial}` +
       (this.drive ? ` drive=${this.drive.name} jogFwd=${this.drive.jogForward}` : ' NO DRIVE')
@@ -162,8 +164,8 @@ export class RVTransportSurface implements RVComponent {
     }
 
     // Linear transport: position += direction * speed * dt
-    // Speed is in mm/s, Three.js positions are in meters -> divide by 1000
-    const speedM = this.speed / 1000;
+    // Speed is in mm/s, Three.js positions are in meters -> divide by MM_TO_METERS
+    const speedM = this.speed / MM_TO_METERS;
     _movement.copy(this.direction).multiplyScalar(speedM * dt);
     mu.getPosition().add(_movement);
   }
@@ -239,9 +241,9 @@ export class RVTransportSurface implements RVComponent {
       }
     });
     if (texCount > 0) {
-      console.log(`  TransportSurface "${this.node.name}": texture animation enabled (${texCount} textures on ${meshCount} meshes, uvDir=(${this._uvDirX.toFixed(2)}, ${this._uvDirZ.toFixed(2)}))`);
+      debug('transport', `TransportSurface "${this.node.name}": texture animation enabled (${texCount} textures on ${meshCount} meshes, uvDir=(${this._uvDirX.toFixed(2)}, ${this._uvDirZ.toFixed(2)}))`);
     } else {
-      console.warn(`  TransportSurface "${this.node.name}": no textures found for animation (${meshCount} meshes, all without map)`);
+      debug('transport', `TransportSurface "${this.node.name}": no textures found for animation (${meshCount} meshes, all without map)`);
     }
   }
 
@@ -250,8 +252,8 @@ export class RVTransportSurface implements RVComponent {
    * Matches Unity: uvOffset = (localDir.x, localDir.z) * TextureScale * dt * speed / Scale
    */
   private _updateLinearTexture(dt: number): void {
-    // speed is mm/s, /1000 converts to m/s (matches Unity's /Scale where Scale=1000)
-    const speedFactor = this.TextureScale * dt * this.speed / 1000;
+    // speed is mm/s, /MM_TO_METERS converts to m/s (matches Unity's /Scale)
+    const speedFactor = this.TextureScale * dt * this.speed / MM_TO_METERS;
     // Use raw Unity local direction for UV (UV coords are in Unity space)
     const du = this._uvDirX * speedFactor;
     const dv = this._uvDirZ * speedFactor;

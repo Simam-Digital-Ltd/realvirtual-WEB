@@ -1,6 +1,6 @@
 /** Persists visual settings and camera bookmarks to localStorage. */
 
-import { getAppConfig, isSettingsLocked } from './rv-app-config';
+import { getAppConfig, isSettingsLocked } from '../rv-app-config';
 
 const STORAGE_KEY = 'rv-visual-settings';
 

@@ -6,8 +6,9 @@
  * Untyped overloads allow custom plugin events without modifying ViewerEvents.
  */
 
+/** Internal listener type — accepts a single payload of any shape. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Listener = (...args: any[]) => void;
+type Listener = (data: any) => void;
 
 export class EventEmitter<
   TEvents extends { [K in keyof TEvents]: unknown } = Record<string, unknown>,
@@ -20,7 +21,7 @@ export class EventEmitter<
     cb: (data: TEvents[K]) => void,
   ): () => void;
   /** Untyped subscribe for custom/plugin events. Returns an unsubscribe function. */
-  on(event: string, cb: Listener): () => void;
+  on(event: string, cb: (data: unknown) => void): () => void;
   on(event: string, cb: Listener): () => void {
     let set = this.listeners.get(event);
     if (!set) {
@@ -36,11 +37,11 @@ export class EventEmitter<
     event: K,
     cb: (data: TEvents[K]) => void,
   ): () => void;
-  once(event: string, cb: Listener): () => void;
+  once(event: string, cb: (data: unknown) => void): () => void;
   once(event: string, cb: Listener): () => void {
-    const wrapper: Listener = (...args: unknown[]) => {
+    const wrapper: Listener = (data) => {
       off();
-      cb(...args);
+      cb(data);
     };
     const off = this.on(event, wrapper);
     return off;

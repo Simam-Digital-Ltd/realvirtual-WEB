@@ -320,7 +320,10 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
     const layoutObj = rv.LayoutObject as Record<string, unknown> | undefined;
 
     return { components, layoutObj };
-  }, [selectedPath, viewer.registry, state.overlay]);
+    // Note: state.overlay intentionally excluded — overlay changes should not re-scan node components.
+    // Overlay-dependent data (overridden fields) is computed separately below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPath, viewer.registry]);
 
   // Check if the selected node has a LayoutObject (for transform section)
   const hasLayoutObject = !!nodeData?.layoutObj;

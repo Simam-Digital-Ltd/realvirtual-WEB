@@ -1,6 +1,6 @@
 /** Persists search/filter settings to localStorage. Supports self-registering filter subscribers. */
 
-import { getAppConfig, isSettingsLocked } from './rv-app-config';
+import { getAppConfig, isSettingsLocked } from '../rv-app-config';
 
 const STORAGE_KEY = 'rv-search-settings';
 

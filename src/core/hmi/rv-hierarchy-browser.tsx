@@ -32,6 +32,7 @@ import {
   ExpandMore,
   ChevronRight,
 } from '@mui/icons-material';
+import { filterChipSx } from './shared-sx';
 import type { RVViewer } from '../rv-viewer';
 import type { ContextMenuTarget } from './context-menu-store';
 import { HIERARCHY_MIN_WIDTH, HIERARCHY_MAX_WIDTH, type EditableNodeInfo } from './rv-extras-editor';
@@ -124,11 +125,16 @@ interface TreeNode {
   children: TreeNode[];
 }
 
+/** Internal tree node augmented with a child lookup map for O(1) insertion. */
+interface BuildTreeNode extends TreeNode {
+  _childMap?: Map<string, BuildTreeNode>;
+}
+
 function buildTree(
   nodes: EditableNodeInfo[],
   overlay: RVExtrasOverlay | null,
 ): TreeNode[] {
-  const root: TreeNode = { name: '', path: null, types: [], hasOverrides: false, children: [] };
+  const root: BuildTreeNode = { name: '', path: null, types: [], hasOverrides: false, children: [], _childMap: new Map() };
 
   for (const info of nodes) {
     const segments = info.path.split('/');
@@ -139,7 +145,8 @@ function buildTree(
       const isLast = i === segments.length - 1;
 
       const fullPath = segments.slice(0, i + 1).join('/');
-      let child = current.children.find((c) => c.name === seg);
+      const childMap = current._childMap ?? (current._childMap = new Map());
+      let child = childMap.get(seg);
       if (!child) {
         child = {
           name: seg,
@@ -147,7 +154,9 @@ function buildTree(
           types: isLast ? info.types : [],
           hasOverrides: false,
           children: [],
+          _childMap: new Map(),
         };
+        childMap.set(seg, child);
         current.children.push(child);
       }
 
@@ -160,6 +169,13 @@ function buildTree(
       current = child;
     }
   }
+
+  // Clean up temporary lookup maps to reduce memory
+  function stripMaps(node: BuildTreeNode): void {
+    delete node._childMap;
+    for (const child of node.children) stripMaps(child as BuildTreeNode);
+  }
+  stripMaps(root);
 
   return root.children;
 }
@@ -400,7 +416,7 @@ function ContainerProgressBadge({ text }: { text: string }) {
 // ─── Badges Row ─────────────────────────────────────────────────────────
 
 /** Renders component badges + signal badges (signals always right-most with live values). */
-function NodeBadges({
+const NodeBadges = memo(function NodeBadges({
   types,
   signalStore,
   path,
@@ -440,7 +456,7 @@ function NodeBadges({
       ))}
     </Box>
   );
-}
+});
 
 // ─── Hierarchy expand state persistence ──────────────────────────────────
 
@@ -696,7 +712,7 @@ interface FlatNodeRowProps {
   virtualStyle?: React.CSSProperties;
 }
 
-function FlatNodeRow({ info, selectedPaths, onSelect, onDoubleClick, onHover, onContextMenu, signalStore, logicEngine, depth = 0, virtualStyle }: FlatNodeRowProps) {
+const FlatNodeRow = memo(function FlatNodeRow({ info, selectedPaths, onSelect, onDoubleClick, onHover, onContextMenu, signalStore, logicEngine, depth = 0, virtualStyle }: FlatNodeRowProps) {
   const name = info.path.split('/').pop() ?? info.path;
   const isSelected = selectedPaths.has(info.path);
 
@@ -814,7 +830,7 @@ function FlatNodeRow({ info, selectedPaths, onSelect, onDoubleClick, onHover, on
       <NodeBadges types={info.types} signalStore={signalStore} path={info.path} stepInfo={stepInfo} />
     </Box>
   );
-}
+});
 
 // ─── Main Component ──────────────────────────────────────────────────────
 
@@ -916,6 +932,10 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     overscan: 10,
   });
 
+  // Ref to access virtualizer without adding it to effect deps (new object every render)
+  const flatVirtualizerRef = useRef(flatRowVirtualizer);
+  flatVirtualizerRef.current = flatRowVirtualizer;
+
   // ── Consume revealPath: expand ancestors and scroll to selected ──
   useEffect(() => {
     const revealPath = state.revealPath;
@@ -945,7 +965,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
         if (flatFiltered) {
           // Flat virtualized list — find index and scroll via virtualizer
           const idx = flatFiltered.findIndex(n => n.path === revealPath);
-          if (idx >= 0) flatRowVirtualizer.scrollToIndex(idx, { align: 'auto' });
+          if (idx >= 0) flatVirtualizerRef.current.scrollToIndex(idx, { align: 'auto' });
         } else {
           // Tree mode — use DOM query
           const container = scrollContainerRef.current;
@@ -955,7 +975,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
         }
       }, 150);
     });
-  }, [state.revealPath, plugin, flatFiltered, flatRowVirtualizer]);
+  }, [state.revealPath, plugin, flatFiltered]);
 
   // Tree view (only when typeFilter === 'all')
   const tree = useMemo(
@@ -1106,19 +1126,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
             label={label}
             size="small"
             onClick={() => setTypeFilter(key)}
-            sx={{
-              height: 18,
-              fontSize: 9,
-              fontWeight: typeFilter === key ? 700 : 400,
-              bgcolor: typeFilter === key ? 'rgba(79, 195, 247, 0.2)' : 'transparent',
-              color: typeFilter === key ? 'primary.main' : 'text.secondary',
-              border: `1px solid ${typeFilter === key ? 'rgba(79, 195, 247, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`,
-              '& .MuiChip-label': { px: 0.5 },
-              cursor: 'pointer',
-              '&:hover': {
-                bgcolor: typeFilter === key ? 'rgba(79, 195, 247, 0.25)' : 'rgba(255, 255, 255, 0.06)',
-              },
-            }}
+            sx={filterChipSx(typeFilter === key)}
           />
         ))}
       </Box>
@@ -1132,19 +1140,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
               label={label}
               size="small"
               onClick={() => setSignalSort(key)}
-              sx={{
-                height: 16,
-                fontSize: 8,
-                fontWeight: signalSort === key ? 700 : 400,
-                bgcolor: signalSort === key ? 'rgba(79, 195, 247, 0.2)' : 'transparent',
-                color: signalSort === key ? 'primary.main' : 'text.secondary',
-                border: `1px solid ${signalSort === key ? 'rgba(79, 195, 247, 0.4)' : 'rgba(255, 255, 255, 0.1)'}`,
-                '& .MuiChip-label': { px: 0.4 },
-                cursor: 'pointer',
-                '&:hover': {
-                  bgcolor: signalSort === key ? 'rgba(79, 195, 247, 0.25)' : 'rgba(255, 255, 255, 0.06)',
-                },
-              }}
+              sx={filterChipSx(signalSort === key, 16, 8)}
             />
           ))}
         </Box>

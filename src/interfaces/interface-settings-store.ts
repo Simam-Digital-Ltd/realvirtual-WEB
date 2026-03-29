@@ -3,7 +3,7 @@
  * Settings are persisted to localStorage so they survive page reloads.
  */
 
-import { getAppConfig, isSettingsLocked } from '../core/hmi/rv-app-config';
+import { getAppConfig, isSettingsLocked } from '../core/rv-app-config';
 
 const STORAGE_KEY = 'rv-interface-settings';
 

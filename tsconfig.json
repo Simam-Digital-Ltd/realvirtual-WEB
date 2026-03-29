@@ -18,5 +18,5 @@
       "@rv-private/*": ["src/private-stubs/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "tests"]
 }

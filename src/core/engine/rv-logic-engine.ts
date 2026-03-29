@@ -99,7 +99,7 @@ export class RVLogicEngine {
       const step = buildStep(tl.node, tl.stepType, tl.rv, nodeStepMap, registry, signalStore);
       if (step) {
         engine.roots.push(step);
-        console.log(`[LogicEngine] Root: "${step.name}" (${tl.stepType})`);
+        debug('logic', `Root: "${step.name}" (${tl.stepType})`);
       }
     }
 
@@ -131,7 +131,7 @@ export class RVLogicEngine {
       }
     }
 
-    console.log(`[LogicEngine] Built ${engine.roots.length} root containers from ${stepNodes.length} step nodes (${engine.stepByPath.size} paths mapped)`);
+    debug('logic', `Built ${engine.roots.length} root containers from ${stepNodes.length} step nodes (${engine.stepByPath.size} paths mapped)`);
     return engine;
   }
 

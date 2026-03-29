@@ -17,7 +17,7 @@ export function isMobileDevice(): boolean {
   const uad = (navigator as unknown as { userAgentData?: { mobile?: boolean } }).userAgentData;
   if (uad?.mobile !== undefined) {
     _cachedIsMobile = uad.mobile;
-    console.log(`[mobile] UA Client Hints: mobile=${uad.mobile}`);
+    // UA Client Hints detected mobile device
     return _cachedIsMobile;
   }
 
@@ -48,7 +48,6 @@ export function isMobileDevice(): boolean {
     return true;
   }
 
-  console.log(`[mobile] Detection result: false (touchOnly=${window.matchMedia('(hover: none) and (pointer: coarse)').matches}, maxTouch=${navigator.maxTouchPoints}, screen=${window.screen.width}x${window.screen.height}, ua=${navigator.userAgent.substring(0, 80)})`);
   _cachedIsMobile = false;
   return false;
 }

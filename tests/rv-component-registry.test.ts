@@ -293,6 +293,7 @@ describe('registerComponent (factory auto-discovery)', () => {
       Speed: { type: 'number', default: 50 },
     };
     readonly node: Object3D;
+    isOwner = true;
     Speed = 50;
     constructor(node: Object3D) { this.node = node; }
     init(_ctx: ComponentContext): void { /* noop */ }

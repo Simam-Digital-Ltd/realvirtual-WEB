@@ -11,7 +11,7 @@
  * Advanced settings (role, enable/disable) are in the Multiuser settings tab.
  */
 
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import {
   Box,
   Typography,
@@ -95,22 +95,23 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
   });
 
   // Sync from plugin/URL on mount
+  const serverUrlRef = useRef(serverUrl);
+  serverUrlRef.current = serverUrl;
   useEffect(() => {
     const plugin = viewer.getPlugin<MultiuserPluginAPI>('multiuser');
     if (plugin) {
-      const rec = plugin as unknown as Record<string, string>;
-      if (rec['_serverUrl'] && !serverUrl) setServerUrl(rec['_serverUrl']);
-      if (rec['_localName']) setLocalName(rec['_localName']);
-      if (rec['_joinCode']) setJoinCode(rec['_joinCode']);
+      if (plugin.serverUrl && !serverUrlRef.current) setServerUrl(plugin.serverUrl);
+      if (plugin.localName) setLocalName(plugin.localName);
+      if (plugin.joinCode) setJoinCode(plugin.joinCode);
     }
     const params = new URLSearchParams(window.location.search);
     const urlServer = params.get('server') ?? params.get('multiuserServer');
     const urlName = params.get('name') ?? params.get('multiuserName');
     const urlCode = params.get('joinCode') ?? params.get('code');
-    if (urlServer && !serverUrl) setServerUrl(urlServer);
+    if (urlServer && !serverUrlRef.current) setServerUrl(urlServer);
     if (urlName) setLocalName(urlName);
     if (urlCode) setJoinCode(urlCode);
-  }, [viewer]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [viewer]);
 
   // Keep in sync when connected
   useEffect(() => {
@@ -134,7 +135,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
     saveMultiuserSettings(settings);
 
     const url = connectionMode === 'relay' ? relayUrl : serverUrl;
-    const role = (plugin as unknown as Record<string, string>)['_localRole'] ?? 'observer';
+    const role = plugin.localRole || 'observer';
     plugin.joinSession(url, localName, undefined, role, joinCode || undefined);
   }, [viewer, connectionMode, serverUrl, relayUrl, localName, joinCode]);
 

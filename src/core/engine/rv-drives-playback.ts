@@ -17,6 +17,74 @@ export interface CompactRecording {
 }
 
 /**
+ * Parse DrivesRecording_compact from GLB extras.
+ * Supports both compact format (flat array) and ScriptableObject inline format.
+ */
+export function parseCompactRecording(data: Record<string, unknown>): CompactRecording | null {
+  // Compact format: flat positions array
+  if (data['positions'] && data['drives'] && data['numberFrames']) {
+    return {
+      fixedDeltaTime: (data['fixedDeltaTime'] as number) ?? 0.02,
+      numberFrames: (data['numberFrames'] as number) ?? 0,
+      driveCount: (data['driveCount'] as number) ?? 0,
+      drives: (data['drives'] as { id: number; path: string }[]) ?? [],
+      sequences: data['sequences'] as { name: string; startFrame: number; endFrame: number }[] | undefined,
+      positions: (data['positions'] as number[]) ?? [],
+    };
+  }
+  return null;
+}
+
+/**
+ * Parse DrivesRecording from ScriptableObject inline data.
+ * Converts verbose Snapshot[] format to compact flat array.
+ */
+export function parseScriptableObjectRecording(data: Record<string, unknown>): CompactRecording | null {
+  const soData = data['data'] as Record<string, unknown> | undefined;
+  if (!soData) return null;
+
+  const recordedDrives = soData['RecordedDrives'] as { Id: number; Path: string }[] | undefined;
+  const snapshots = soData['Snapshots'] as { Frame: number; DriveID: number; Position: number }[] | undefined;
+  const numberFrames = (soData['NumberFrames'] as number) ?? 0;
+  const sequences = soData['Sequences'] as { Name: string; StartFrame: number; EndFrame: number }[] | undefined;
+
+  if (!recordedDrives || !snapshots || numberFrames <= 0) return null;
+
+  const driveCount = recordedDrives.length;
+  const positions = new Array<number>(numberFrames * driveCount).fill(0);
+
+  // Build id→index map
+  const idToIndex = new Map<number, number>();
+  for (let i = 0; i < recordedDrives.length; i++) {
+    idToIndex.set(recordedDrives[i].Id, i);
+  }
+
+  // Fill positions from snapshots
+  for (const snap of snapshots) {
+    const idx = idToIndex.get(snap.DriveID);
+    if (idx !== undefined && snap.Frame < numberFrames) {
+      positions[snap.Frame * driveCount + idx] = snap.Position;
+    }
+  }
+
+  return {
+    fixedDeltaTime: 0.02, // Default, not stored in ScriptableObject
+    numberFrames,
+    driveCount,
+    drives: recordedDrives.map((rd, i) => ({
+      id: i,
+      path: rd.Path.replace(/^\//, ''), // Normalize path
+    })),
+    sequences: sequences?.map((s) => ({
+      name: s.Name,
+      startFrame: s.StartFrame,
+      endFrame: s.EndFrame,
+    })),
+    positions,
+  };
+}
+
+/**
  * RVDrivesPlayback - Frame-based drive recording playback.
  *
  * Reads a compact recording (flat float array of drive positions per frame)

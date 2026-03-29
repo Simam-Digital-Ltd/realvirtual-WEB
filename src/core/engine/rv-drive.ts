@@ -2,6 +2,7 @@ import { Object3D, Vector3, Quaternion, Euler, MathUtils } from 'three';
 import { DriveDirection, directionToGltfAxis, isRotation } from './rv-coordinate-utils';
 import type { ComponentSchema, ComponentContext, RVComponent } from './rv-component-registry';
 import { registerComponentSchema } from './rv-component-registry';
+import { MM_TO_METERS } from './rv-constants';
 
 // Re-export for backward compatibility
 export { DriveDirection } from './rv-coordinate-utils';
@@ -107,7 +108,7 @@ export class RVDrive implements RVComponent {
 
   // Direction axis (in local space)
   private axis = new Vector3();
-  private controllerScale = 1000; // mm -> m, hardcoded for PoC
+  private controllerScale = MM_TO_METERS; // mm -> m
 
   constructor(node: Object3D) {
     this.node = node;

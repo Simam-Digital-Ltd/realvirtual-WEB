@@ -17,7 +17,7 @@ import {
   loadVisualSettings,
   saveVisualSettings,
 } from '../src/core/hmi/visual-settings-store';
-import { setAppConfig } from '../src/core/hmi/rv-app-config';
+import { setAppConfig } from '../src/core/rv-app-config';
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 

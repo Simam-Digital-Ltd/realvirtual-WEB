@@ -291,7 +291,7 @@ export class RVSetSignalBool extends RVLogicStep {
     this.state = StepState.Finished;
   }
 
-  fixedUpdate(): void {}
+  fixedUpdate(_dt: number): void {}
 }
 
 /** WaitForSignalBool - polls until a boolean signal matches the expected value */
@@ -326,7 +326,7 @@ export class RVWaitForSignalBool extends RVLogicStep {
     }
   }
 
-  fixedUpdate(): void {
+  fixedUpdate(_dt: number): void {
     if (this.state !== StepState.Waiting || !this.signalAddress) return;
     if (this.signalStore.getBoolByPath(this.signalAddress) === this.waitForTrue) {
       debug('logic', `WaitForSignalBool "${this.name}": ${this.signalAddress} matched (${this.waitForTrue})`);
@@ -364,7 +364,7 @@ export class RVWaitForSensor extends RVLogicStep {
     }
   }
 
-  fixedUpdate(): void {
+  fixedUpdate(_dt: number): void {
     if (this.state !== StepState.Waiting || !this.sensor) return;
     if (this.sensor.occupied === this.waitForOccupied) {
       debug('logic', `WaitForSensor "${this.name}": sensor "${this.sensor.node.name}" ${this.waitForOccupied ? 'occupied' : 'cleared'}`);
@@ -427,7 +427,7 @@ export class RVDriveTo extends RVLogicStep {
     }
   }
 
-  fixedUpdate(): void {
+  fixedUpdate(_dt: number): void {
     if (this.state !== StepState.Active || !this.drive) return;
     if (this.drive.isAtTarget) {
       this.finish();
@@ -460,7 +460,7 @@ export class RVSetDriveSpeed extends RVLogicStep {
     this.state = StepState.Finished;
   }
 
-  fixedUpdate(): void {}
+  fixedUpdate(_dt: number): void {}
 }
 
 /** Enable - enables/disables a Three.js Object3D (visibility) and finishes immediately */
@@ -485,5 +485,5 @@ export class RVEnable extends RVLogicStep {
     this.state = StepState.Finished;
   }
 
-  fixedUpdate(): void {}
+  fixedUpdate(_dt: number): void {}
 }

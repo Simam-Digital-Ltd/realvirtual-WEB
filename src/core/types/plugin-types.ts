@@ -136,6 +136,14 @@ export interface McpBridgePluginAPI {
  */
 export interface MultiuserPluginAPI {
   readonly id: string;
+  /** Current server URL (set via joinSession or URL params). */
+  readonly serverUrl: string;
+  /** Current local display name. */
+  readonly localName: string;
+  /** Current join code (empty string if none). */
+  readonly joinCode: string;
+  /** Current local role ('observer' | 'operator'). */
+  readonly localRole: string;
   joinSession(serverUrl: string, name: string, color?: string, role?: string, joinCode?: string): void;
   leaveSession(): void;
 }

@@ -21,17 +21,16 @@
     "@microsoft/teams-js": "^2.51.0",
     "@mui/icons-material": "^7.3.9",
     "@mui/material": "^7.3.9",
-    "@rollup/rollup-win32-x64-msvc": "^4.59.0",
     "@tanstack/react-virtual": "^3.13.22",
     "echarts": "^6.0.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "stats-gl": "^4.1.0",
-    "stats.js": "^0.17.0",
     "three": "^0.171.0",
     "three-mesh-bvh": "^0.9.9"
   },
   "devDependencies": {
+    "@rollup/rollup-win32-x64-msvc": "^4.59.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.171.0",

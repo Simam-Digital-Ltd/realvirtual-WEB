@@ -7,6 +7,8 @@ import type { IMUAccessor } from './rv-mu';
 import type { ComponentSchema, ComponentContext, RVComponent } from './rv-component-registry';
 import { registerComponent } from './rv-component-registry';
 import { NodeRegistry } from './rv-node-registry';
+import { debug } from './rv-debug';
+import { MM_TO_METERS } from './rv-constants';
 
 // Pre-allocated temp vectors (no GC in hot path)
 const _sourcePos = new Vector3();
@@ -98,11 +100,11 @@ export class RVSource implements RVComponent {
     let template: Object3D | null = null;
     if (this.sourceIsTemplate) {
       template = this.node;
-      console.log(`  Source: ${this.node.name} mode=${this.spawnMode} interval=${this.spawnInterval}s template=SELF`);
+      debug('loader', `Source: ${this.node.name} mode=${this.spawnMode} interval=${this.spawnInterval}s template=SELF`);
     } else if (this.muName) {
       template = context.registry.getNode(this.muName);
       if (template) {
-        console.log(`  Source: ${this.node.name} mode=${this.spawnMode} interval=${this.spawnInterval}s template="${this.muName}"`);
+        debug('loader', `Source: ${this.node.name} mode=${this.spawnMode} interval=${this.spawnInterval}s template="${this.muName}"`);
       } else {
         console.warn(`  Source: ${this.node.name} - MU template "${this.muName}" not found in registry`);
       }
@@ -170,10 +172,10 @@ export class RVSource implements RVComponent {
         this.templateHalfSize,
         this.templateLocalCenter ?? undefined,
       );
-      console.log(`  Source "${this.node.name}": using InstancedMesh for template "${template.name}"`);
+      debug('loader', `Source "${this.node.name}": using InstancedMesh for template "${template.name}"`);
     } else {
       this.useInstancing = false;
-      console.log(`  Source "${this.node.name}": using clone() for multi-mesh template "${template.name}"`);
+      debug('loader', `Source "${this.node.name}": using clone() for multi-mesh template "${template.name}"`);
     }
   }
 
@@ -201,7 +203,7 @@ export class RVSource implements RVComponent {
       this.node.getWorldPosition(_sourcePos);
       this.lastSpawnedMU.getWorldPosition(_lastMUPos);
       const distM = _sourcePos.distanceTo(_lastMUPos);
-      const distMM = distM * 1000;
+      const distMM = distM * MM_TO_METERS;
       if (distMM >= this.spawnDistance) {
         return this.spawn();
       }

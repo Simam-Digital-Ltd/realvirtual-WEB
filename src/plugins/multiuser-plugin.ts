@@ -27,9 +27,11 @@
  */
 
 import { Vector3, Quaternion } from 'three';
+import { lastPathSegment } from '../core/engine/rv-constants';
 import { RVBehavior } from '../core/rv-behavior';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
 import { AvatarManager } from '../core/engine/rv-avatar-manager';
+import { debug } from '../core/engine/rv-debug';
 import type { PlayerInfo, AvatarBroadcast } from '../core/engine/rv-avatar-manager';
 import { RVMovingUnit, computeTemplateAABBInfo } from '../core/engine/rv-mu';
 import type { InstancedMovingUnit } from '../core/engine/rv-mu';
@@ -142,6 +144,13 @@ export class MultiuserPlugin extends RVBehavior {
   // _handleMessage stores the latest payload; onFrame() applies & clears it.
   private _pendingDriveSync: DriveSnapshot[] | null = null;
   private _pendingMUSync: MUSnapshot[] | null = null;
+
+  // ── Public getters (satisfy MultiuserPluginAPI) ────────────────────────────
+
+  get serverUrl(): string { return this._serverUrl; }
+  get localName(): string { return this._localName; }
+  get joinCode(): string { return this._joinCode; }
+  get localRole(): string { return this._localRole; }
 
   // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -635,7 +644,7 @@ export class MultiuserPlugin extends RVBehavior {
     // Stop local DrivesPlayback — server is authority for drive positions
     if (this.viewer.playback?.isPlaying) {
       this.viewer.playback.stop();
-      console.log('[multiuser] Stopped local DrivesPlayback — server is authority.');
+      debug('multiuser', 'Stopped local DrivesPlayback — server is authority.');
     }
 
     for (const dr of this.viewer.drives) {
@@ -660,7 +669,7 @@ export class MultiuserPlugin extends RVBehavior {
       dr.isOwner = false;
       dr.onOwnershipChanged(false);
     }
-    console.log(`[multiuser] Drive map: ${this._driveMap.size} entries for ${this.viewer.drives.length} drives`);
+    debug('multiuser', `Drive map: ${this._driveMap.size} entries for ${this.viewer.drives.length} drives`);
   }
 
   /**
@@ -679,16 +688,12 @@ export class MultiuserPlugin extends RVBehavior {
       // O(1) lookup: try full path first, then last segment
       let drive = this._driveMap!.get(d.path);
       if (!drive) {
-        const slashIdx = d.path.lastIndexOf('/');
-        const lastSeg = slashIdx >= 0 ? d.path.substring(slashIdx + 1) : d.path;
-        drive = this._driveMap!.get(lastSeg);
+        drive = this._driveMap!.get(lastPathSegment(d.path));
       }
       if (drive) {
         drive.applySyncData(d.position, d.speed);
       } else if (!this._loggedUnmatched) {
-        const slashIdx = d.path.lastIndexOf('/');
-        const seg = slashIdx >= 0 ? d.path.substring(slashIdx + 1) : d.path;
-        console.warn(`[multiuser] Unmatched drive from server: "${d.path}" (lastSeg="${seg}")`);
+        console.warn(`[multiuser] Unmatched drive from server: "${d.path}" (lastSeg="${lastPathSegment(d.path)}")`);
       }
     }
     if (!this._loggedUnmatched) {
@@ -721,14 +726,13 @@ export class MultiuserPlugin extends RVBehavior {
       for (const sink of tm.sinks) {
         sink.isOwner = false;
       }
-      console.log('[multiuser] Disabled local Source/Sink — server is authority for MU lifecycle.');
+      debug('multiuser', 'Disabled local Source/Sink — server is authority for MU lifecycle.');
     }
 
     // Build O(1) lookup maps for incoming MUs (keyed by last path segment AND name)
     const incomingByKey = new Map<string, MUSnapshot>();
     for (const muData of mus) {
-      const slashIdx = muData.path.lastIndexOf('/');
-      const lastSeg = slashIdx >= 0 ? muData.path.substring(slashIdx + 1) : muData.path;
+      const lastSeg = lastPathSegment(muData.path);
       incomingByKey.set(lastSeg, muData);
       if (muData.name !== lastSeg) incomingByKey.set(muData.name, muData);
     }
@@ -749,8 +753,7 @@ export class MultiuserPlugin extends RVBehavior {
 
     // Update positions of existing MUs or create new ones — O(N) lookups
     for (const muData of mus) {
-      const slashIdx = muData.path.lastIndexOf('/');
-      const lastSeg = slashIdx >= 0 ? muData.path.substring(slashIdx + 1) : muData.path;
+      const lastSeg = lastPathSegment(muData.path);
 
       // Find existing MU by name — O(1) lookup
       const localMU = localByName.get(lastSeg) ?? localByName.get(muData.name);
@@ -767,10 +770,7 @@ export class MultiuserPlugin extends RVBehavior {
           }
         } else if (!muData.parent) {
           // Not gripped — ensure MU is under its spawn parent (not a grip node)
-          const sourceSlash = muData.source ? muData.source.lastIndexOf('/') : -1;
-          const sourceName = muData.source
-            ? (sourceSlash >= 0 ? muData.source.substring(sourceSlash + 1) : muData.source)
-            : '';
+          const sourceName = muData.source ? lastPathSegment(muData.source) : '';
           const source = tm.sources.find(s => s.node.name === sourceName);
           const defaultParent = source?.spawnParent ?? this.scene;
           if (defaultParent && node.parent !== defaultParent) {
@@ -783,10 +783,7 @@ export class MultiuserPlugin extends RVBehavior {
         localMU.updateAABB();
       } else {
         // Create new MU from matching Source template
-        const sourceSlash = muData.source ? muData.source.lastIndexOf('/') : -1;
-        const sourceName = muData.source
-          ? (sourceSlash >= 0 ? muData.source.substring(sourceSlash + 1) : muData.source)
-          : '';
+        const sourceName = muData.source ? lastPathSegment(muData.source) : '';
         const source = tm.sources.find(s => s.node.name === sourceName);
         if (source?.muTemplate && source.spawnParent) {
           const template = source.muTemplate;

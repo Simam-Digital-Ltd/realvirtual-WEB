@@ -97,8 +97,9 @@ describe('useEChart logic', () => {
   });
 
   it('dispose is no-op when chart was never initialized', () => {
-    let instance: ReturnType<typeof echarts.init> | null = null;
-    instance?.dispose(); // No-op, no error
+    const instance: { dispose: () => void } | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    (instance as { dispose: () => void } | null)?.dispose(); // No-op, no error
     expect(instance).toBeNull();
   });
 });

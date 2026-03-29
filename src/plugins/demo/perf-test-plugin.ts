@@ -9,6 +9,7 @@
 import type { RVViewerPlugin } from '../../core/rv-plugin';
 import type { RVViewer } from '../../core/rv-viewer';
 import type { LoadResult } from '../../core/engine/rv-scene-loader';
+import { debug, logInfo } from '../../core/engine/rv-debug';
 
 const TEST_DURATION_S = 5;
 const SAMPLE_INTERVAL_MS = 500;
@@ -55,7 +56,7 @@ export class PerfTestPlugin implements RVViewerPlugin {
     // Let React re-render and chart animate in before sampling
     await new Promise((r) => setTimeout(r, 500));
 
-    console.log(`[perf] Starting ${TEST_DURATION_S}s FPS sampling (drives chart open)...`);
+    debug('render', `[perf] Starting ${TEST_DURATION_S}s FPS sampling (drives chart open)...`);
 
     // --- Sample FPS ---
     const fpsSamples: number[] = [];
@@ -79,7 +80,7 @@ export class PerfTestPlugin implements RVViewerPlugin {
     viewer.toggleDriveChart(false);
 
     // --- GPU Benchmark ---
-    console.log('[perf] Running GPU benchmark...');
+    debug('render', '[perf] Running GPU benchmark...');
     const benchmark = await viewer.runBenchmark(120);
 
     // --- Renderer info ---
@@ -116,7 +117,7 @@ export class PerfTestPlugin implements RVViewerPlugin {
 
     // --- Output ---
     window.__PERF_RESULTS__ = results;
-    console.log('[perf] Results:', JSON.stringify(results, null, 2));
+    logInfo('[perf] Results: ' + JSON.stringify(results, null, 2));
 
     this.showOverlay(results);
   }

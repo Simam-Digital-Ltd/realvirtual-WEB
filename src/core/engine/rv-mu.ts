@@ -172,7 +172,8 @@ const _tmpPos = new Vector3();
  */
 export class InstancedMovingUnit implements IMUAccessor {
   /** The InstancedMesh (shared, NOT per-instance). Used for scene graph membership. */
-  readonly node: InstancedMesh;
+  private _node: InstancedMesh;
+  get node(): InstancedMesh { return this._node; }
   readonly aabb: AABB;
   readonly sourceName: string;
   readonly isInstanced = true;
@@ -208,7 +209,7 @@ export class InstancedMovingUnit implements IMUAccessor {
     this.slotIndex = slotIndex;
     this.muId = muId;
     this.templateName = templateName;
-    this.node = pool.instancedMesh;
+    this._node = pool.instancedMesh;
     this.sourceName = sourceName;
 
     // Create AABB with position callback backed by pool
@@ -217,6 +218,11 @@ export class InstancedMovingUnit implements IMUAccessor {
       halfSize,
       localCenter,
     );
+  }
+
+  /** @internal Called by MUInstancePool._grow() to update the backing mesh after pool resize. */
+  _updateNode(mesh: InstancedMesh): void {
+    this._node = mesh;
   }
 
   // ─── IMUAccessor implementation (instanced mode) ────────────────
@@ -543,7 +549,7 @@ export class MUInstancePool {
     for (let i = 0; i < this.activeCount; i++) {
       const mu = newSlotToMU[i];
       if (mu) {
-        (mu as { node: InstancedMesh }).node = newMesh;
+        mu._updateNode(newMesh);
       }
     }
 

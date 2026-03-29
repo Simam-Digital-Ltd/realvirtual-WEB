@@ -9,7 +9,6 @@ import { CameraBar } from './CameraBar';
 import { GroupsOverlay } from './GroupsOverlay';
 import { useNodeFilter } from '../../hooks/use-node-filter';
 import { useMobileLayout, isMobileDevice } from '../../hooks/use-mobile-layout';
-import { useFpvActive } from '../../plugins/fpv-plugin';
 import type { FpvPluginAPI } from '../types/plugin-types';
 import { useViewer } from '../../hooks/use-viewer';
 import {
@@ -427,7 +426,14 @@ export function BottomBar() {
 /** FPV walk button for the bottom-right camera bar. Hidden on mobile. */
 function FpvBarButton() {
   const viewer = useViewer();
-  const active = useFpvActive();
+  const [active, setActive] = useState(false);
+  useEffect(() => {
+    const onEnter = () => setActive(true);
+    const onExit = () => setActive(false);
+    viewer.on('fpv-enter', onEnter);
+    viewer.on('fpv-exit', onExit);
+    return () => { viewer.off('fpv-enter', onEnter); viewer.off('fpv-exit', onExit); };
+  }, [viewer]);
   if (isMobileDevice()) return null;
   const handleClick = () => {
     const plugin = viewer.getPlugin<FpvPluginAPI>('fpv');

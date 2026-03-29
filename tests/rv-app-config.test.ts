@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   fetchAppConfig, setAppConfig, getAppConfig,
   isSettingsLocked, isTabLocked, type RVAppConfig,
-} from '../src/core/hmi/rv-app-config';
+} from '../src/core/rv-app-config';
 
 describe('rv-app-config', () => {
   beforeEach(() => {
@@ -27,9 +27,8 @@ describe('rv-app-config', () => {
   it('should parse valid settings.json with all fields', async () => {
     const mockConfig: RVAppConfig = {
       lockSettings: true,
-      hideWelcomeModal: true,
       defaultModel: 'models/test.glb',
-      visual: { shadows: false, lightIntensity: 2.0 },
+      visual: { lightingMode: 'simple', antialias: false },
       interface: { wsPort: 8080 },
     };
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
@@ -37,10 +36,9 @@ describe('rv-app-config', () => {
     );
     const config = await fetchAppConfig();
     expect(config.lockSettings).toBe(true);
-    expect(config.hideWelcomeModal).toBe(true);
     expect(config.defaultModel).toBe('models/test.glb');
-    expect(config.visual?.shadows).toBe(false);
-    expect(config.visual?.lightIntensity).toBe(2.0);
+    expect(config.visual?.lightingMode).toBe('simple');
+    expect(config.visual?.antialias).toBe(false);
     expect(config.interface?.wsPort).toBe(8080);
     // Unset fields must be undefined
     expect(config.physics).toBeUndefined();

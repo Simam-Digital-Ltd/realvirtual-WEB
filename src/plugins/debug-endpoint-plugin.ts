@@ -217,7 +217,7 @@ export class DebugEndpointPlugin extends RVBehavior {
   private _setupStateTracking(): void {
     if (!this.viewer) return;
 
-    this._stateTrackingOff = this.viewer.on('connection-state-changed', (state: string) => {
+    this._stateTrackingOff = this.viewer.on('connection-state-changed', ({ state }) => {
       this._stateHistory.push({
         state,
         timestamp: Date.now(),

@@ -19,9 +19,6 @@ import {
   WebGLRenderer,
   AmbientLight,
   DirectionalLight,
-  PCFSoftShadowMap,
-  PCFShadowMap,
-  PMREMGenerator,
   Color,
   Vector3,
   Vector2,
@@ -33,12 +30,6 @@ import {
   Mesh,
   MeshStandardMaterial,
   NoToneMapping,
-  LinearToneMapping,
-  ReinhardToneMapping,
-  CineonToneMapping,
-  ACESFilmicToneMapping,
-  AgXToneMapping,
-  NeutralToneMapping,
   CanvasTexture,
   RepeatWrapping,
   NearestFilter,
@@ -46,22 +37,17 @@ import {
   Raycaster,
   Spherical,
   BufferGeometry,
-  Texture,
 } from 'three';
-import type { ToneMapping as ThreeToneMapping } from 'three';
 import type { Renderer } from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import type { ToneMappingType, ShadowQuality, ProjectionType } from './hmi/visual-settings-store';
-
-const TONE_MAP_LOOKUP: Record<ToneMappingType, ThreeToneMapping> = {
-  none: NoToneMapping, linear: LinearToneMapping, reinhard: ReinhardToneMapping,
-  cineon: CineonToneMapping, aces: ACESFilmicToneMapping, agx: AgXToneMapping, neutral: NeutralToneMapping,
-};
-const SHADOW_RES: Record<ShadowQuality, number> = { low: 512, medium: 1024, high: 2048 };
+import { CameraManager, type ViewportOffset } from './rv-camera-manager';
+import { VisualSettingsManager } from './rv-visual-settings-manager';
 import Stats from 'stats-gl';
 
 import { EventEmitter } from './rv-events';
+import { debug, logInfo } from './engine/rv-debug';
+import { DRAG_THRESHOLD_PX, DEFAULT_DPR_CAP } from './engine/rv-constants';
 import { loadGLB, type LoadResult } from './engine/rv-scene-loader';
 import {
   loadModelJsonConfig,
@@ -91,11 +77,9 @@ import { SelectionManager } from './engine/rv-selection-manager';
 import { ContextMenuStore } from './hmi/context-menu-store';
 import type { ContextMenuTarget } from './hmi/context-menu-store';
 import type { SelectionSnapshot } from './engine/rv-selection-manager';
-import { INSPECTOR_PANEL_WIDTH } from './hmi/layout-constants';
-import type { RvExtrasEditorPlugin } from './hmi/rv-extras-editor';
 import { isMobileDevice } from '../hooks/use-mobile-layout';
 import { resetDynamicContexts } from './hmi/ui-context-store';
-import { getAppConfig } from './hmi/rv-app-config';
+import { getAppConfig } from './rv-app-config';
 
 // ─── Plugin Error Isolation ──────────────────────────────────────────────
 
@@ -120,15 +104,8 @@ export function callPlugin(
 
 // ─── Public Types ───────────────────────────────────────────────────────
 
-/** Pixel offsets for panels obscuring the 3D viewport. Used to shift
- *  the camera orbit target so the focused object appears centered in
- *  the *visible* viewport area rather than the full canvas. */
-export interface ViewportOffset {
-  left?: number;
-  right?: number;
-  top?: number;
-  bottom?: number;
-}
+// Re-export ViewportOffset from CameraManager (public API backward compat)
+export type { ViewportOffset } from './rv-camera-manager';
 
 export interface RVViewerOptions {
   /** Use WebGPU renderer (falls back to WebGL if unavailable). Default: false */
@@ -183,14 +160,14 @@ export interface ViewerEvents {
   'panel-closed': { panelId: string };
 
   // ── XR events ──
-  'xr-session-start': undefined;
-  'xr-session-end': undefined;
+  'xr-session-start': void;
+  'xr-session-end': void;
   'xr-hit-test': { position: Float32Array; matrix: Float32Array };
   'xr-controller-select': { hand: 'left' | 'right'; position: { x: number; y: number; z: number } };
 
   // ── FPV events ──
-  'fpv-enter': undefined;
-  'fpv-exit': undefined;
+  'fpv-enter': void;
+  'fpv-exit': void;
 
   // ── Context Menu events ──
   'context-menu-request': { pos: { x: number; y: number }; path: string; node: Object3D };
@@ -220,6 +197,12 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _antialiasActive = false;
   /** Whether native MSAA antialiasing is active on the current renderer. */
   get antialiasActive(): boolean { return this._antialiasActive; }
+
+  // --- Delegated Managers (internal implementation detail) ---
+  /** @internal Camera projection, animation, and viewport offset logic. */
+  private _cameraManager!: CameraManager;
+  /** @internal Lighting, tone mapping, shadows, DPR settings. */
+  private _visualSettings!: VisualSettingsManager;
 
   // --- Highlight system (always available) ---
   readonly highlighter: RVHighlightManager;
@@ -570,7 +553,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
    * Used by FPV to prevent the animation overwriting the camera position.
    */
   cancelCameraAnimation(): void {
-    this.cameraAnim = null;
+    this._cameraManager.cancelCameraAnimation();
   }
 
   // ─── Unified Node Filter ──────────────────────────────────────────
@@ -676,9 +659,6 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _lastTexCount = 0;
   private ambientLight!: AmbientLight;
   private dirLight!: DirectionalLight;
-  private _lightingMode: import('./hmi/visual-settings-store').LightingMode = 'simple';
-  private _toneMapping: ToneMappingType = 'none';
-  private _envMapTexture: Texture | null = null;
 
   private constructor(
     container: HTMLElement,
@@ -737,6 +717,22 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.dirLight.shadow.intensity = 0.5;
     this.dirLight.shadow.radius = 2;
 
+    // --- Delegated Managers ---
+    // VisualSettingsManager reads/writes shared state on `this` (the facade).
+    // We pass a thin object whose property accessors proxy back to the viewer.
+    const self = this;
+    this._visualSettings = new VisualSettingsManager({
+      scene: this.scene,
+      renderer: this.renderer,
+      ambientLight: this.ambientLight,
+      dirLight: this.dirLight,
+      sceneFixtures: this.sceneFixtures,
+      get _shadowsDirty() { return self._shadowsDirty; },
+      set _shadowsDirty(v: boolean) { self._shadowsDirty = v; },
+      get _renderDirty() { return self._renderDirty; },
+      set _renderDirty(v: boolean) { self._renderDirty = v; },
+    });
+
     // --- Ground ---
     if (showGround) {
       const ground = this.createGround();
@@ -780,6 +776,20 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     // Mark render dirty on any controls change (orbit, pan, zoom)
     this.controls.addEventListener('change', () => {
       this._renderDirty = true;
+    });
+
+    // CameraManager — uses proxy state to read/write shared fields on the facade.
+    this._cameraManager = new CameraManager({
+      perspCamera: this.perspCamera,
+      orthoCamera: this.orthoCamera,
+      get _activeCamera() { return self._activeCamera; },
+      set _activeCamera(v) { self._activeCamera = v; },
+      controls: this.controls,
+      renderer: this.renderer,
+      get _renderDirty() { return self._renderDirty; },
+      set _renderDirty(v: boolean) { self._renderDirty = v; },
+      leftPanelManager: this.leftPanelManager,
+      getPlugin: <T>(id: string) => this.getPlugin(id) as T | undefined,
     });
 
     // --- Canvas events ---
@@ -826,7 +836,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       window.addEventListener('resize', this.resizeHandler);
     }
 
-    console.log(`realvirtual WEB — Ready (${this.isWebGPU ? 'WebGPU' : 'WebGL'})`);
+    logInfo(`realvirtual WEB — Ready (${this.isWebGPU ? 'WebGPU' : 'WebGL'})`);
   }
 
   // ─── Static Factory ──────────────────────────────────────────────────
@@ -886,7 +896,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       container.clientWidth || window.innerWidth,
       container.clientHeight || window.innerHeight,
     );
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, DEFAULT_DPR_CAP));
     renderer.shadowMap.enabled = false;
     (renderer.shadowMap as unknown as { autoUpdate: boolean }).autoUpdate = false;
     renderer.toneMapping = NoToneMapping;
@@ -1041,7 +1051,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this._shadowsDirty = true;
     this._renderDirty = true;
 
-    console.log(`[RVViewer] Model loaded: ${this.drives.length} drives, ${this.signalStore?.size ?? 0} signals`);
+    logInfo(`Model loaded: ${this.drives.length} drives, ${this.signalStore?.size ?? 0} signals`);
     this.emit('model-loaded', { result });
     return result;
   }
@@ -1198,19 +1208,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.focusedNode = node;
     this.emit('drive-focus', { drive, node });
 
-    const box = new Box3();
-    node.updateWorldMatrix(true, true);
-    node.traverse((child) => {
-      const m = child as Mesh;
-      if (m.isMesh && m.geometry) {
-        m.geometry.computeBoundingBox();
-        if (m.geometry.boundingBox) {
-          const mb = m.geometry.boundingBox.clone();
-          mb.applyMatrix4(m.matrixWorld);
-          box.union(mb);
-        }
-      }
-    });
+    const box = this._cameraManager.computeNodeBounds([node]);
     if (box.isEmpty()) return;
 
     const center = new Vector3();
@@ -1225,7 +1223,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     // Keep current viewing direction — just move along it to frame the target
     const dir = new Vector3().subVectors(this.camera.position, this.controls.target).normalize();
     const effectiveOffset = offset ?? this.getCurrentViewportOffset();
-    const adjustedCenter = this.applyViewportOffset(center, dist, effectiveOffset);
+    const adjustedCenter = this._cameraManager.applyViewportOffset(center, dist, effectiveOffset);
     const endPos = adjustedCenter.clone().add(dir.multiplyScalar(dist));
     this.animateCameraTo(endPos, adjustedCenter);
   }
@@ -1234,21 +1232,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
    *  @param offset  Optional pixel offsets for panels obscuring the viewport (shifts orbit target). */
   fitToNodes(nodes: Object3D[], offset?: ViewportOffset): void {
     if (nodes.length === 0) return;
-    const box = new Box3();
-    for (const node of nodes) {
-      node.updateWorldMatrix(true, true);
-      node.traverse((child) => {
-        const m = child as Mesh;
-        if (m.isMesh && m.geometry) {
-          m.geometry.computeBoundingBox();
-          if (m.geometry.boundingBox) {
-            const mb = m.geometry.boundingBox.clone();
-            mb.applyMatrix4(m.matrixWorld);
-            box.union(mb);
-          }
-        }
-      });
-    }
+    const box = this._cameraManager.computeNodeBounds(nodes);
     if (box.isEmpty()) return;
 
     const center = new Vector3();
@@ -1262,7 +1246,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     const dir = new Vector3().subVectors(this.camera.position, this.controls.target).normalize();
     const effectiveOffset = offset ?? this.getCurrentViewportOffset();
-    const adjustedCenter = this.applyViewportOffset(center, dist, effectiveOffset);
+    const adjustedCenter = this._cameraManager.applyViewportOffset(center, dist, effectiveOffset);
     const endPos = adjustedCenter.clone().add(dir.multiplyScalar(dist));
     this.animateCameraTo(endPos, adjustedCenter);
   }
@@ -1311,228 +1295,79 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     return null;
   }
 
-  // ─── Camera Settings ─────────────────────────────────────────────────
+  // ─── Camera Settings (delegated to CameraManager) ───────────────────
 
   /** Field of view in degrees (perspective camera). */
-  get fov(): number { return this.perspCamera.fov; }
-  set fov(v: number) {
-    this.perspCamera.fov = v;
-    this.perspCamera.updateProjectionMatrix();
-    // If ortho is active, update its frustum to match
-    if (this._activeCamera === this.orthoCamera) {
-      this.syncOrthoFrustum();
-    }
-  }
+  get fov(): number { return this._cameraManager.fov; }
+  set fov(v: number) { this._cameraManager.fov = v; }
 
   /** Camera projection type. */
-  get projection(): ProjectionType {
-    return this._activeCamera === this.perspCamera ? 'perspective' : 'orthographic';
-  }
-  set projection(v: ProjectionType) {
-    const wantPersp = v === 'perspective';
-    const isPersp = this._activeCamera === this.perspCamera;
-    if (wantPersp === isPersp) return;
+  get projection(): ProjectionType { return this._cameraManager.projection; }
+  set projection(v: ProjectionType) { this._cameraManager.projection = v; }
 
-    const oldCam = this._activeCamera;
-    const newCam = wantPersp ? this.perspCamera : this.orthoCamera;
-
-    // Sync position and look direction
-    newCam.position.copy(oldCam.position);
-    newCam.quaternion.copy(oldCam.quaternion);
-
-    if (!wantPersp) {
-      // Perspective → Ortho: calculate frustum from current view
-      this.syncOrthoFrustum();
-    }
-
-    this._activeCamera = newCam;
-    // Reassign OrbitControls camera
-    (this.controls as unknown as { object: unknown }).object = newCam;
-    this.controls.update();
-  }
-
-  private syncOrthoFrustum(): void {
-    const dist = this.orthoCamera.position.distanceTo(this.controls.target);
-    const halfH = dist * Math.tan((this.perspCamera.fov * Math.PI / 180) / 2);
-    const aspect = this.perspCamera.aspect;
-    this.orthoCamera.left = -halfH * aspect;
-    this.orthoCamera.right = halfH * aspect;
-    this.orthoCamera.top = halfH;
-    this.orthoCamera.bottom = -halfH;
-    this.orthoCamera.updateProjectionMatrix();
-  }
-
-  // ─── Visual Settings ─────────────────────────────────────────────────
+  // ─── Visual Settings (delegated to VisualSettingsManager) ────────────
 
   /** Active lighting mode. */
-  get lightingMode() { return this._lightingMode; }
-  set lightingMode(mode: import('./hmi/visual-settings-store').LightingMode) {
-    this._lightingMode = mode;
-    this.applyLightingMode(mode);
-  }
+  get lightingMode() { return this._visualSettings.lightingMode; }
+  set lightingMode(mode: import('./hmi/visual-settings-store').LightingMode) { this._visualSettings.lightingMode = mode; }
 
   /** Tone mapping algorithm (applied only in default mode). */
-  get toneMapping(): ToneMappingType { return this._toneMapping; }
-  set toneMapping(v: ToneMappingType) {
-    this._toneMapping = v;
-    this.renderer.toneMapping = (this._lightingMode === 'default') ? TONE_MAP_LOOKUP[v] : NoToneMapping;
-    this.recompileMaterials();
-  }
+  get toneMapping(): ToneMappingType { return this._visualSettings.toneMapping; }
+  set toneMapping(v: ToneMappingType) { this._visualSettings.toneMapping = v; }
 
   /** Tone mapping exposure (only effective when tone mapping != none). */
-  get toneMappingExposure(): number { return this.renderer.toneMappingExposure; }
-  set toneMappingExposure(v: number) { this.renderer.toneMappingExposure = v; }
+  get toneMappingExposure(): number { return this._visualSettings.toneMappingExposure; }
+  set toneMappingExposure(v: number) { this._visualSettings.toneMappingExposure = v; }
 
   /** Ambient light color as hex string (e.g. '#ffffff'). */
-  get ambientColor(): string { return '#' + this.ambientLight.color.getHexString(); }
-  set ambientColor(hex: string) { this.ambientLight.color.set(hex); }
+  get ambientColor(): string { return this._visualSettings.ambientColor; }
+  set ambientColor(hex: string) { this._visualSettings.ambientColor = hex; }
 
   /** Ambient light intensity. */
-  get ambientIntensity(): number { return this.ambientLight.intensity; }
-  set ambientIntensity(v: number) { this.ambientLight.intensity = v; }
+  get ambientIntensity(): number { return this._visualSettings.ambientIntensity; }
+  set ambientIntensity(v: number) { this._visualSettings.ambientIntensity = v; }
 
   /** Directional light on/off. */
-  get dirLightEnabled(): boolean { return !!this.dirLight.parent; }
-  set dirLightEnabled(v: boolean) {
-    if (v && !this.dirLight.parent) {
-      this.scene.add(this.dirLight);
-      this.scene.add(this.dirLight.target);
-      this.sceneFixtures.add(this.dirLight);
-      this.sceneFixtures.add(this.dirLight.target);
-    } else if (!v && this.dirLight.parent) {
-      this.scene.remove(this.dirLight);
-      this.scene.remove(this.dirLight.target);
-      this.sceneFixtures.delete(this.dirLight);
-      this.sceneFixtures.delete(this.dirLight.target);
-      this.shadowEnabled = false;
-    }
-  }
+  get dirLightEnabled(): boolean { return this._visualSettings.dirLightEnabled; }
+  set dirLightEnabled(v: boolean) { this._visualSettings.dirLightEnabled = v; }
 
   /** Directional light color as hex string. */
-  get dirLightColor(): string { return '#' + this.dirLight.color.getHexString(); }
-  set dirLightColor(hex: string) { this.dirLight.color.set(hex); }
+  get dirLightColor(): string { return this._visualSettings.dirLightColor; }
+  set dirLightColor(hex: string) { this._visualSettings.dirLightColor = hex; }
 
   /** Directional light intensity. */
-  get dirLightIntensity(): number { return this.dirLight.intensity; }
-  set dirLightIntensity(v: number) { this.dirLight.intensity = v; }
+  get dirLightIntensity(): number { return this._visualSettings.dirLightIntensity; }
+  set dirLightIntensity(v: number) { this._visualSettings.dirLightIntensity = v; }
 
   /** Shadow casting on/off. */
-  get shadowEnabled(): boolean { return this.renderer.shadowMap.enabled; }
-  set shadowEnabled(v: boolean) {
-    const effective = v && !!this.dirLight.parent;
-    this.renderer.shadowMap.enabled = effective;
-    if (effective) this.renderer.shadowMap.type = PCFShadowMap;
-    this.dirLight.castShadow = effective;
-    if (effective) this._shadowsDirty = true;
-    this.recompileMaterials();
-  }
+  get shadowEnabled(): boolean { return this._visualSettings.shadowEnabled; }
+  set shadowEnabled(v: boolean) { this._visualSettings.shadowEnabled = v; }
 
   /** Shadow darkness (0 = invisible, 1 = full black). */
-  get shadowIntensity(): number { return this.dirLight.shadow.intensity; }
-  set shadowIntensity(v: number) { this.dirLight.shadow.intensity = v; }
+  get shadowIntensity(): number { return this._visualSettings.shadowIntensity; }
+  set shadowIntensity(v: number) { this._visualSettings.shadowIntensity = v; }
 
   /** Shadow map resolution. */
-  get shadowQuality(): ShadowQuality {
-    const res = this.dirLight.shadow.mapSize.x;
-    if (res <= 512) return 'low';
-    if (res >= 2048) return 'high';
-    return 'medium';
-  }
-  set shadowQuality(v: ShadowQuality) {
-    const res = SHADOW_RES[v];
-    this.dirLight.shadow.mapSize.set(res, res);
-    // Dispose existing shadow map so it gets recreated at new resolution
-    if (this.dirLight.shadow.map) {
-      this.dirLight.shadow.map.dispose();
-      this.dirLight.shadow.map = null as unknown as typeof this.dirLight.shadow.map;
-    }
-    this.dirLight.shadow.camera.updateProjectionMatrix();
-  }
-
-  private applyLightingMode(mode: import('./hmi/visual-settings-store').LightingMode): void {
-    // Ambient light is always in the scene
-    if (!this.ambientLight.parent) this.scene.add(this.ambientLight);
-
-    if (mode === 'default') {
-      // IBL mode: env map + optional directional light with shadows
-      this.renderer.toneMapping = TONE_MAP_LOOKUP[this._toneMapping];
-      this.loadEnvMap().then(() => {
-        if (this._lightingMode === 'default') {
-          this.scene.environment = this._envMapTexture;
-        }
-      });
-    } else {
-      // Simple mode: ambient only, no env map, no dir light, no tone mapping
-      this.scene.environment = null;
-      this.renderer.toneMapping = NoToneMapping;
-      this.dirLightEnabled = false;
-    }
-    this.recompileMaterials();
-  }
-
-  private recompileMaterials(): void {
-    this.scene.traverse((node) => {
-      const mesh = node as { material?: { needsUpdate?: boolean } };
-      if (mesh.material) mesh.material.needsUpdate = true;
-    });
-  }
-
-  private async loadEnvMap(): Promise<void> {
-    if (this._envMapTexture) return;
-    const loader = new RGBELoader();
-    const hdrTexture = await loader.loadAsync('./envmaps/empty_warehouse_01_1k.hdr');
-    const pmrem = new PMREMGenerator(this.renderer as unknown as WebGLRenderer);
-    const envMap = pmrem.fromEquirectangular(hdrTexture);
-    this._envMapTexture = envMap.texture;
-    hdrTexture.dispose();
-    pmrem.dispose();
-  }
+  get shadowQuality(): ShadowQuality { return this._visualSettings.shadowQuality; }
+  set shadowQuality(v: ShadowQuality) { this._visualSettings.shadowQuality = v; }
 
   /** Environment intensity (default mode) or ambient scale (simple mode). */
-  get lightIntensity(): number {
-    if (this._lightingMode === 'default') return this.scene.environmentIntensity;
-    return this.ambientLight.intensity / 1.8;
-  }
-  set lightIntensity(v: number) {
-    if (this._lightingMode === 'default') {
-      this.scene.environmentIntensity = v;
-    } else {
-      this.ambientLight.intensity = 1.8 * v;
-    }
-  }
+  get lightIntensity(): number { return this._visualSettings.lightIntensity; }
+  set lightIntensity(v: number) { this._visualSettings.lightIntensity = v; }
 
-  // ─── Individual Rendering Settings ──────────────────────────────────
+  // ─── Individual Rendering Settings (delegated to VisualSettingsManager) ──
 
   /** Get current effective DPR. */
-  get effectiveDpr(): number {
-    return this.renderer.getPixelRatio();
-  }
+  get effectiveDpr(): number { return this._visualSettings.effectiveDpr; }
 
   /** Set maximum device pixel ratio. Values >= 2 use native DPR. Applies immediately (no reload). */
-  set maxDpr(cap: number) {
-    const effective = cap >= 2 ? window.devicePixelRatio : Math.min(window.devicePixelRatio, cap);
-    this.renderer.setPixelRatio(effective);
-    this._renderDirty = true;
-  }
+  set maxDpr(cap: number) { this._visualSettings.maxDpr = cap; }
 
   /** Set shadow map resolution (e.g. 512, 1024, 2048). Disposes old map. */
-  set shadowMapSize(size: number) {
-    this.dirLight.shadow.mapSize.set(size, size);
-    if (this.dirLight.shadow.map) {
-      this.dirLight.shadow.map.dispose();
-      this.dirLight.shadow.map = null as unknown as typeof this.dirLight.shadow.map;
-    }
-    this.dirLight.shadow.camera.updateProjectionMatrix();
-    this._shadowsDirty = true;
-    this._renderDirty = true;
-  }
+  set shadowMapSize(size: number) { this._visualSettings.shadowMapSize = size; }
 
   /** Set shadow softness radius (1-5). */
-  set shadowRadius(radius: number) {
-    this.dirLight.shadow.radius = radius;
-    this._shadowsDirty = true;
-    this._renderDirty = true;
-  }
+  set shadowRadius(radius: number) { this._visualSettings.shadowRadius = radius; }
 
   // ─── Profiler Overlay ────────────────────────────────────────────────
 
@@ -1589,87 +1424,16 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     return { uncappedFps, avgFrameMs: +avgFrameMs.toFixed(2), headroom };
   }
 
-  // ─── Viewport Offset ─────────────────────────────────────────────
+  // ─── Viewport Offset (delegated to CameraManager) ──────────────────
 
   /** Compute current viewport offset from open panels (hierarchy, inspector, left panels).
-   *  Returns undefined when no panels obscure the viewport. */
+   *  Returns undefined when no panels obscure the viewport.
+   *  NOTE: Uses INSPECTOR_PANEL_WIDTH from layout-constants internally. */
   getCurrentViewportOffset(): ViewportOffset | undefined {
-    let left = 0;
-
-    // Check hierarchy + inspector via rv-extras-editor plugin
-    const editorPlugin = this.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
-    if (editorPlugin) {
-      const state = editorPlugin.getSnapshot();
-      if (state.panelOpen) {
-        left = state.panelWidth + (state.selectedNodePath && state.showInspector ? INSPECTOR_PANEL_WIDTH : 0);
-      }
-    }
-
-    // Check other left panels via leftPanelManager (settings, machine control, etc.)
-    if (left === 0 && this.leftPanelManager.activePanelWidth > 0) {
-      left = this.leftPanelManager.activePanelWidth;
-    }
-
-    return left > 0 ? { left } : undefined;
+    return this._cameraManager.getCurrentViewportOffset();
   }
 
-  /**
-   * Shift a world-space target point so the focused object appears centered
-   * in the *visible* viewport area (accounting for panels covering the edges).
-   *
-   * The shift is computed in camera-right and camera-up directions using the
-   * fraction of the canvas covered by panels and the frustum half-width/height
-   * at the given distance.
-   *
-   * @param center   World-space center of the object bounding box.
-   * @param dist     Camera distance to the target (for frustum width computation).
-   * @param offset   Pixel offsets for panels (left, right, top, bottom).
-   * @returns        Adjusted center (new Vector3 — original is not mutated).
-   */
-  private applyViewportOffset(center: Vector3, dist: number, offset?: ViewportOffset): Vector3 {
-    if (!offset) return center;
-    const left = offset.left ?? 0;
-    const right = offset.right ?? 0;
-    const top = offset.top ?? 0;
-    const bottom = offset.bottom ?? 0;
-    if (left === 0 && right === 0 && top === 0 && bottom === 0) return center;
-
-    const canvas = this.renderer.domElement;
-    const canvasW = canvas.clientWidth || 1;
-    const canvasH = canvas.clientHeight || 1;
-
-    // Net panel coverage fraction (left panels shift target right, right panels shift left)
-    const horizontalFrac = (left - right) / canvasW;
-    const verticalFrac = (bottom - top) / canvasH;
-
-    if (Math.abs(horizontalFrac) < 0.001 && Math.abs(verticalFrac) < 0.001) return center;
-
-    // Frustum half-dimensions at the target distance
-    const fovRad = this.perspCamera.fov * (Math.PI / 180);
-    const halfH = dist * Math.tan(fovRad / 2);
-    const halfW = halfH * this.perspCamera.aspect;
-
-    // Camera basis vectors (world-space right and up)
-    const camRight = new Vector3();
-    const camUp = new Vector3();
-    this.camera.getWorldDirection(new Vector3()); // ensure matrix is up to date
-    camRight.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
-    camUp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
-
-    // Shift target so the object centers in the unobscured viewport region
-    const adjusted = center.clone();
-    adjusted.addScaledVector(camRight, horizontalFrac * halfW);
-    adjusted.addScaledVector(camUp, verticalFrac * halfH);
-    return adjusted;
-  }
-
-  // ─── Camera Animation ──────────────────────────────────────────────
-
-  private cameraAnim: {
-    startPos: Vector3; endPos: Vector3;
-    startTgt: Vector3; endTgt: Vector3;
-    elapsed: number; duration: number;
-  } | null = null;
+  // ─── Camera Animation (delegated to CameraManager) ─────────────────
 
   /**
    * Smoothly animate the camera to a new position and orbit target.
@@ -1678,34 +1442,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
    * @param duration  Animation duration in seconds (default 0.6).
    */
   animateCameraTo(position: Vector3, target: Vector3, duration = 0.6): void {
-    const xr = (this.renderer as unknown as Record<string, unknown>).xr as Record<string, unknown> | undefined;
-    if (xr?.isPresenting) return;
-    this.cameraAnim = {
-      startPos: this.camera.position.clone(),
-      endPos: position.clone(),
-      startTgt: this.controls.target.clone(),
-      endTgt: target.clone(),
-      elapsed: 0,
-      duration,
-    };
+    this._cameraManager.animateCameraTo(position, target, duration);
   }
 
   /** Whether a camera animation is currently in progress. */
-  get isCameraAnimating(): boolean { return this.cameraAnim !== null; }
-
-  /** Advance camera animation by frame delta. */
-  private tickCameraAnimation(dtSec: number): void {
-    if (!this.cameraAnim) return;
-    this.cameraAnim.elapsed += dtSec;
-    const t = Math.min(this.cameraAnim.elapsed / this.cameraAnim.duration, 1);
-    // Smooth ease-out (cubic)
-    const e = 1 - Math.pow(1 - t, 3);
-
-    this.camera.position.lerpVectors(this.cameraAnim.startPos, this.cameraAnim.endPos, e);
-    this.controls.target.lerpVectors(this.cameraAnim.startTgt, this.cameraAnim.endTgt, e);
-
-    if (t >= 1) this.cameraAnim = null;
-  }
+  get isCameraAnimating(): boolean { return this._cameraManager.isCameraAnimating; }
 
   // ─── Private ──────────────────────────────────────────────────────────
 
@@ -1813,9 +1554,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.fpsAccumTime = 0;
     }
 
-    this.tickCameraAnimation(frameDt);
+    this._cameraManager.tickCameraAnimation(frameDt);
     // Camera animation keeps render dirty
-    if (this.cameraAnim) this._renderDirty = true;
+    if (this._cameraManager.isCameraAnimating) this._renderDirty = true;
     // Damping: keep rendering for N frames after last user input
     if (this._dampingFramesRemaining > 0) {
       this._dampingFramesRemaining--;
@@ -1893,8 +1634,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         const mem = info.memory;
         const rnd = info.render;
         if (!mem || !rnd) return;
-        console.log(
-          `[Perf] Draw calls: ${rnd.calls ?? 0} | Tris: ${rnd.triangles ?? 0} | ` +
+        debug('render',
+          `Draw calls: ${rnd.calls ?? 0} | Tris: ${rnd.triangles ?? 0} | ` +
           `Geo: ${mem.geometries ?? 0} | Tex: ${mem.textures ?? 0}`
         );
         if (this._lastGeoCount > 0 && (mem.geometries ?? 0) > this._lastGeoCount + 10) {
@@ -1943,7 +1684,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     // Canvas click: record pointer start, then select on pointerup only if
     // the pointer didn't move (drag threshold).
-    const DRAG_THRESHOLD = 8;
+    const DRAG_THRESHOLD = DRAG_THRESHOLD_PX;
     canvas.addEventListener('pointerdown', (e) => {
       // Left button: track for click selection
       if (e.button === 0) {
@@ -2160,7 +1901,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.controls.enabled = false;
       if (this.resizeHandler) window.removeEventListener('resize', this.resizeHandler);
       if (this.resizeObserver) this.resizeObserver.disconnect();
-      this.emit('xr-session-start', undefined as never);
+      this.emit('xr-session-start', undefined as void);
     });
     glRenderer.xr.addEventListener('sessionend', () => {
       this.scene.background = this._savedBackground;
@@ -2172,7 +1913,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         this.resizeHandler();
       }
       if (this.resizeObserver) this.resizeObserver.observe(container);
-      this.emit('xr-session-end', undefined as never);
+      this.emit('xr-session-end', undefined as void);
     });
   }
 

@@ -110,7 +110,7 @@ function createMockViewer() {
     },
     markRenderDirty: vi.fn(),
     cancelCameraAnimation: vi.fn(),
-    getPlugin: vi.fn((_id: string) => undefined),
+    getPlugin: vi.fn((_id: string): unknown => undefined),
     emit: vi.fn((event: string, data?: unknown) => {
       const set = listeners.get(event);
       if (set) for (const cb of set) cb(data);

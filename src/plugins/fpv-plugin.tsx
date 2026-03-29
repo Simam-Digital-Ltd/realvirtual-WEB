@@ -254,7 +254,7 @@ export class FpvPlugin implements RVViewerPlugin {
     // Deactivate UI context so hidden elements reappear
     deactivateContext('fpv');
 
-    viewer.emit('fpv-exit', undefined as never);
+    viewer.emit('fpv-exit', undefined as void);
     viewer.markRenderDirty();
   }
 
@@ -326,7 +326,7 @@ export class FpvPlugin implements RVViewerPlugin {
     // Activate UI context so context-aware elements hide themselves
     activateContext('fpv');
 
-    viewer.emit('fpv-enter', undefined as never);
+    viewer.emit('fpv-enter', undefined as void);
     viewer.markRenderDirty();
   }
 

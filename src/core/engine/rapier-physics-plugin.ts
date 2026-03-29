@@ -28,8 +28,11 @@ import {
   BoxGeometry, EdgesGeometry, LineSegments, LineBasicMaterial,
   Object3D, Group,
 } from 'three';
-import { loadPhysicsSettings } from '../hmi/physics-settings-store';
-import { debug } from './rv-debug';
+import type { PhysicsSettings } from '../hmi/physics-settings-store';
+import { debug, debugWarn } from './rv-debug';
+
+/** Provider function that returns the current physics settings. */
+export type PhysicsSettingsProvider = () => PhysicsSettings;
 
 // Pre-allocated temp vectors for zero-GC hot path
 const _muWorldPos = new Vector3();
@@ -45,6 +48,14 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
   readonly core = true;
   readonly order = 50; // Before sensor-monitor (100) and transport-stats (100)
   handlesTransport = true;
+
+  private _getPhysicsSettings: PhysicsSettingsProvider;
+
+  constructor(getPhysicsSettings?: PhysicsSettingsProvider) {
+    this._getPhysicsSettings = getPhysicsSettings ?? (() => ({
+      enabled: false, gravity: 9.81, friction: 1.5, substeps: 1, debugWireframes: false,
+    }));
+  }
 
   private _rapier: typeof import('@dimforge/rapier3d-compat') | null = null;
   private _physicsWorld: RVPhysicsWorld | null = null;
@@ -103,7 +114,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       const RAPIER = await import('@dimforge/rapier3d-compat');
       await RAPIER.init();
       this._rapier = RAPIER;
-      console.log('[RapierPhysicsPlugin] WASM loaded successfully');
+      debug('physics', 'WASM loaded successfully');
     } catch (e) {
       console.warn('[RapierPhysicsPlugin] WASM init failed, falling back to kinematic transport:', e);
       this.handlesTransport = false;
@@ -127,7 +138,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     if (!this._rapier) return;
     this._viewer = viewer;
 
-    const settings = loadPhysicsSettings();
+    const settings = this._getPhysicsSettings();
 
     // If physics is disabled in settings, revert to kinematic
     if (!settings.enabled) {
@@ -291,8 +302,8 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       this._buildDebugWireframes(viewer);
     }
 
-    console.log(
-      `[RapierPhysicsPlugin] World built: ${tm.surfaces.length} surfaces, ` +
+    debug('physics',
+      `World built: ${tm.surfaces.length} surfaces, ` +
       `${tm.sensors.length} sensors, ${tm.sinks.length} sinks` +
       (settings.debugWireframes ? ' (debug wireframes ON)' : ''),
     );
@@ -577,7 +588,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     }
 
     viewer.scene?.add(this._debugGroup);
-    console.log(`[RapierPhysicsPlugin] Debug wireframes: ${bodies.length} colliders visualized`);
+    debug('physics', `Debug wireframes: ${bodies.length} colliders visualized`);
   }
 
   /**
@@ -658,19 +669,22 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       const heRatioZ = _boxSize.z > 0.001 ? (b.halfExtents.z * 2) / _boxSize.z : 1;
 
       const hasIssue = posDelta > 0.05 || bodyVsNode > 1;
-      const logFn = hasIssue ? console.warn : console.log;
-      logFn(
-        `[Rapier] ${hasIssue ? '⚠' : '✓'} "${b.id}" (${b.type}):` +
+      const msg =
+        `${hasIssue ? '⚠' : '✓'} "${b.id}" (${b.type}):` +
         `\n  pos: delta=${(posDelta * 1000).toFixed(1)}mm` +
         `\n  rot: body→node=${bodyVsNode.toFixed(1)}° ${meshInfo}` +
         `\n  he: (${b.halfExtents.x.toFixed(3)}, ${b.halfExtents.y.toFixed(3)}, ${b.halfExtents.z.toFixed(3)})` +
         ` meshAABB/2=(${(_boxSize.x / 2).toFixed(3)}, ${(_boxSize.y / 2).toFixed(3)}, ${(_boxSize.z / 2).toFixed(3)})` +
-        ` ratio=(${heRatioX.toFixed(2)}, ${heRatioY.toFixed(2)}, ${heRatioZ.toFixed(2)})`,
-      );
+        ` ratio=(${heRatioX.toFixed(2)}, ${heRatioY.toFixed(2)}, ${heRatioZ.toFixed(2)})`;
+      if (hasIssue) {
+        debugWarn('physics', msg);
+      } else {
+        debug('physics', msg);
+      }
     }
 
-    console.log(
-      `[Rapier] Validation summary: ${bodies.length - Array.from(this._physicsWorld.getDebugBodies()).filter(b => b.type === 'mu').length} colliders, max pos delta=${(maxPosDelta * 1000).toFixed(1)}mm`,
+    debug('physics',
+      `Validation summary: ${bodies.length - Array.from(this._physicsWorld.getDebugBodies()).filter(b => b.type === 'mu').length} colliders, max pos delta=${(maxPosDelta * 1000).toFixed(1)}mm`,
     );
   }
 

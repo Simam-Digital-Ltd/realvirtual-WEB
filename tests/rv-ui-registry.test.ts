@@ -5,6 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { UIPluginRegistry } from '../src/core/rv-ui-registry';
+import type { UISlotEntry } from '../src/core/rv-ui-plugin';
 
 // Dummy components (just need to be distinguishable)
 const CompA = () => null;
@@ -14,15 +15,12 @@ const CompC = () => null;
 describe('UIPluginRegistry', () => {
   it('registers and retrieves slot components', () => {
     const reg = new UIPluginRegistry();
-    const plugin = {
-      id: 'test-ui',
-      slots: [
-        { slot: 'kpi-bar', component: CompA as any, order: 10 },
-        { slot: 'kpi-bar', component: CompB as any, order: 20 },
-        { slot: 'messages', component: CompC as any, order: 10 },
-      ],
-    };
-    reg.register(plugin);
+    const slots: UISlotEntry[] = [
+      { slot: 'kpi-bar', component: CompA as any, order: 10 },
+      { slot: 'kpi-bar', component: CompB as any, order: 20 },
+      { slot: 'messages', component: CompC as any, order: 10 },
+    ];
+    reg.register({ slots });
 
     expect(reg.getSlotComponents('kpi-bar').length).toBe(2);
     expect(reg.getSlotComponents('messages').length).toBe(1);
@@ -31,14 +29,11 @@ describe('UIPluginRegistry', () => {
 
   it('sorts by order within slot', () => {
     const reg = new UIPluginRegistry();
-    const plugin = {
-      id: 'order-test',
-      slots: [
-        { slot: 'kpi-bar', component: CompB as any, order: 20 },
-        { slot: 'kpi-bar', component: CompA as any, order: 10 },
-      ],
-    };
-    reg.register(plugin);
+    const slots: UISlotEntry[] = [
+      { slot: 'kpi-bar', component: CompB as any, order: 20 },
+      { slot: 'kpi-bar', component: CompA as any, order: 10 },
+    ];
+    reg.register({ slots });
 
     const comps = reg.getSlotComponents('kpi-bar');
     expect(comps[0].component).toBe(CompA);
@@ -47,15 +42,12 @@ describe('UIPluginRegistry', () => {
 
   it('settings-tabs are returned separately', () => {
     const reg = new UIPluginRegistry();
-    const plugin = {
-      id: 'settings-test',
-      slots: [
-        { slot: 'settings-tab', component: CompA as any, label: 'Dev Tools', order: 100 },
-        { slot: 'settings-tab', component: CompB as any, label: 'Tests', order: 110 },
-        { slot: 'kpi-bar', component: CompC as any, order: 10 },
-      ],
-    };
-    reg.register(plugin);
+    const slots: UISlotEntry[] = [
+      { slot: 'settings-tab', component: CompA as any, label: 'Dev Tools', order: 100 },
+      { slot: 'settings-tab', component: CompB as any, label: 'Tests', order: 110 },
+      { slot: 'kpi-bar', component: CompC as any, order: 10 },
+    ];
+    reg.register({ slots });
 
     expect(reg.getSettingsTabs().length).toBe(2);
     expect(reg.getSettingsTabs()[0].label).toBe('Dev Tools');
@@ -64,12 +56,10 @@ describe('UIPluginRegistry', () => {
   it('multiple plugins can register to same slot', () => {
     const reg = new UIPluginRegistry();
     reg.register({
-      id: 'plugin-a',
-      slots: [{ slot: 'button-group', component: CompA as any, order: 10 }],
+      slots: [{ slot: 'button-group' as const, component: CompA as any, order: 10 }],
     });
     reg.register({
-      id: 'plugin-b',
-      slots: [{ slot: 'button-group', component: CompB as any, order: 20 }],
+      slots: [{ slot: 'button-group' as const, component: CompB as any, order: 20 }],
     });
 
     const comps = reg.getSlotComponents('button-group');
@@ -80,13 +70,11 @@ describe('UIPluginRegistry', () => {
 
   it('default order is 100 for entries without explicit order', () => {
     const reg = new UIPluginRegistry();
-    reg.register({
-      id: 'default-order',
-      slots: [
-        { slot: 'kpi-bar', component: CompB as any }, // order defaults to 100
-        { slot: 'kpi-bar', component: CompA as any, order: 50 },
-      ],
-    });
+    const slots: UISlotEntry[] = [
+      { slot: 'kpi-bar', component: CompB as any }, // order defaults to 100
+      { slot: 'kpi-bar', component: CompA as any, order: 50 },
+    ];
+    reg.register({ slots });
 
     const comps = reg.getSlotComponents('kpi-bar');
     expect(comps[0].component).toBe(CompA); // order 50

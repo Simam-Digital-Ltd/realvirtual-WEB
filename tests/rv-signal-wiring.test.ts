@@ -25,7 +25,7 @@ describe('wireBoolSignal', () => {
 
   beforeEach(() => {
     store = new SignalStore();
-    store.register('TestSignal', '/Root/TestSignal');
+    store.register('TestSignal', '/Root/TestSignal', false);
   });
 
   it('returns null addr and noop unsubscribe for null address', () => {
@@ -107,7 +107,7 @@ describe('wireRefBoolSignal', () => {
 
   beforeEach(() => {
     store = new SignalStore();
-    store.register('MySignal', '/Root/MySignal');
+    store.register('MySignal', '/Root/MySignal', false);
   });
 
   it('returns null for null ref', () => {

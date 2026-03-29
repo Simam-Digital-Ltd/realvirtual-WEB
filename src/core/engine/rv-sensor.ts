@@ -226,7 +226,7 @@ export class RVSensor implements RVComponent {
     // Register in transport manager
     context.transportManager.sensors.push(this);
 
-    console.log(`  Sensor: ${this.node.name} mode=${this.mode} dir=${this.UseRaycast ? JSON.stringify(this.RayCastDirection) : 'N/A'} len=${this.RayCastLength}mm${sensorOccupiedAddr ? ` → ${sensorOccupiedAddr}` : ''}`);
+    debug('sensor', `Sensor: ${this.node.name} mode=${this.mode} dir=${this.UseRaycast ? JSON.stringify(this.RayCastDirection) : 'N/A'} len=${this.RayCastLength}mm${sensorOccupiedAddr ? ` → ${sensorOccupiedAddr}` : ''}`);
   }
 
   // ─── Collision-mode visualization (box) ────────────────────────────

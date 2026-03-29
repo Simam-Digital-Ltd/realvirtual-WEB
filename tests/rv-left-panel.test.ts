@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 // Vite ?raw imports — source text for regression checks (browser-compatible)
 import buttonPanelSrc from '../src/core/hmi/ButtonPanel.tsx?raw';
 import viewerSrc from '../src/core/rv-viewer.ts?raw';
+import cameraManagerSrc from '../src/core/rv-camera-manager.ts?raw';
 
 // ── 9.1 TestLayoutConstants ──────────────────────────────────────────────
 
@@ -158,8 +159,9 @@ describe('No hardcoded panel widths', () => {
     expect(buttonPanelSrc).toContain('INSPECTOR_PANEL_WIDTH');
   });
 
-  it('rv-viewer.ts imports INSPECTOR_PANEL_WIDTH for getCurrentViewportOffset', () => {
-    expect(viewerSrc).toContain('INSPECTOR_PANEL_WIDTH');
+  it('rv-viewer.ts delegates getCurrentViewportOffset (uses INSPECTOR_PANEL_WIDTH via CameraManager)', () => {
     expect(viewerSrc).toContain('getCurrentViewportOffset');
+    // INSPECTOR_PANEL_WIDTH is now used in the extracted CameraManager module
+    expect(cameraManagerSrc).toContain('INSPECTOR_PANEL_WIDTH');
   });
 });
