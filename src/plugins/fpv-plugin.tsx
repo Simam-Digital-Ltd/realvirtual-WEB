@@ -17,6 +17,7 @@ import type { LoadResult } from '../core/engine/rv-scene-loader';
 import type { UISlotEntry } from '../core/rv-ui-plugin';
 import { isMobileDevice } from '../hooks/use-mobile-layout';
 import { loadVisualSettings } from '../core/hmi/visual-settings-store';
+import { activateContext, deactivateContext } from '../core/hmi/ui-context-store';
 import type { WebXRPlugin } from './webxr-plugin';
 
 // ─── Constants ──────────────────────────────────────────────────────────
@@ -250,6 +251,9 @@ export class FpvPlugin implements RVViewerPlugin {
     this._keys.clear();
     this._isTransitioning = false;
 
+    // Deactivate UI context so hidden elements reappear
+    deactivateContext('fpv');
+
     viewer.emit('fpv-exit', undefined as never);
     viewer.markRenderDirty();
   }
@@ -319,6 +323,9 @@ export class FpvPlugin implements RVViewerPlugin {
     notifyListeners();
     this._isTransitioning = false;
 
+    // Activate UI context so context-aware elements hide themselves
+    activateContext('fpv');
+
     viewer.emit('fpv-enter', undefined as never);
     viewer.markRenderDirty();
   }
@@ -337,6 +344,9 @@ export class FpvPlugin implements RVViewerPlugin {
     notifyListeners();
     this._keys.clear();
     this._isTransitioning = false;
+
+    // Deactivate UI context
+    deactivateContext('fpv');
   }
 
   // ── Private: Ground snapping ───────────────────────────────────────

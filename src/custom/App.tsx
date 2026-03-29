@@ -13,6 +13,7 @@ import { BottomBar } from '../core/hmi/BottomBar';
 
 import { loadVisualSettings } from '../core/hmi/visual-settings-store';
 import { useHmiVisible } from '../core/hmi/hmi-visibility-store';
+import { useUIVisible } from '../core/hmi/ui-context-store';
 
 // Generic tooltip system (replaces former DriveTooltip)
 import { TooltipLayer } from '../core/hmi/tooltip/TooltipLayer';
@@ -63,16 +64,24 @@ export function App() {
   useTooltipStoreConnection();
   const hmiVisible = useHmiVisible();
 
+  // Context-aware visibility: each area declares its default hiddenIn rule.
+  // These defaults can be overridden by settings.json `ui.visibilityOverrides`.
+  const showKpiBar = useUIVisible('kpi-bar', { hiddenIn: ['fpv', 'planner', 'xr'] });
+  const showTopBar = useUIVisible('top-bar', { hiddenIn: ['xr'] });
+  const showButtonPanel = useUIVisible('button-panel', { hiddenIn: ['fpv', 'xr'] });
+  const showMessagePanel = useUIVisible('message-panel', { hiddenIn: ['fpv', 'planner', 'xr'] });
+  const showViewsSlot = useUIVisible('views-slot', { hiddenIn: ['fpv', 'planner', 'xr'] });
+
   return (
     <ThemeProvider theme={rvDarkTheme}>
       <HMIShell>
         <TooltipLayer />
-        {hmiVisible && <KpiBar />}
-        {hmiVisible && <TopBar />}
-        {hmiVisible && <ButtonPanel />}
-        {hmiVisible && <MessagePanel />}
+        {hmiVisible && showKpiBar && <KpiBar />}
+        {hmiVisible && showTopBar && <TopBar />}
+        {hmiVisible && showButtonPanel && <ButtonPanel />}
+        {hmiVisible && showMessagePanel && <MessagePanel />}
         <BottomBar />
-        {hmiVisible && <SlotRenderer slot="views" />}
+        {hmiVisible && showViewsSlot && <SlotRenderer slot="views" />}
       </HMIShell>
       <DriveTooltipController />
       <DriveChartOverlay />

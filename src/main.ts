@@ -14,6 +14,7 @@ import { initTestRunner } from './rv-test-runner';
 import { fetchAppConfig, setAppConfig } from './core/hmi/rv-app-config';
 import { loadVisualSettings } from './core/hmi/visual-settings-store';
 import { isMobileDevice } from './hooks/use-mobile-layout';
+import { activateContext, registerUIElement } from './core/hmi/ui-context-store';
 
 // Private content (resolves to stubs when private folder is absent)
 import { initHMI } from '@rv-private/custom/hmi-entry';
@@ -123,6 +124,23 @@ async function init() {
 
   // Set singleton — from here all stores have access via getAppConfig()
   setAppConfig(appConfig);
+
+  // --- Bootstrap context-aware UI visibility (from settings.json `ui` key) ---
+  {
+    const uiCfg = appConfig.ui;
+    // Activate initial contexts (e.g. "kiosk" mode)
+    const initCtxs = Array.isArray(uiCfg?.initialContexts) ? uiCfg!.initialContexts : [];
+    for (const ctx of initCtxs) {
+      if (typeof ctx === 'string' && ctx) activateContext(ctx);
+    }
+    // Apply visibility overrides (override code-declared defaults)
+    const overrides = (typeof uiCfg?.visibilityOverrides === 'object' && uiCfg?.visibilityOverrides !== null)
+      ? uiCfg!.visibilityOverrides
+      : {};
+    for (const [id, rule] of Object.entries(overrides)) {
+      if (rule && typeof rule === 'object') registerUIElement(id, rule);
+    }
+  }
 
   const container = document.getElementById('app')!;
 

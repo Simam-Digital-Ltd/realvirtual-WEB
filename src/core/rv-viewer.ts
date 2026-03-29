@@ -92,6 +92,8 @@ import type { SelectionSnapshot } from './engine/rv-selection-manager';
 import { INSPECTOR_PANEL_WIDTH } from './hmi/layout-constants';
 import type { RvExtrasEditorPlugin } from './hmi/rv-extras-editor';
 import { isMobileDevice } from '../hooks/use-mobile-layout';
+import { resetDynamicContexts } from './hmi/ui-context-store';
+import { getAppConfig } from './hmi/rv-app-config';
 
 // ─── Plugin Error Isolation ──────────────────────────────────────────────
 
@@ -967,7 +969,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       Promise.resolve(extractGlbPluginConfig(this.scene)),
     ]);
     const settingsConfig: ModelConfig = {};
-    const appConfig = (await import('./hmi/rv-app-config')).getAppConfig();
+    const appConfig = getAppConfig();
     if (appConfig.plugins) settingsConfig.plugins = appConfig.plugins;
     if (appConfig.pluginConfig) settingsConfig.pluginConfig = appConfig.pluginConfig;
 
@@ -1018,6 +1020,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     for (const p of this._plugins) {
       callPlugin(p, 'onModelCleared', this);
     }
+
+    // Safety net: clear all dynamic UI contexts, preserve initial ones from config
+    const initialCtxs = getAppConfig().ui?.initialContexts;
+    resetDynamicContexts(Array.isArray(initialCtxs) ? initialCtxs : undefined);
+
     this._lastLoadResult = null;
 
     this.selectionManager.clear();

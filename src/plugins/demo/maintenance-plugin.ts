@@ -29,6 +29,7 @@ import {
   saveMaintenanceProgress,
   clearMaintenanceProgress,
 } from '../../core/hmi/maintenance-progress-store';
+import { activateContext, deactivateContext } from '../../core/hmi/ui-context-store';
 
 // Re-export shared types from core (canonical source of truth)
 export type { MaintenanceMode, StepResult, MaintenanceState } from '../../core/types/plugin-types';
@@ -334,8 +335,17 @@ export class MaintenancePlugin implements RVViewerPlugin {
   /** Emit the maintenance-mode-changed event. */
   private _emitModeChanged(): void {
     if (!this.viewer) return;
+    const active = this._state.mode !== 'idle';
+
+    // Update UI context so context-aware elements react to maintenance mode
+    if (active) {
+      activateContext('maintenance');
+    } else {
+      deactivateContext('maintenance');
+    }
+
     this.viewer.emit('maintenance-mode-changed' as string, {
-      active: this._state.mode !== 'idle',
+      active,
       mode: this._state.mode,
       procedure: this._state.procedure,
       currentStep: this._state.currentStep,

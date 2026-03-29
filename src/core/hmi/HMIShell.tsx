@@ -1,6 +1,7 @@
 import { Box } from '@mui/material';
 import { useViewer } from '../../hooks/use-viewer';
 import type { UISlot } from '../rv-ui-plugin';
+import { useActiveContexts, isUIElementVisible, registerUIElement } from './ui-context-store';
 
 interface HMIShellProps {
   children: React.ReactNode;
@@ -9,14 +10,30 @@ interface HMIShellProps {
 /**
  * SlotRenderer — Renders all UI plugin components registered for a given slot.
  * Use alongside (or instead of) hardcoded children in HMIShell.
+ *
+ * Entries with a `visibilityRule` are filtered by the active UI contexts.
+ * Entries WITHOUT a `visibilityRule` are ALWAYS visible (invariant).
  */
 export function SlotRenderer({ slot }: { slot: UISlot }) {
   const viewer = useViewer();
   const entries = viewer.uiRegistry.getSlotComponents(slot);
+  const contexts = useActiveContexts();
+
   if (entries.length === 0) return null;
+
   return (
     <>
       {entries.map((entry, i) => {
+        // Register plugin-declared visibility rule if present
+        if (entry.visibilityId && entry.visibilityRule) {
+          registerUIElement(entry.visibilityId, entry.visibilityRule);
+        }
+
+        // Entries without visibilityRule are always visible (invariant)
+        if (entry.visibilityId) {
+          if (!isUIElementVisible(entry.visibilityId, contexts)) return null;
+        }
+
         const Comp = entry.component;
         return <Comp key={`${slot}-${i}`} viewer={viewer} />;
       })}

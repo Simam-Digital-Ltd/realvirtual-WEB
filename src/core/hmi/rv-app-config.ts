@@ -9,6 +9,15 @@ import type { VisualSettings } from './visual-settings-store';
 import type { PhysicsSettings } from './physics-settings-store';
 import type { InterfaceSettings } from '../../interfaces/interface-settings-store';
 import type { SearchSettings } from './search-settings-store';
+import type { UIVisibilityRule } from './ui-context-store';
+
+/** Configuration for context-aware UI visibility (loaded from settings.json `ui` key). */
+export interface UIContextConfig {
+  /** Contexts to activate on startup (e.g. ["kiosk"]). */
+  initialContexts?: string[];
+  /** Per-element visibility rule overrides — keys are element IDs like 'kpi-bar'. */
+  visibilityOverrides?: Record<string, UIVisibilityRule>;
+}
 
 /** Settings tab identifiers used for selective locking. */
 export type SettingsTabId = 'model' | 'visual' | 'physics' | 'interfaces' | 'devtools' | 'tests' | 'mcp' | 'multiuser';
@@ -32,6 +41,9 @@ export interface RVAppConfig {
   physics?: Partial<PhysicsSettings>;
   interface?: Partial<InterfaceSettings>;
   search?: Partial<SearchSettings>;
+
+  /** Context-aware UI visibility configuration. */
+  ui?: UIContextConfig;
 }
 
 // ─── Singleton State ───────────────────────────────────────────

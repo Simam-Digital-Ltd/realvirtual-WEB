@@ -10,6 +10,7 @@
 
 import type { ComponentType } from 'react';
 import type { RVViewer } from './rv-viewer';
+import type { UIVisibilityRule } from './hmi/ui-context-store';
 
 /** Available slots in the HMI layout. */
 export type UISlot =
@@ -36,4 +37,9 @@ export interface UISlotEntry {
   order?: number;
   /** For settings-tab: tab label text. */
   label?: string;
+  /** Optional visibility element ID for context-aware hiding. */
+  visibilityId?: string;
+  /** Optional visibility rule — when provided, the entry is hidden/shown per active contexts.
+   *  Entries WITHOUT this field are always visible (invariant). */
+  visibilityRule?: UIVisibilityRule;
 }
