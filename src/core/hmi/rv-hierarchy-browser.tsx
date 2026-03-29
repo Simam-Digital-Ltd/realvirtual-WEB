@@ -33,6 +33,7 @@ import {
   ChevronRight,
 } from '@mui/icons-material';
 import type { RVViewer } from '../rv-viewer';
+import type { ContextMenuTarget } from './context-menu-store';
 import { HIERARCHY_MIN_WIDTH, HIERARCHY_MAX_WIDTH, type EditableNodeInfo } from './rv-extras-editor';
 import { LeftPanel } from './LeftPanel';
 import type { RVExtrasOverlay } from '../engine/rv-extras-overlay-store';
@@ -486,6 +487,7 @@ interface TreeNodeRowProps {
   onSelect: (path: string, shiftKey?: boolean) => void;
   onDoubleClick: (path: string) => void;
   onHover: (path: string | null) => void;
+  onContextMenu?: (e: React.MouseEvent, path: string) => void;
   signalStore: SignalStore | null;
   logicEngine: RVLogicEngine | null;
   /** Incrementing tick to bust memo cache for live step/signal updates. */
@@ -501,6 +503,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
   onSelect,
   onDoubleClick,
   onHover,
+  onContextMenu,
   signalStore,
   logicEngine,
   liveTick,
@@ -541,12 +544,62 @@ const TreeNodeRow = memo(function TreeNodeRow({
     onHover(null);
   }, [onHover]);
 
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (node.path && onContextMenu) {
+      e.preventDefault();
+      e.stopPropagation();
+      onContextMenu(e, node.path);
+    }
+  }, [node.path, onContextMenu]);
+
+  // Long-press state for touch context menu
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const cancelRowLongPress = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressPosRef.current = null;
+  }, []);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === 'touch' && node.path && onContextMenu) {
+      cancelRowLongPress();
+      longPressPosRef.current = { x: e.clientX, y: e.clientY };
+      longPressTimerRef.current = setTimeout(() => {
+        longPressTimerRef.current = null;
+        if (node.path && onContextMenu) {
+          onContextMenu(
+            { clientX: longPressPosRef.current!.x, clientY: longPressPosRef.current!.y, preventDefault: () => {}, stopPropagation: () => {} } as unknown as React.MouseEvent,
+            node.path,
+          );
+          navigator.vibrate?.(50);
+        }
+      }, 500);
+    }
+  }, [node.path, onContextMenu, cancelRowLongPress]);
+
+  const handlePointerMoveRow = useCallback((e: React.PointerEvent) => {
+    if (longPressTimerRef.current && longPressPosRef.current) {
+      const dx = e.clientX - longPressPosRef.current.x;
+      const dy = e.clientY - longPressPosRef.current.y;
+      if (dx * dx + dy * dy > 64) cancelRowLongPress(); // 8px threshold
+    }
+  }, [cancelRowLongPress]);
+
   return (
     <>
       <Box
         data-path={node.path ?? undefined}
         onClick={handleClick}
         onDoubleClick={handleDblClick}
+        onContextMenu={handleContextMenu}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMoveRow}
+        onPointerUp={cancelRowLongPress}
+        onPointerLeave={cancelRowLongPress}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         sx={{
@@ -612,6 +665,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
               onSelect={onSelect}
               onDoubleClick={onDoubleClick}
               onHover={onHover}
+              onContextMenu={onContextMenu}
               signalStore={signalStore}
               logicEngine={logicEngine}
               liveTick={liveTick}
@@ -633,6 +687,7 @@ interface FlatNodeRowProps {
   onSelect: (path: string, shiftKey?: boolean) => void;
   onDoubleClick: (path: string) => void;
   onHover: (path: string | null) => void;
+  onContextMenu?: (e: React.MouseEvent, path: string) => void;
   signalStore: SignalStore | null;
   logicEngine: RVLogicEngine | null;
   /** Relative indentation depth (0 = top-level in filtered view). */
@@ -641,7 +696,7 @@ interface FlatNodeRowProps {
   virtualStyle?: React.CSSProperties;
 }
 
-function FlatNodeRow({ info, selectedPaths, onSelect, onDoubleClick, onHover, signalStore, logicEngine, depth = 0, virtualStyle }: FlatNodeRowProps) {
+function FlatNodeRow({ info, selectedPaths, onSelect, onDoubleClick, onHover, onContextMenu, signalStore, logicEngine, depth = 0, virtualStyle }: FlatNodeRowProps) {
   const name = info.path.split('/').pop() ?? info.path;
   const isSelected = selectedPaths.has(info.path);
 
@@ -654,11 +709,61 @@ function FlatNodeRow({ info, selectedPaths, onSelect, onDoubleClick, onHover, si
     onDoubleClick(info.path);
   }, [info.path, onDoubleClick]);
 
+  const handleCtxMenu = useCallback((e: React.MouseEvent) => {
+    if (onContextMenu) {
+      e.preventDefault();
+      e.stopPropagation();
+      onContextMenu(e, info.path);
+    }
+  }, [info.path, onContextMenu]);
+
+  // Long-press state for touch context menu
+  const flatLpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flatLpPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const cancelFlatLp = useCallback(() => {
+    if (flatLpTimerRef.current) {
+      clearTimeout(flatLpTimerRef.current);
+      flatLpTimerRef.current = null;
+    }
+    flatLpPosRef.current = null;
+  }, []);
+
+  const handleFlatPointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === 'touch' && onContextMenu) {
+      cancelFlatLp();
+      flatLpPosRef.current = { x: e.clientX, y: e.clientY };
+      flatLpTimerRef.current = setTimeout(() => {
+        flatLpTimerRef.current = null;
+        if (onContextMenu) {
+          onContextMenu(
+            { clientX: flatLpPosRef.current!.x, clientY: flatLpPosRef.current!.y, preventDefault: () => {}, stopPropagation: () => {} } as unknown as React.MouseEvent,
+            info.path,
+          );
+          navigator.vibrate?.(50);
+        }
+      }, 500);
+    }
+  }, [info.path, onContextMenu, cancelFlatLp]);
+
+  const handleFlatPointerMove = useCallback((e: React.PointerEvent) => {
+    if (flatLpTimerRef.current && flatLpPosRef.current) {
+      const dx = e.clientX - flatLpPosRef.current.x;
+      const dy = e.clientY - flatLpPosRef.current.y;
+      if (dx * dx + dy * dy > 64) cancelFlatLp(); // 8px threshold
+    }
+  }, [cancelFlatLp]);
+
   return (
     <Box
       data-path={info.path}
       onClick={(e: React.MouseEvent) => onSelect(info.path, e.shiftKey)}
       onDoubleClick={handleDblClick}
+      onContextMenu={handleCtxMenu}
+      onPointerDown={handleFlatPointerDown}
+      onPointerMove={handleFlatPointerMove}
+      onPointerUp={cancelFlatLp}
+      onPointerLeave={cancelFlatLp}
       onMouseEnter={() => onHover(info.path)}
       onMouseLeave={() => onHover(null)}
       style={virtualStyle}
@@ -909,6 +1014,22 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     [viewer],
   );
 
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, path: string) => {
+      if (!viewer.registry) return;
+      const node = viewer.registry.getNode(path);
+      if (!node) return;
+      const target: ContextMenuTarget = {
+        path,
+        node,
+        types: viewer.registry.getComponentTypes(path),
+        extras: (node.userData?.realvirtual ?? {}) as Record<string, unknown>,
+      };
+      viewer.contextMenu.open({ x: e.clientX, y: e.clientY }, target);
+    },
+    [viewer],
+  );
+
   // Clear hover highlight when panel closes
   useEffect(() => {
     return () => { viewer.highlighter.clear(); };
@@ -1054,7 +1175,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
                     onSelect={handleSelect}
                     onDoubleClick={handleDoubleClick}
                     onHover={handleHover}
-
+                    onContextMenu={handleContextMenu}
                     signalStore={signalStore}
                     logicEngine={logicEngine}
                     depth={typeFilter === 'logic' ? (flatDepths.get(info.path) ?? 0) : 0}
@@ -1089,6 +1210,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
                 onSelect={handleSelect}
                 onDoubleClick={handleDoubleClick}
                 onHover={handleHover}
+                onContextMenu={handleContextMenu}
                 signalStore={signalStore}
                 logicEngine={logicEngine}
                 liveTick={liveTick}

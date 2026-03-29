@@ -88,6 +88,8 @@ import { UIPluginRegistry } from './rv-ui-registry';
 import { isActiveForState } from './engine/rv-active-only';
 import { LeftPanelManager } from './hmi/left-panel-manager';
 import { SelectionManager } from './engine/rv-selection-manager';
+import { ContextMenuStore } from './hmi/context-menu-store';
+import type { ContextMenuTarget } from './hmi/context-menu-store';
 import type { SelectionSnapshot } from './engine/rv-selection-manager';
 import { INSPECTOR_PANEL_WIDTH } from './hmi/layout-constants';
 import type { RvExtrasEditorPlugin } from './hmi/rv-extras-editor';
@@ -189,6 +191,12 @@ export interface ViewerEvents {
   // ── FPV events ──
   'fpv-enter': undefined;
   'fpv-exit': undefined;
+
+  // ── Context Menu events ──
+  'context-menu-request': { pos: { x: number; y: number }; path: string; node: Object3D };
+
+  // ── Layout events ──
+  'layout-transform-update': { path: string; position: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number } };
 }
 
 // ─── RVViewer ───────────────────────────────────────────────────────────
@@ -314,6 +322,12 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _isOrbiting = false;
   /** Pointer position at pointerdown — used for drag-distance threshold. */
   private _pointerDownPos: { x: number; y: number } | null = null;
+  /** Right-button pointer position at pointerdown — used for context menu drag guard. */
+  private _rightDownPos: { x: number; y: number } | null = null;
+  /** Long-press timer ID for touch context menu. */
+  private _longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Stored position at touch start for long-press context menu. */
+  private _longPressPos: { x: number; y: number } | null = null;
 
   /** Available model entries for the model selector UI. */
   availableModels: Array<{ url: string; label: string }> = [];
@@ -326,6 +340,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
   /** Central selection state (multi-select, Escape-to-deselect, selection highlights). */
   readonly selectionManager = new SelectionManager();
+
+  /** Plugin-extensible context menu (right-click / long-press). */
+  readonly contextMenu = new ContextMenuStore();
 
   /**
    * Register a plugin. Sorted into cached lifecycle lists.
@@ -752,6 +769,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.controls.addEventListener('start', () => {
       this._isOrbiting = true;
       if (this.raycastManager) this.raycastManager.setEnabled(false);
+      this._cancelLongPress();
     });
     this.controls.addEventListener('end', () => {
       this._isOrbiting = false;
@@ -905,6 +923,20 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     // Selection manager — init after registry is available
     this.selectionManager.init(this);
 
+    // Register core "Focus" context menu item (available for all nodes)
+    this.contextMenu.register({
+      pluginId: '_core',
+      items: [{
+        id: '_core.focus',
+        label: 'Focus',
+        order: 1,
+        action: (target) => {
+          this.fitToNodes([target.node]);
+          this.selectionManager.select(target.path);
+        },
+      }],
+    });
+
     // Register filter subscribers for search settings
     registerFilterSubscriber({ id: 'Drive', label: 'Drives', componentType: 'Drive' });
     registerFilterSubscriber({ id: 'Sensor', label: 'Sensors', componentType: 'Sensor' });
@@ -1020,6 +1052,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     for (const p of this._plugins) {
       callPlugin(p, 'onModelCleared', this);
     }
+
+    // Close context menu to prevent stale target references
+    this.contextMenu.close();
 
     // Safety net: clear all dynamic UI contexts, preserve initial ones from config
     const initialCtxs = getAppConfig().ui?.initialContexts;
@@ -1910,8 +1945,22 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     // the pointer didn't move (drag threshold).
     const DRAG_THRESHOLD = 8;
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
-      this._pointerDownPos = { x: e.clientX, y: e.clientY };
+      // Left button: track for click selection
+      if (e.button === 0) {
+        this._pointerDownPos = { x: e.clientX, y: e.clientY };
+      }
+      // Right button: track for context menu drag guard
+      if (e.button === 2) {
+        this._rightDownPos = { x: e.clientX, y: e.clientY };
+      }
+      // Touch long-press: start timer for context menu
+      if (e.pointerType !== 'mouse' && e.button === 0) {
+        this._cancelLongPress();
+        this._longPressPos = { x: e.clientX, y: e.clientY };
+        this._longPressTimer = setTimeout(() => {
+          this._handleLongPress(e);
+        }, 500);
+      }
     });
     canvas.addEventListener('pointerup', (e) => {
       if (e.button !== 0 || !this._pointerDownPos) return;
@@ -1981,6 +2030,119 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         }
       }
     });
+
+    // ── Context Menu (right-click) ───────────────────────────────────
+    canvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault(); // Always suppress browser context menu on canvas
+
+      // Drag-distance guard: if user right-dragged (orbit rotation), skip
+      if (this._rightDownPos) {
+        const dx = e.clientX - this._rightDownPos.x;
+        const dy = e.clientY - this._rightDownPos.y;
+        if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) {
+          this._rightDownPos = null;
+          return;
+        }
+      }
+      this._rightDownPos = null;
+
+      // FPV guard: don't open context menu when FPV plugin is active
+      const fpvPlugin = this.getPlugin('fpv') as { active?: boolean } | undefined;
+      if (fpvPlugin?.active) return;
+
+      this._openContextMenuFromEvent(e);
+    });
+
+    // ── Long-press cancellation ──────────────────────────────────────
+    canvas.addEventListener('pointermove', (e) => {
+      if (this._longPressTimer && this._longPressPos) {
+        const dx = e.clientX - this._longPressPos.x;
+        const dy = e.clientY - this._longPressPos.y;
+        if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) {
+          this._cancelLongPress();
+        }
+      }
+    });
+    canvas.addEventListener('pointerup', () => {
+      this._cancelLongPress();
+    });
+    canvas.addEventListener('pointercancel', () => {
+      this._cancelLongPress();
+    });
+    canvas.addEventListener('touchcancel', () => {
+      this._cancelLongPress();
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this._cancelLongPress();
+    });
+  }
+
+  // ─── Context Menu Helpers ───────────────────────────────────────────
+
+  /** Cancel the long-press timer (touch context menu). */
+  private _cancelLongPress(): void {
+    if (this._longPressTimer) {
+      clearTimeout(this._longPressTimer);
+      this._longPressTimer = null;
+    }
+    this._longPressPos = null;
+  }
+
+  /** Handle long-press firing: raycast and open context menu. */
+  private _handleLongPress(e: PointerEvent): void {
+    this._longPressTimer = null;
+    if (this._isOrbiting) return;
+
+    // FPV guard
+    const fpvPlugin = this.getPlugin('fpv') as { active?: boolean } | undefined;
+    if (fpvPlugin?.active) return;
+
+    // Use stored position for the raycast (finger may have moved slightly)
+    const pos = this._longPressPos;
+    if (!pos) return;
+
+    // Create a synthetic mouse event at the stored position for raycast
+    const syntheticEvent = { clientX: pos.x, clientY: pos.y } as MouseEvent;
+    const path = this.raycastManager?.raycastForRVNode(syntheticEvent)
+      ?? this._raycastForRVNode(syntheticEvent);
+    if (!path) return;
+
+    const node = this.registry?.getNode(path);
+    if (!node) return;
+
+    const target: ContextMenuTarget = {
+      path,
+      node,
+      types: this.registry!.getComponentTypes(path),
+      extras: (node.userData?.realvirtual ?? {}) as Record<string, unknown>,
+    };
+
+    this.contextMenu.open({ x: pos.x, y: pos.y }, target);
+    navigator.vibrate?.(50);
+    this._longPressPos = null;
+  }
+
+  /**
+   * Raycast from a mouse event and open the context menu on the hit node.
+   * Shared by the `contextmenu` event handler and long-press handler.
+   */
+  private _openContextMenuFromEvent(e: MouseEvent): void {
+    const path = this.raycastManager?.raycastForRVNode(e)
+      ?? this._raycastForRVNode(e);
+    if (!path) return;
+
+    const node = this.registry?.getNode(path);
+    if (!node) return;
+
+    const target: ContextMenuTarget = {
+      path,
+      node,
+      types: this.registry!.getComponentTypes(path),
+      extras: (node.userData?.realvirtual ?? {}) as Record<string, unknown>,
+    };
+
+    this.contextMenu.open({ x: e.clientX, y: e.clientY }, target);
+    this.emit('context-menu-request', { pos: { x: e.clientX, y: e.clientY }, path, node });
   }
 
   /** Set up XR if available (WebGPU real backend has no XR support). */

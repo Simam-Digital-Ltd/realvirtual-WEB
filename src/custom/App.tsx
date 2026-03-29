@@ -22,6 +22,9 @@ import { DriveTooltipController } from '../core/hmi/tooltip/DriveTooltipControll
 import '../core/hmi/tooltip/DriveTooltipContent';
 import { tooltipStore } from '../core/hmi/tooltip/tooltip-store';
 
+// Context menu (plugin-extensible right-click / long-press menu)
+import { ContextMenuLayer } from '../core/hmi/ContextMenuLayer';
+
 // Demo chart overlays
 import { DriveChartOverlay } from './DriveChartOverlay';
 
@@ -76,6 +79,7 @@ export function App() {
     <ThemeProvider theme={rvDarkTheme}>
       <HMIShell>
         <TooltipLayer />
+        <ContextMenuLayer />
         {hmiVisible && showKpiBar && <KpiBar />}
         {hmiVisible && showTopBar && <TopBar />}
         {hmiVisible && showButtonPanel && <ButtonPanel />}
