@@ -645,3 +645,121 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
 
   return { drives, transportManager: manager, signalStore, registry, playback, replayRecordings, recorderSettings, logicEngine, boundingBox, triangleCount, groups, modelConfig: {} };
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// processExtras — Runtime extras processing for dynamically added GLBs
+// ═══════════════════════════════════════════════════════════════════
+
+export interface ProcessExtrasResult {
+  drives: RVDrive[];
+  signalsRegistered: number;
+  componentsCreated: number;
+}
+
+/**
+ * Process realvirtual extras on a subtree that was added at runtime.
+ *
+ * Reuses the same two-step model as loadGLB() but operates on EXISTING
+ * runtime systems (NodeRegistry, SignalStore, TransportManager) instead
+ * of creating new ones. Designed for Layout Planner placed objects.
+ *
+ * Skips: recordings, BVH, WebGPU fixes, shadow classification, groups,
+ *        triangle counting, parity validation, renamed-node alias detection.
+ */
+export function processExtras(
+  root: Object3D,
+  registry: NodeRegistry,
+  signalStore: SignalStore,
+  transportManager: RVTransportManager,
+  scene: Scene,
+): ProcessExtrasResult {
+  const drives: RVDrive[] = [];
+  const pending: PendingComponent[] = [];
+  let signalsRegistered = 0;
+
+  // ── STEP 1 "Awake": Traverse, construct, applySchema, register ──
+  root.traverse((node: Object3D) => {
+    // Register node in registry
+    const path = NodeRegistry.computeNodePath(node);
+    registry.registerNode(path, node);
+
+    const rv = node.userData?.realvirtual as Record<string, unknown> | undefined;
+    if (!rv) return;
+
+    // ── PLC Signals ──
+    for (const sigType of SIGNAL_TYPES) {
+      if (rv[sigType]) {
+        const sigData = rv[sigType] as Record<string, unknown>;
+        const status = sigData['Status'] as { Value?: boolean | number } | undefined;
+        const signalName = (sigData['Name'] as string) || node.name;
+        if (sigType.includes('Bool')) {
+          signalStore.register(signalName, path, status?.Value as boolean ?? false);
+        } else if (sigType.includes('Float') || sigType.includes('Int')) {
+          signalStore.register(signalName, path, status?.Value as number ?? 0);
+        }
+        registry.register(sigType, path, { address: path, signalName });
+        signalsRegistered++;
+      }
+    }
+
+    // ── Drive ──
+    if (rv['Drive']) {
+      const driveData = rv['Drive'] as Record<string, unknown>;
+      const dirStr = driveData['Direction'] as string | undefined;
+      if (dirStr) {
+        const drive = new RVDrive(node);
+        applySchema(drive as unknown as Record<string, unknown>, RVDrive.schema, driveData);
+
+        const behaviors: string[] = [];
+        const behaviorExtras: Record<string, Record<string, unknown>> = {};
+        for (const key of Object.keys(rv)) {
+          if (key !== 'Drive' && key.startsWith('Drive_')) {
+            behaviors.push(key);
+            behaviorExtras[key] = rv[key] as Record<string, unknown>;
+          }
+        }
+        drive.Behaviors = behaviors;
+        drive.BehaviorExtras = behaviorExtras;
+        drive.initDrive();
+
+        drives.push(drive);
+        registry.register('Drive', path, drive);
+        node.userData._rvType = 'Drive';
+
+        for (const bName of behaviors) {
+          const entry = DRIVE_BEHAVIOR_MAP[bName];
+          if (entry) {
+            const inst = new entry.ctor(node);
+            applySchema(inst as unknown as Record<string, unknown>, entry.schema, behaviorExtras[bName] ?? {});
+            pending.push({ component: inst, type: bName, path });
+          }
+        }
+      }
+    }
+
+    // ── Auto-discovered components ──
+    for (const [type, factory] of getRegisteredFactories()) {
+      if (!rv[type]) continue;
+      const data = rv[type] as Record<string, unknown>;
+      const aabb = factory.needsAABB ? createAABBFromExtras(node, rv) : null;
+      const instance = factory.create(node, aabb);
+      if (factory.beforeSchema) factory.beforeSchema(instance, data);
+      applySchema(instance as unknown as Record<string, unknown>, factory.schema, data);
+      if (factory.afterCreate) factory.afterCreate(instance, node);
+      registry.register(type, path, instance);
+      pending.push({ component: instance, type, path });
+    }
+  });
+
+  // ── STEP 2 "Start": resolveComponentRefs + init() ──
+  const context: ComponentContext = { registry, signalStore, scene, transportManager, root };
+  for (const { component } of pending) {
+    resolveComponentRefs(component as unknown as Record<string, unknown>, registry);
+    component.init(context);
+  }
+
+  // Rebuild signal index for O(1) lookup of newly added signals
+  signalStore.buildIndex();
+
+  return { drives, signalsRegistered, componentsCreated: pending.length };
+}

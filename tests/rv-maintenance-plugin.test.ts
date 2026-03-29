@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { MaintenancePlugin, type MaintenanceMode, type StepResult } from '../src/plugins/maintenance-plugin';
+import { MaintenancePlugin, type MaintenanceMode, type StepResult } from '../src/plugins/demo/maintenance-plugin';
 import type { MaintenanceProcedure } from '../src/core/maintenance-parser';
 import type { RVViewer } from '../src/core/rv-viewer';
 import type { LoadResult } from '../src/core/engine/rv-scene-loader';

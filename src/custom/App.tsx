@@ -21,6 +21,9 @@ import { DriveTooltipController } from '../core/hmi/tooltip/DriveTooltipControll
 import '../core/hmi/tooltip/DriveTooltipContent';
 import { tooltipStore } from '../core/hmi/tooltip/tooltip-store';
 
+// Demo chart overlays
+import { DriveChartOverlay } from './DriveChartOverlay';
+
 /** Apply persisted visual settings to the viewer on startup. */
 function useApplyPersistedSettings() {
   const viewer = useViewer();
@@ -72,6 +75,7 @@ export function App() {
         {hmiVisible && <SlotRenderer slot="views" />}
       </HMIShell>
       <DriveTooltipController />
+      <DriveChartOverlay />
     </ThemeProvider>
   );
 }

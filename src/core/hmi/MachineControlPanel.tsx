@@ -510,7 +510,9 @@ export function MachineControlPanel() {
 
   useEffect(() => {
     if (!isOpen) return;
-    const off = viewer.on('object-clicked', ({ path }: { path: string }) => {
+    const off = viewer.on('selection-changed', (snapshot) => {
+      const path = snapshot.primaryPath;
+      if (!path) { setHighlightedPath(null); return; }
       const match = controlState.components.find(c => c.path === path || path.startsWith(c.path + '/'));
       setHighlightedPath(match?.path ?? null);
     });

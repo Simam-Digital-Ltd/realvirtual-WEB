@@ -11,7 +11,7 @@
  * Advanced settings (role, enable/disable) are in the Multiuser settings tab.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import {
   Box,
   Typography,
@@ -42,7 +42,8 @@ const INPUT_SX = {
 
 // ── Sub-components ────────────────────────────────────────────────────────
 
-function PlayerRow({ player }: { player: PlayerInfo }) {
+// Opt 5a: React.memo prevents re-render when player props haven't changed
+const PlayerRow = memo(function PlayerRow({ player }: { player: PlayerInfo }) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.3 }}>
       <Box sx={{
@@ -59,7 +60,7 @@ function PlayerRow({ player }: { player: PlayerInfo }) {
       </Typography>
     </Box>
   );
-}
+});
 
 // ── Panel ─────────────────────────────────────────────────────────────────
 

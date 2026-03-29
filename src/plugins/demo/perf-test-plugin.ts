@@ -6,9 +6,9 @@
  * and writes them to `window.__PERF_RESULTS__` for Playwright/CI.
  */
 
-import type { RVViewerPlugin } from '../core/rv-plugin';
-import type { RVViewer } from '../core/rv-viewer';
-import type { LoadResult } from '../core/engine/rv-scene-loader';
+import type { RVViewerPlugin } from '../../core/rv-plugin';
+import type { RVViewer } from '../../core/rv-viewer';
+import type { LoadResult } from '../../core/engine/rv-scene-loader';
 
 const TEST_DURATION_S = 5;
 const SAMPLE_INTERVAL_MS = 500;

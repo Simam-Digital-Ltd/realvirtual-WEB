@@ -1,18 +1,18 @@
 /**
  * RVHighlightManager — Central highlight system for the WebViewer.
  *
- * Provides a single "highlight slot" that shows semi-transparent orange overlays
- * + glowing edge outlines on any Object3D subtree. Used by:
- *   - RaycastManager hover (rv-raycast-manager.ts)
- *   - Notification card hover/click
- *   - Any future selection or inspection feature
+ * Two independent highlight channels:
+ *   - **Hover** (orange): Temporary overlays shown on mouse hover.
+ *     Managed by RaycastManager. Call highlight()/clear().
+ *   - **Selection** (cyan): Persistent overlays for selected objects.
+ *     Managed by SelectionManager. Call highlightSelection()/clearSelection().
  *
- * Only one highlight can be active at a time. Calling highlight() replaces
- * the previous one. Call clear() to remove all overlays.
+ * Both channels can be active simultaneously — hovering a different object
+ * while a selection is active shows both colors.
  *
- * Two modes:
- *   - highlight(root)        — static snapshot (fast, for brief scene hover)
- *   - highlight(root, true)  — tracked: overlays follow moving meshes each frame
+ * Two tracking modes per channel:
+ *   - static snapshot (fast, for brief hover)
+ *   - tracked: overlays follow moving meshes each frame
  */
 
 import {
@@ -31,14 +31,22 @@ import type { InstancedMovingUnit } from './rv-mu';
 
 // ─── Constants ────────────────────────────────────────────────────────
 
-const HOVER_COLOR = new Color(0xffa040);
-const HOVER_OPACITY = 0.18;
-const EDGE_COLOR = new Color(0xffb060);
-const EDGE_OPACITY = 0.7;
+const HOVER_COLOR = new Color(0xffb870);
+const HOVER_OPACITY = 0.10;
+const HOVER_EDGE_COLOR = new Color(0xffc080);
+const HOVER_EDGE_OPACITY = 0.4;
+
+const SELECTION_COLOR = new Color(0x4fc3f7);
+const SELECTION_OPACITY = 0.25;
+const SELECTION_EDGE_COLOR = new Color(0x4fc3f7);
+const SELECTION_EDGE_OPACITY = 0.8;
+
 const EDGE_THRESHOLD_DEG = 30;
 
-/** Shared overlay material — renders on top of everything */
-const overlayMat = new MeshBasicMaterial({
+// ─── Shared Materials ─────────────────────────────────────────────────
+
+/** Hover overlay material — renders on top of everything */
+const hoverOverlayMat = new MeshBasicMaterial({
   color: HOVER_COLOR,
   transparent: true,
   opacity: HOVER_OPACITY,
@@ -46,13 +54,34 @@ const overlayMat = new MeshBasicMaterial({
   depthWrite: false,
   side: DoubleSide,
 });
-overlayMat.name = '_highlightOverlay';
+hoverOverlayMat.name = '_highlightOverlay';
 
-/** Shared edge outline material */
-const edgeMat = new LineBasicMaterial({
-  color: EDGE_COLOR,
+/** Hover edge outline material */
+const hoverEdgeMat = new LineBasicMaterial({
+  color: HOVER_EDGE_COLOR,
   transparent: true,
-  opacity: EDGE_OPACITY,
+  opacity: HOVER_EDGE_OPACITY,
+  depthTest: false,
+  depthWrite: false,
+  linewidth: 1,
+});
+
+/** Selection overlay material — cyan, slightly more opaque than hover */
+const selectionOverlayMat = new MeshBasicMaterial({
+  color: SELECTION_COLOR,
+  transparent: true,
+  opacity: SELECTION_OPACITY,
+  depthTest: false,
+  depthWrite: false,
+  side: DoubleSide,
+});
+selectionOverlayMat.name = '_selectionOverlay';
+
+/** Selection edge outline material */
+const selectionEdgeMat = new LineBasicMaterial({
+  color: SELECTION_EDGE_COLOR,
+  transparent: true,
+  opacity: SELECTION_EDGE_OPACITY,
   depthTest: false,
   depthWrite: false,
   linewidth: 1,
@@ -72,9 +101,14 @@ interface OverlayPair {
 // ─── RVHighlightManager ──────────────────────────────────────────────
 
 export class RVHighlightManager {
-  private pairs: OverlayPair[] = [];
-  /** When true, update() re-syncs overlay matrices from source meshes. */
-  private tracked = false;
+  /** Hover overlay pairs. */
+  private hoverPairs: OverlayPair[] = [];
+  /** Selection overlay pairs (persistent). */
+  private selectionPairs: OverlayPair[] = [];
+  /** When true, update() re-syncs hover overlay matrices from source meshes. */
+  private hoverTracked = false;
+  /** When true, update() re-syncs selection overlay matrices. */
+  private selectionTracked = false;
 
   constructor(private readonly scene: Scene) {}
 
@@ -82,8 +116,8 @@ export class RVHighlightManager {
 
   /**
    * Create a fill overlay + edge outline pair for a single geometry,
-   * positioned via `matrix`. Used by highlight(), highlightMultiple(),
-   * and highlightInstancedMU() to avoid triplicating overlay creation.
+   * positioned via `matrix`. Accepts materials so it can serve both
+   * hover and selection channels.
    */
   private _createOverlayPair(
     geometry: BufferGeometry,
@@ -91,11 +125,14 @@ export class RVHighlightManager {
     sourceMesh: Mesh,
     namePrefix: string,
     thresholdRad: number,
+    fillMat: MeshBasicMaterial,
+    edgeMaterial: LineBasicMaterial,
+    renderOrderBase: number,
   ): OverlayPair {
-    const overlay = new Mesh(geometry, overlayMat);
+    const overlay = new Mesh(geometry, fillMat);
     overlay.name = `${namePrefix}_hlOverlay`;
     overlay.userData._highlightOverlay = true;
-    overlay.renderOrder = 1000;
+    overlay.renderOrder = renderOrderBase;
     overlay.raycast = () => {};
     overlay.matrixAutoUpdate = false;
     overlay.matrixWorldAutoUpdate = false;
@@ -108,10 +145,10 @@ export class RVHighlightManager {
       edgeGeo = new EdgesGeometry(geometry, thresholdRad);
       edgeGeometryCache.set(geometry, edgeGeo);
     }
-    const edgeLines = new LineSegments(edgeGeo, edgeMat);
+    const edgeLines = new LineSegments(edgeGeo, edgeMaterial);
     edgeLines.name = `${namePrefix}_hlEdge`;
     edgeLines.userData._highlightOverlay = true;
-    edgeLines.renderOrder = 1001;
+    edgeLines.renderOrder = renderOrderBase + 1;
     edgeLines.raycast = () => {};
     edgeLines.matrixAutoUpdate = false;
     edgeLines.matrixWorldAutoUpdate = false;
@@ -122,68 +159,18 @@ export class RVHighlightManager {
     return { source: sourceMesh, fill: overlay, edge: edgeLines };
   }
 
-  // ─── Public API ──────────────────────────────────────────────────────
-
-  /**
-   * Highlight a subtree with orange overlay + edge glow.
-   * Replaces any previous highlight.
-   *
-   * @param root     The root Object3D to highlight.
-   * @param track    If true, overlays follow mesh movement each frame (call update()).
-   * @param options  Extra options.
-   */
-  highlight(root: Object3D, track = false, options?: { includeSensorViz?: boolean; includeChildDrives?: boolean }): void {
-    this.clear();
-    this.tracked = track;
-    const includeSensorViz = options?.includeSensorViz ?? false;
-    const includeChildDrives = options?.includeChildDrives ?? false;
-    const meshes = this.collectMeshes(root, includeSensorViz, includeChildDrives);
-    const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
-
-    for (const mesh of meshes) {
-      mesh.updateWorldMatrix(true, false);
-      this.pairs.push(this._createOverlayPair(mesh.geometry, mesh.matrixWorld, mesh, mesh.name, thresholdRad));
+  /** Remove overlay pairs from the scene. */
+  private _removePairs(pairs: OverlayPair[]): void {
+    for (const { fill, edge } of pairs) {
+      this.scene.remove(fill);
+      this.scene.remove(edge);
     }
+    pairs.length = 0;
   }
 
-  /**
-   * Highlight an instanced MU by creating temporary overlay meshes
-   * positioned at the instance's world-space matrix.
-   *
-   * Since InstancedMesh has no per-instance Object3D, we create a
-   * temporary overlay using the pool's shared geometry and the instance's
-   * matrix from the pool.
-   */
-  highlightInstancedMU(mu: InstancedMovingUnit): void {
-    this.clear();
-    this.tracked = false;
-
-    const pool = mu.node.userData?._muPool;
-    if (!pool || mu.slotIndex < 0) return;
-
-    const geometry = mu.node.geometry;
-    if (!geometry) return;
-
-    // Get the instance's world matrix from the pool
-    const mat = new Matrix4();
-    mu.node.getMatrixAt(mu.slotIndex, mat);
-
-    const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
-    // Create pair with a dummy source, then fix source to overlay (self-referential).
-    // Instanced MU has no per-instance Object3D, so use overlay itself.
-    // Since tracked=false, update() won't be called and the self-referential source is harmless.
-    const pair = this._createOverlayPair(geometry, mat, null as unknown as Mesh, '__imu', thresholdRad);
-    pair.source = pair.fill;
-    this.pairs.push(pair);
-  }
-
-  /**
-   * Re-sync overlay positions from source meshes.
-   * Call once per render frame. No-op when not in tracked mode or no overlays.
-   */
-  update(): void {
-    if (!this.tracked || this.pairs.length === 0) return;
-    for (const { source, fill, edge } of this.pairs) {
+  /** Sync tracked overlay positions. */
+  private _syncPairs(pairs: OverlayPair[]): void {
+    for (const { source, fill, edge } of pairs) {
       source.updateWorldMatrix(true, false);
       fill.matrix.copy(source.matrixWorld);
       fill.matrixWorld.copy(source.matrixWorld);
@@ -192,13 +179,61 @@ export class RVHighlightManager {
     }
   }
 
+  // ─── Hover API (temporary highlights) ──────────────────────────────
+
   /**
-   * Highlight multiple subtrees at once with orange overlay + edge glow.
-   * Replaces any previous highlight. All roots are tracked.
+   * Highlight a subtree with orange hover overlay + edge glow.
+   * Replaces any previous hover highlight. Does NOT affect selection.
+   */
+  highlight(root: Object3D, track = false, options?: { includeSensorViz?: boolean; includeChildDrives?: boolean }): void {
+    this.clear();
+    this.hoverTracked = track;
+    const includeSensorViz = options?.includeSensorViz ?? false;
+    const includeChildDrives = options?.includeChildDrives ?? false;
+    const meshes = this.collectMeshes(root, includeSensorViz, includeChildDrives);
+    const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
+
+    for (const mesh of meshes) {
+      mesh.updateWorldMatrix(true, false);
+      this.hoverPairs.push(this._createOverlayPair(
+        mesh.geometry, mesh.matrixWorld, mesh, mesh.name, thresholdRad,
+        hoverOverlayMat, hoverEdgeMat, 1000,
+      ));
+    }
+  }
+
+  /**
+   * Highlight an instanced MU by creating temporary hover overlay meshes.
+   */
+  highlightInstancedMU(mu: InstancedMovingUnit): void {
+    this.clear();
+    this.hoverTracked = false;
+
+    const pool = mu.node.userData?._muPool;
+    if (!pool || mu.slotIndex < 0) return;
+
+    const geometry = mu.node.geometry;
+    if (!geometry) return;
+
+    const mat = new Matrix4();
+    mu.node.getMatrixAt(mu.slotIndex, mat);
+
+    const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
+    const pair = this._createOverlayPair(
+      geometry, mat, null as unknown as Mesh, '__imu', thresholdRad,
+      hoverOverlayMat, hoverEdgeMat, 1000,
+    );
+    pair.source = pair.fill;
+    this.hoverPairs.push(pair);
+  }
+
+  /**
+   * Highlight multiple subtrees at once with orange hover overlay.
+   * Replaces any previous hover highlight.
    */
   highlightMultiple(roots: Object3D[], options?: { includeSensorViz?: boolean }): void {
     this.clear();
-    this.tracked = true;
+    this.hoverTracked = true;
     const includeSensorViz = options?.includeSensorViz ?? false;
     const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
 
@@ -206,39 +241,91 @@ export class RVHighlightManager {
       const meshes = this.collectMeshes(root, includeSensorViz);
       for (const mesh of meshes) {
         mesh.updateWorldMatrix(true, false);
-        this.pairs.push(this._createOverlayPair(mesh.geometry, mesh.matrixWorld, mesh, mesh.name, thresholdRad));
+        this.hoverPairs.push(this._createOverlayPair(
+          mesh.geometry, mesh.matrixWorld, mesh, mesh.name, thresholdRad,
+          hoverOverlayMat, hoverEdgeMat, 1000,
+        ));
       }
     }
   }
 
-  /** Remove all highlight overlays. */
+  /** Remove hover highlight overlays only. Selection persists. */
   clear(): void {
-    for (const { fill, edge } of this.pairs) {
-      this.scene.remove(fill);
-      this.scene.remove(edge);
-    }
-    // Note: EdgesGeometry is cached in the module-level WeakMap and NOT
-    // disposed here — it will be garbage-collected when the source
-    // BufferGeometry is disposed (WeakMap key collected).
-    this.pairs.length = 0;
-    this.tracked = false;
+    this._removePairs(this.hoverPairs);
+    this.hoverTracked = false;
   }
 
-  /** Whether any highlight is currently active */
+  /** Whether any hover highlight is currently active. */
   get isActive(): boolean {
-    return this.pairs.length > 0;
+    return this.hoverPairs.length > 0;
+  }
+
+  // ─── Selection API (persistent highlights) ─────────────────────────
+
+  /**
+   * Highlight multiple subtrees with cyan selection overlay + edge glow.
+   * Replaces any previous selection highlight. Does NOT affect hover.
+   * Selection overlays are always tracked (follow moving meshes).
+   */
+  highlightSelection(roots: Object3D[], options?: { includeSensorViz?: boolean; includeChildDrives?: boolean }): void {
+    this.clearSelection();
+    if (roots.length === 0) return;
+    this.selectionTracked = true;
+    const includeSensorViz = options?.includeSensorViz ?? false;
+    const includeChildDrives = options?.includeChildDrives ?? false;
+    const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
+
+    for (const root of roots) {
+      const meshes = this.collectMeshes(root, includeSensorViz, includeChildDrives);
+      for (const mesh of meshes) {
+        mesh.updateWorldMatrix(true, false);
+        this.selectionPairs.push(this._createOverlayPair(
+          mesh.geometry, mesh.matrixWorld, mesh, mesh.name + '_sel', thresholdRad,
+          selectionOverlayMat, selectionEdgeMat, 900,
+        ));
+      }
+    }
+  }
+
+  /** Remove selection highlight overlays only. Hover persists. */
+  clearSelection(): void {
+    this._removePairs(this.selectionPairs);
+    this.selectionTracked = false;
+  }
+
+  /** Whether any selection highlight is currently active. */
+  get isSelectionActive(): boolean {
+    return this.selectionPairs.length > 0;
+  }
+
+  // ─── Common API ────────────────────────────────────────────────────
+
+  /**
+   * Re-sync overlay positions from source meshes (both channels).
+   * Call once per render frame. No-op when nothing is tracked.
+   */
+  update(): void {
+    if (this.hoverTracked && this.hoverPairs.length > 0) {
+      this._syncPairs(this.hoverPairs);
+    }
+    if (this.selectionTracked && this.selectionPairs.length > 0) {
+      this._syncPairs(this.selectionPairs);
+    }
+  }
+
+  /** Remove all overlays (both hover and selection). */
+  clearAll(): void {
+    this.clear();
+    this.clearSelection();
   }
 
   dispose(): void {
-    this.clear();
+    this.clearAll();
   }
 
   /**
    * Collect all Meshes under root, optionally stopping at child drive boundaries.
    * Skips existing overlay meshes.
-   *
-   * @param includeSensorViz    If true, includes _sensorViz meshes (for sensor highlights).
-   * @param includeChildDrives  If true, doesn't stop at child drive boundaries (highlight entire subtree).
    */
   private collectMeshes(root: Object3D, includeSensorViz: boolean, includeChildDrives = false): Mesh[] {
     const meshes: Mesh[] = [];

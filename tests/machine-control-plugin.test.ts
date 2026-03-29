@@ -5,7 +5,7 @@
  * 3D integration API, and idempotency.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { MachineControlPlugin, type MachineControlState } from '../src/plugins/machine-control-plugin';
+import { MachineControlPlugin, type MachineControlState } from '../src/plugins/demo/machine-control-plugin';
 import { LeftPanelManager } from '../src/core/hmi/left-panel-manager';
 
 // ─── Minimal Viewer Mock ─────────────────────────────────────────────────

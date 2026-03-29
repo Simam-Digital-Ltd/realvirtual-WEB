@@ -16,23 +16,23 @@
  */
 
 import { Vector3 } from 'three';
-import type { RVViewerPlugin } from '../core/rv-plugin';
-import type { LoadResult } from '../core/engine/rv-scene-loader';
-import type { RVViewer } from '../core/rv-viewer';
+import type { RVViewerPlugin } from '../../core/rv-plugin';
+import type { LoadResult } from '../../core/engine/rv-scene-loader';
+import type { RVViewer } from '../../core/rv-viewer';
 import {
   parseMaintenanceProcedures,
   type MaintenanceProcedure,
   type MaintenanceStep,
-} from '../core/maintenance-parser';
+} from '../../core/maintenance-parser';
 import {
   loadMaintenanceProgress,
   saveMaintenanceProgress,
   clearMaintenanceProgress,
-} from '../core/hmi/maintenance-progress-store';
+} from '../../core/hmi/maintenance-progress-store';
 
 // Re-export shared types from core (canonical source of truth)
-export type { MaintenanceMode, StepResult, MaintenanceState } from '../core/types/plugin-types';
-import type { MaintenanceMode, StepResult, MaintenanceState } from '../core/types/plugin-types';
+export type { MaintenanceMode, StepResult, MaintenanceState } from '../../core/types/plugin-types';
+import type { MaintenanceMode, StepResult, MaintenanceState } from '../../core/types/plugin-types';
 
 // ─── Plugin ─────────────────────────────────────────────────────────────
 

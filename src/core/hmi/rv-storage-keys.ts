@@ -22,6 +22,7 @@ export const ALL_RV_STORAGE_KEYS = [
   'rv-maintenance-progress',
   'rv-ai-bridge',
   'rv-multiuser-settings',
+  'rv-left-panel-active',
   'rv-layout-library-urls',
   'rv-layout-autosave',
   'rv-layout-grid-enabled',

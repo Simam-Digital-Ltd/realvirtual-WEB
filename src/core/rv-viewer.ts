@@ -87,6 +87,8 @@ import type { RVViewerPlugin } from './rv-plugin';
 import { UIPluginRegistry } from './rv-ui-registry';
 import { isActiveForState } from './engine/rv-active-only';
 import { LeftPanelManager } from './hmi/left-panel-manager';
+import { SelectionManager } from './engine/rv-selection-manager';
+import type { SelectionSnapshot } from './engine/rv-selection-manager';
 import { INSPECTOR_PANEL_WIDTH } from './hmi/layout-constants';
 import type { RvExtrasEditorPlugin } from './hmi/rv-extras-editor';
 import { isMobileDevice } from '../hooks/use-mobile-layout';
@@ -171,6 +173,7 @@ export interface ViewerEvents {
   // ── UI events (emitted by UI plugins) ──
   'camera-animation-done': { targetPath?: string };
   'object-clicked': { path: string; node: Object3D };
+  'selection-changed': SelectionSnapshot;
   'object-focus': { path: string; node: Object3D };
   'panel-opened': { panelId: string };
   'panel-closed': { panelId: string };
@@ -318,6 +321,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
   /** Centralized left-panel coordination (mutual exclusion, ButtonPanel offset). */
   readonly leftPanelManager = new LeftPanelManager();
+
+  /** Central selection state (multi-select, Escape-to-deselect, selection highlights). */
+  readonly selectionManager = new SelectionManager();
 
   /**
    * Register a plugin. Sorted into cached lifecycle lists.
@@ -894,6 +900,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.registry = result.registry;
     this.groups = result.groups;
 
+    // Selection manager — init after registry is available
+    this.selectionManager.init(this);
+
     // Register filter subscribers for search settings
     registerFilterSubscriber({ id: 'Drive', label: 'Drives', componentType: 'Drive' });
     registerFilterSubscriber({ id: 'Sensor', label: 'Sensors', componentType: 'Sensor' });
@@ -1010,6 +1019,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       callPlugin(p, 'onModelCleared', this);
     }
     this._lastLoadResult = null;
+
+    this.selectionManager.clear();
+    this.selectionManager.dispose();
 
     if (this.raycastManager) {
       this.raycastManager.dispose();
@@ -1767,9 +1779,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this._dampingFramesRemaining--;
       this._renderDirty = true;
     }
-    this.controls.update();
+    if (this.controls.enabled) this.controls.update();
     // Highlight tracked mode needs rendering when overlays move
-    if (this.highlighter.isActive) this._renderDirty = true;
+    if (this.highlighter.isActive || this.highlighter.isSelectionActive) this._renderDirty = true;
     this.highlighter.update();
 
     // Shadow dirty flag: only re-render shadow map when something has changed
@@ -1908,32 +1920,46 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         ? this.registry?.findInParent<RVDrive>(hoveredNode, 'Drive') ?? null
         : null;
 
+      // Drive chart special mode: filter drives on click
       if (hoveredDrive && this._driveChartOpen) {
         this.filterDrives(hoveredDrive.name);
-      } else if (hoveredNode && hoveredType === 'Sensor' && this._sensorChartOpen) {
+        return;
+      }
+
+      // Sensor chart special mode: filter sensors on click
+      if (hoveredNode && hoveredType === 'Sensor' && this._sensorChartOpen) {
         const path = this.registry?.getPathForNode(hoveredNode);
         if (path) {
-          this.highlighter.highlight(hoveredNode, true, { includeSensorViz: true });
           this.filterNodes(hoveredNode.name);
           this.emit('object-clicked', { path, node: hoveredNode });
         }
-      } else if (hoveredDrive) {
-        const path = this.registry?.getPathForNode(hoveredDrive.node);
-        if (path) {
-          this.highlighter.highlight(hoveredDrive.node, true, { includeChildDrives: true });
-          this.emit('object-clicked', { path, node: hoveredDrive.node });
-        }
+        return;
+      }
+
+      // Normal selection: route through SelectionManager
+      let hitPath: string | null = null;
+      let hitNode: Object3D | null = null;
+
+      if (hoveredDrive) {
+        hitPath = this.registry?.getPathForNode(hoveredDrive.node) ?? null;
+        hitNode = hoveredDrive.node;
       } else {
-        const hitPath = this.raycastManager?.raycastForRVNode(e) ?? this._raycastForRVNode(e);
-        if (hitPath && this.registry) {
-          const node = this.registry.getNode(hitPath);
-          if (node) {
-            this.highlighter.highlight(node, true, { includeChildDrives: true });
-            this.emit('object-clicked', { path: hitPath, node });
-          }
+        hitPath = this.raycastManager?.raycastForRVNode(e) ?? this._raycastForRVNode(e);
+        hitNode = hitPath && this.registry ? this.registry.getNode(hitPath) ?? null : null;
+      }
+
+      if (hitPath && hitNode) {
+        if (e.shiftKey) {
+          this.selectionManager.toggle(hitPath);
         } else {
-          this.clearFocus();
+          this.selectionManager.select(hitPath);
         }
+        // Backward compat: emit object-clicked for existing listeners
+        this.emit('object-clicked', { path: hitPath, node: hitNode });
+      } else {
+        // Clicked empty space
+        this.selectionManager.clear();
+        this.clearFocus();
       }
     });
 

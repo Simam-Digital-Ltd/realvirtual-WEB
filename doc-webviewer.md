@@ -45,10 +45,17 @@ src/
 │   ├── rv-behavior.ts                    # RVBehavior abstract base class (MonoBehaviour-like)
 │   ├── rv-ui-plugin.ts                  # UISlot types, UISlotEntry
 │   ├── rv-ui-registry.ts               # UIPluginRegistry (slot component lookup)
+│   ├── types/
+│   │   └── plugin-types.ts             # Shared plugin API type definitions (decouples core↔plugins)
 │   ├── engine/                          # Simulation engine subsystems
 │   │   ├── rv-scene-loader.ts           # GLB loading, component construction, NodeRegistry population
 │   │   ├── rv-node-registry.ts          # Centralized object discovery (path, type, hierarchy)
+│   │   ├── rv-component-registry.ts     # Schema-based auto-mapping (Unity C# → TypeScript)
+│   │   ├── rv-model-config.ts           # Model-specific plugin config (modelname.json + GLB extras)
+│   │   ├── rv-plugin-loader.ts          # Dynamic ESM plugin loading (external .js plugins)
 │   │   ├── rv-drive.ts                  # RVDrive (ported from Drive.cs)
+│   │   ├── rv-drive-simple.ts           # RVDriveSimple (companion drive)
+│   │   ├── rv-drive-cylinder.ts         # RVDriveCylinder (companion drive)
 │   │   ├── rv-drives-playback.ts        # Frame-based recording playback
 │   │   ├── rv-transport-manager.ts      # Sources → Transport → Sensors → Sinks
 │   │   ├── rv-transport-surface.ts      # AABB-based conveyor surface
@@ -58,6 +65,8 @@ src/
 │   │   ├── rv-sensor.ts                 # AABB overlap detection
 │   │   ├── rv-aabb.ts                   # Axis-aligned bounding box
 │   │   ├── rv-signal-store.ts           # PLC signal pub/sub store
+│   │   ├── rv-signal-wiring.ts          # Signal routing (ConnectSignal)
+│   │   ├── rv-connect-signal.ts         # Signal connection component
 │   │   ├── rv-logic-step.ts             # LogicStep base + all step types
 │   │   ├── rv-logic-engine.ts           # LogicStep tree builder from GLB extras
 │   │   ├── rv-erratic.ts               # RVErraticDriver (random targets)
@@ -71,18 +80,21 @@ src/
 │   │   ├── rv-simulation-loop.ts        # Fixed 60Hz accumulator loop (XR-compatible)
 │   │   ├── rv-xr-manager.ts            # WebXR session management (VR/AR)
 │   │   ├── rv-xr-hit-test.ts           # AR hit-test reticle
+│   │   ├── rv-grip.ts                   # Gripping system
+│   │   ├── rv-grip-target.ts            # Grip target positions
+│   │   ├── rv-group-registry.ts         # Group definitions and visibility
 │   │   ├── rv-physics-world.ts          # Rapier.js physics world wrapper
 │   │   ├── rapier-physics-plugin.ts     # Physics-based transport (replaces kinematic)
 │   │   ├── rv-debug.ts                  # Structured category-based debug logging
 │   │   └── rv-extras-validator.ts       # Dev-mode GLB extras parity checker
 │   └── hmi/                             # React HMI layout components (MUI-based)
-│       ├── rv-app-config.ts             # App config singleton (settings.json, lock mode)
+│       ├── rv-app-config.ts             # App config singleton (settings.json, lock mode, plugins)
 │       ├── visual-settings-store.ts     # Visual settings (shadows, light, cameras)
 │       ├── physics-settings-store.ts    # Physics settings (Rapier.js)
 │       ├── search-settings-store.ts     # Search/filter settings
 │       ├── rv-storage-keys.ts           # Central localStorage key registry
 │       ├── hmi-entry.ts                 # HMI initialization (React root)
-│       ├── App.tsx                      # Root layout
+│       ├── App.tsx                      # Root layout (minimal public shell)
 │       ├── HMIShell.tsx                 # SlotRenderer for plugin UI
 │       ├── KpiBar.tsx                   # Top KPI card container (slot: kpi-bar)
 │       ├── ButtonPanel.tsx              # Left sidebar with nav buttons (slot: button-group)
@@ -90,6 +102,14 @@ src/
 │       ├── TopBar.tsx, BottomBar.tsx     # Top/bottom bars
 │       ├── KpiCard.tsx, TileCard.tsx     # Reusable card components
 │       ├── ChartPanel.tsx               # Draggable/resizable chart overlay
+│       ├── LeftPanel.tsx                # Standardized docked left panel
+│       ├── LayoutLibraryPanel.tsx       # Layout planner library panel (multi-tab)
+│       ├── MachineControlPanel.tsx      # Machine start/stop/mode control
+│       ├── MaintenancePanel.tsx         # Maintenance step guides
+│       ├── GroupsOverlay.tsx            # Group visibility toggles
+│       ├── left-panel-manager.ts        # LeftPanel mutual exclusion coordinator
+│       ├── layout-constants.ts          # Shared positioning constants
+│       ├── group-visibility-store.ts    # Group visibility state
 │       └── tooltip/                     # Generic tooltip system
 │           ├── tooltip-store.ts         # TooltipStore (useSyncExternalStore, priority resolution)
 │           ├── tooltip-registry.ts      # TooltipContentRegistry (content type → React component)
@@ -98,20 +118,31 @@ src/
 │           ├── DriveTooltipController.tsx # Headless bridge: drive hover → tooltip store
 │           ├── DriveTooltipContent.tsx   # Drive tooltip content (name, speed, position)
 │           └── index.ts                 # Barrel export
+├── private-stubs/                       # No-op fallbacks when private folder absent
+│   ├── private-plugins.ts              # export function registerPrivatePlugins() {} // no-op
+│   └── custom/
+│       └── hmi-entry.tsx               # Mounts public App.tsx
 ├── interfaces/                          # Industrial interface plugins
 │   ├── interface-manager.ts             # Interface coordinator (mutex, auto-connect)
 │   ├── interface-settings-store.ts      # Interface settings (WS, MQTT, ctrlX)
 │   ├── base-industrial-interface.ts     # Abstract interface base class
 │   ├── websocket-realtime-interface.ts  # WebSocket Realtime protocol
 │   └── ctrlx-interface.ts              # Bosch Rexroth ctrlX protocol
-├── plugins/                             # Non-core plugins
-│   ├── sensor-monitor-plugin.ts         # Event-based sensor monitoring
-│   ├── transport-stats-plugin.ts        # Transport statistics (10Hz RingBuffer)
-│   ├── camera-events-plugin.ts          # Camera animation done events
-│   ├── drive-order-plugin.ts            # Topological drive sorting for CAM/Gear
-│   ├── kpi-demo-plugin.ts              # Static demo KPI data
-│   ├── webxr-plugin.ts                 # WebXR VR/AR support (Quest, Vision Pro)
-│   └── test-axes-plugin.tsx           # Manual axis tester (extends RVBehavior)
+├── plugins/                             # Optional plugins (lazy-loaded when declared)
+│   ├── sensor-monitor-plugin.ts         # Event-based sensor monitoring (core)
+│   ├── transport-stats-plugin.ts        # Transport statistics (10Hz RingBuffer, core)
+│   ├── camera-events-plugin.ts          # Camera animation done events (core)
+│   ├── drive-order-plugin.ts            # Topological drive sorting for CAM/Gear (core)
+│   ├── maintenance-plugin.ts           # Maintenance step guides + checklist UI (lazy)
+│   ├── machine-control-plugin.ts       # Machine start/stop/mode control panel (lazy)
+│   ├── multiuser-plugin.ts             # Multi-user presence + avatars (lazy)
+│   ├── webxr-plugin.ts                 # WebXR VR/AR support (lazy)
+│   ├── fpv-plugin.tsx                  # First-person view navigation (lazy)
+│   ├── mcp-bridge-plugin.ts            # Claude MCP WebSocket bridge (lazy)
+│   ├── layout-planner-plugin.ts        # Factory layout planner with drag & drop (lazy)
+│   ├── rv-layout-store.ts              # Layout state store (useSyncExternalStore)
+│   ├── debug-endpoint-plugin.ts        # Debug HTTP endpoint
+│   └── perf-test-plugin.ts             # Performance benchmarking (dev)
 ├── hooks/                               # React hooks
 │   ├── use-viewer.ts                    # RVViewer context access
 │   ├── use-plugin.ts                    # usePlugin<T>(id) for type-safe plugin access
@@ -124,19 +155,20 @@ src/
 │   ├── use-drive-filter.ts             # Drive search/filter
 │   ├── use-signal.ts                    # Signal store subscriptions
 │   ├── use-tooltip.ts                   # useTooltipState() hook
+│   ├── use-mobile-layout.ts            # Mobile detection
+│   ├── use-multiuser.ts                # Multiuser state
+│   ├── use-machine-control.ts          # Machine control state
+│   ├── use-maintenance-mode.ts         # Maintenance mode state
+│   ├── use-groups-overlay.ts           # Group visibility
 │   └── use-interface-status.ts          # Interface connection status
-├── custom/                              # Customizable demo content
-│   ├── demo-hmi-plugin.tsx              # DemoHMIPlugin: KPI cards, nav buttons, messages
-│   ├── App.tsx                          # Custom app layout
-│   ├── OeeChart.tsx, PartsChart.tsx     # Demo chart panels
-│   ├── CycleTimeChart.tsx               # Cycle time chart
-│   └── DriveChartOverlay.tsx            # Drive chart overlay
+├── custom/                              # Customizable app shell
+│   └── App.tsx                          # Public app layout (minimal — no demo charts)
 └── tests/
     ├── glb-extras.test.ts               # GLB structure (21 tests)
     ├── rv-node-registry.test.ts         # NodeRegistry (34 tests)
     ├── rv-transport.test.ts             # Transport simulation (17 tests)
     ├── rv-logic-steps.test.ts           # LogicStep sequencing (33 tests)
-    ├── rv-signal-store.test.ts          # Signal pub/sub (15 tests)
+    ├── rv-signal-store.test.ts          # Signal pub/sub (23 tests)
     ├── rv-drives-playback.test.ts       # Recording playback (10 tests)
     ├── rv-aabb.test.ts                  # AABB collision (7 tests)
     ├── rv-events-typed.test.ts          # Typed EventEmitter (7 tests)
@@ -149,6 +181,17 @@ src/
     ├── kpi-utils.test.ts                # KPI utilities (40 tests)
     ├── rv-step-serializer.test.ts       # LogicStep serializer (5 tests)
     ├── rv-app-config.test.ts            # App config, lock mode, store overrides (15 tests)
+    ├── rv-model-config.test.ts          # Model config, plugin activation modes (25 tests)
+    ├── rv-component-registry.test.ts    # Component auto-mapping (tests)
+    ├── rv-group-registry.test.ts        # Group parsing/registry (tests)
+    ├── rv-layout-store.test.ts          # Layout planner store (16 tests)
+    ├── rv-layout-persistence.test.ts    # Layout JSON serialization (5 tests)
+    ├── rv-layout-grid.test.ts           # Grid snap math (7 tests)
+    ├── rv-layout-model-cache.test.ts    # GLB model cache (6 tests)
+    ├── rv-layout-bounds.test.ts         # Floor alignment (4 tests)
+    ├── rv-layout-lifecycle.test.ts      # Layout plugin lifecycle (6 tests)
+    ├── rv-layout-localstorage.test.ts   # Layout localStorage persistence (8 tests)
+    └── ...                              # Additional test suites (67 files total, 900+ tests)
 ```
 
 > **Note:** The `~` suffix in `realvirtual-WebViewer~` prevents Unity from importing `node_modules/`.
@@ -182,6 +225,7 @@ interface RVViewerPlugin {
   readonly id: string;
   readonly order?: number;              // Execution order (lower = earlier)
   readonly handlesTransport?: boolean;  // true = replaces kinematic transport
+  readonly core?: boolean;              // true = always active, even in selective mode
   readonly slots?: UISlotEntry[];       // Optional React components for HMI layout
 
   onModelLoaded?(result, viewer): void;
@@ -214,18 +258,49 @@ abstract class RVBehavior implements RVViewerPlugin {
 }
 ```
 
-Register via `viewer.use()`:
+### Registration
+
+Plugins are registered via `viewer.use()` (eager) or `viewer.registerLazy()` (code-split):
 
 ```typescript
+// Eager registration — plugin is always bundled
 viewer
   .use(rapierPlugin)
   .use(new DriveOrderPlugin())
-  .use(new SensorMonitorPlugin())
-  .use(new TransportStatsPlugin())
-  .use(new CameraEventsPlugin())
-  .use(new KpiDemoPlugin())
-  .use(new DemoHMIPlugin());
+  .use(new SensorMonitorPlugin());
+
+// Lazy registration — Vite code-splits into a separate chunk
+viewer.registerLazy('maintenance', () => import('./plugins/maintenance-plugin'));
+viewer.registerLazy('multiuser', () => import('./plugins/multiuser-plugin'));
 ```
+
+Lazy plugins are only loaded when a model requests them (via `rv_plugins` or `modelname.json`). This keeps the initial bundle small.
+
+### Plugin Resolution
+
+When a model requests a plugin by ID, the viewer resolves it through a three-level chain:
+
+```
+1. Already registered (via use())        → return existing
+2. Lazy built-in (via registerLazy())    → import chunk, instantiate, use()
+3. External plugin (models/plugins/{id}.js) → dynamic import(), use()
+4. Not found                             → null (no crash)
+```
+
+External plugins are pre-built `.js` files placed in `models/plugins/`. They must export a default class or instance implementing `RVViewerPlugin`.
+
+### Activation Modes
+
+Plugin activation depends on whether the model declares an `rv_plugins` list:
+
+| Mode | Condition | Behavior |
+|------|-----------|----------|
+| **ALL-MODE** | No `rv_plugins` declared anywhere | All registered plugins receive `onModelLoaded` (backward compatible) |
+| **SELECTIVE-MODE** | `rv_plugins` declared in modelname.json, GLB extras, or settings.json | Only declared plugins + `core: true` plugins activate |
+
+In selective mode, core plugins (physics, drive sorting, sensor monitoring) always activate regardless of the `rv_plugins` list. This ensures essential infrastructure is never accidentally disabled.
+
+See **[Model-Specific Plugin Configuration](#model-specific-plugin-configuration)** for how to declare `rv_plugins`.
 
 Plugins with `slots` automatically register React components into HMI layout positions (kpi-bar, button-group, messages, views, search-bar, settings-tab).
 

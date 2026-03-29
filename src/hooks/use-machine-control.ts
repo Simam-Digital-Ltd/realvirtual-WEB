@@ -12,7 +12,7 @@ import type {
   MachineMode,
   MachineComponent,
   MachineControlState,
-} from '../plugins/machine-control-plugin';
+} from '../plugins/demo/machine-control-plugin';
 
 /** Default state when no model is loaded. */
 const INITIAL_STATE: MachineControlState = {

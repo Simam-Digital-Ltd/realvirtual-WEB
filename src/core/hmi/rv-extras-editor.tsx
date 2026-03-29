@@ -424,10 +424,13 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
       // in this session, snapshotOriginal() captures them on first edit.)
     }
 
-    // Subscribe to viewer events for loose-coupled scene interaction
+    // Subscribe to selection-changed for loose-coupled scene interaction
     this._eventUnsubs.push(
-      viewer.on('object-clicked', ({ path }) => {
-        if (this._panelOpen) {
+      viewer.on('selection-changed', (snapshot) => {
+        const path = snapshot.primaryPath;
+        if (!path) {
+          this.clearSelection();
+        } else if (this._panelOpen) {
           this.selectAndReveal(path, false);
         } else {
           this.selectNode(path, false);
@@ -452,6 +455,31 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
       viewer.leftPanelManager.open('hierarchy', this._panelWidth);
     }
 
+    this.notify();
+  }
+
+  /** Re-scan the scene for editable nodes. Call after adding/removing nodes with userData.realvirtual. */
+  refreshEditableNodes(): void {
+    if (!this._viewer) return;
+    this._editableNodes = [];
+    const registry = this._viewer.registry;
+    if (!registry) return;
+    this._viewer.scene.traverse((node) => {
+      const rv = node.userData?.realvirtual as Record<string, unknown> | undefined;
+      if (!rv) return;
+      const types: string[] = [];
+      for (const [key, value] of Object.entries(rv)) {
+        if (isHiddenComponentType(key)) continue;
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+          types.push(key);
+        }
+      }
+      if (types.length === 0) return;
+      const path = registry.getPathForNode(node);
+      if (!path) return;
+      this._editableNodes.push({ path, types });
+    });
+    this._editableNodes.sort((a, b) => a.path.localeCompare(b.path));
     this.notify();
   }
 

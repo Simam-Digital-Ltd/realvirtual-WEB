@@ -183,7 +183,7 @@ export class FpvPlugin implements RVViewerPlugin {
     _forward.y = 0;
     _forward.normalize();
 
-    // Right vector: perpendicular to forward on XZ (90° clockwise from above)
+    // Right vector: forward × up = (-fz, 0, fx) — perpendicular on XZ
     _right.set(-_forward.z, 0, _forward.x);
 
     let hasInput = false;
@@ -484,29 +484,30 @@ export class FpvPlugin implements RVViewerPlugin {
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
 
-    // Right-click drag for mouse look (pointer events — fire before mouse events)
+    // Right-click drag for mouse look.
+    // Use e.buttons bitmask (bit 1 = right button) instead of tracking
+    // pointerdown/up — avoids conflicts with OrbitControls which also
+    // listens on the canvas and may consume pointerdown.
     this._onPointerDown = (e: PointerEvent) => {
       if (!this._active) return;
       if (e.button === 2) {
         this._isLooking = true;
-        // Capture pointer so we keep receiving events even outside canvas
-        canvas.setPointerCapture(e.pointerId);
         e.preventDefault();
-        e.stopPropagation();
       }
     };
 
     this._onPointerMove = (e: PointerEvent) => {
-      if (!this._active || !this._isLooking) return;
+      if (!this._active) return;
+      // Check right button held via bitmask — works even if pointerdown
+      // was consumed by another handler (OrbitControls, etc.)
+      if (!(e.buttons & 2)) { this._isLooking = false; return; }
+      this._isLooking = true;
       this._applyMouseLook(e.movementX, e.movementY);
     };
 
     this._onPointerUp = (e: PointerEvent) => {
       if (e.button === 2) {
         this._isLooking = false;
-        if (canvas.hasPointerCapture(e.pointerId)) {
-          canvas.releasePointerCapture(e.pointerId);
-        }
       }
     };
 
@@ -518,9 +519,10 @@ export class FpvPlugin implements RVViewerPlugin {
     };
 
     canvas.addEventListener('pointerdown', this._onPointerDown);
-    canvas.addEventListener('pointermove', this._onPointerMove);
-    canvas.addEventListener('pointerup', this._onPointerUp);
-    canvas.addEventListener('contextmenu', this._onContextMenu);
+    window.addEventListener('pointermove', this._onPointerMove);
+    window.addEventListener('pointerup', this._onPointerUp);
+    // Use capture phase so this fires before any other contextmenu handler
+    window.addEventListener('contextmenu', this._onContextMenu, true);
 
     // Sticky keys guard: clear keys on window blur / visibility change
     this._onBlur = () => { this._keys.clear(); this._isLooking = false; };
@@ -538,13 +540,15 @@ export class FpvPlugin implements RVViewerPlugin {
     if (this._onBlur) window.removeEventListener('blur', this._onBlur);
     if (this._onVisibilityChange) document.removeEventListener('visibilitychange', this._onVisibilityChange);
 
+    // Window-bound pointer listeners
+    if (this._onPointerMove) window.removeEventListener('pointermove', this._onPointerMove);
+    if (this._onPointerUp) window.removeEventListener('pointerup', this._onPointerUp);
+    if (this._onContextMenu) window.removeEventListener('contextmenu', this._onContextMenu, true);
+
     // Canvas-bound listeners
     const canvas = this._viewer?.renderer?.domElement;
     if (canvas) {
       if (this._onPointerDown) canvas.removeEventListener('pointerdown', this._onPointerDown);
-      if (this._onPointerMove) canvas.removeEventListener('pointermove', this._onPointerMove);
-      if (this._onPointerUp) canvas.removeEventListener('pointerup', this._onPointerUp);
-      if (this._onContextMenu) canvas.removeEventListener('contextmenu', this._onContextMenu);
     }
     this._listenersSetUp = false;
   }

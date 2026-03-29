@@ -3,13 +3,13 @@ import react from '@vitejs/plugin-react';
 // PWA disabled – always serve fresh content, no service worker caching
 // import { VitePWA } from 'vite-plugin-pwa';
 import { playwright } from '@vitest/browser-playwright';
-import { readdirSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readdirSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join, resolve, dirname } from 'node:path';
 
 // ─── Private content detection ──────────────────────────────────────────
 const PRIVATE_DIR = resolve(__dirname, '../realvirtual-WebViewer-Private~/src');
-const HAS_PRIVATE = existsSync(PRIVATE_DIR);
-console.log(`[rv-build] ${HAS_PRIVATE ? 'Private' : 'Public'} build`);
+const HAS_PRIVATE = existsSync(PRIVATE_DIR) && !process.env.VITE_PUBLIC_BUILD;
+console.log(`[rv-build] ${HAS_PRIVATE ? 'Private' : 'Public'} build${process.env.VITE_PUBLIC_BUILD ? ' (forced public via VITE_PUBLIC_BUILD)' : ''}`);
 import { exec } from 'node:child_process';
 
 
@@ -204,6 +204,60 @@ function debugApiPlugin() {
 }
 
 /**
+ * Vite plugin: Save library thumbnails to disk.
+ * POST /api/library-thumbnail with { catalogId, dataUrl }
+ * Writes PNG next to the GLB in public/models/library/.
+ */
+function thumbnailSavePlugin() {
+  function readBody(req: { on: Function }): Promise<string> {
+    return new Promise((resolve) => {
+      let body = '';
+      req.on('data', (chunk: string) => { body += chunk; });
+      req.on('end', () => resolve(body));
+    });
+  }
+
+  return {
+    name: 'rv-thumbnail-save',
+    apply: 'serve' as const,
+    configureServer(server: { config: { root: string }; middlewares: { use: Function } }) {
+      server.middlewares.use(async (req: { url?: string; method?: string; on: Function }, res: any, next: Function) => {
+        if (req.url !== '/api/library-thumbnail' || req.method !== 'POST') return next();
+
+        try {
+          const body = JSON.parse(await readBody(req));
+          const { catalogId, dataUrl } = body as { catalogId: string; dataUrl: string };
+          if (!catalogId || !dataUrl) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Missing catalogId or dataUrl' }));
+            return;
+          }
+
+          // Convert data URL to buffer
+          const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
+          const buffer = Buffer.from(base64, 'base64');
+
+          // Save next to GLB: use catalogId as filename stem
+          const filename = catalogId.replace(/[^a-zA-Z0-9_-]/g, '_') + '.png';
+          const outDir = join(server.config.root, 'public/models/library');
+          mkdirSync(outDir, { recursive: true });
+          const outPath = join(outDir, filename);
+          writeFileSync(outPath, buffer);
+
+          const url = `models/library/${filename}`;
+          console.log(`[rv-thumbnail] Saved ${outPath}`);
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ url }));
+        } catch (e) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: String(e) }));
+        }
+      });
+    },
+  };
+}
+
+/**
  * Vite plugin: Resolve bare imports from private folder files via the main project's node_modules.
  *
  * When HAS_PRIVATE is true, files in realvirtual-WebViewer-Private~/src/ may import npm packages
@@ -244,6 +298,7 @@ export default defineConfig({
     // VitePWA disabled – no service worker, always fresh content
     testRunnerPlugin(),
     debugApiPlugin(),
+    thumbnailSavePlugin(),
   ].filter(Boolean),
   resolve: {
     alias: {

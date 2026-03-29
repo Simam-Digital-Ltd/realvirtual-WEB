@@ -105,6 +105,13 @@ export class AvatarManager {
   private readonly scene: Scene;
   private readonly avatars: Map<string, AvatarInstance> = new Map();
 
+  // Opt 5: Cached players array — invalidated on add/remove/update/clear
+  private _cachedPlayers: PlayerInfo[] | null = null;
+  private _playersDirty = true;
+
+  // Opt 10: Shared SphereGeometry singleton for VR controller meshes
+  private static _sharedCtrlGeometry: SphereGeometry | null = null;
+
   /** Lerp factor applied each frame. 0.25 matches Unity's NetworkPlayer.cs. */
   readonly lerpFactor = 0.25;
 
@@ -160,13 +167,17 @@ export class AvatarManager {
     let ctrlRightMaterial: MeshStandardMaterial | undefined;
 
     if (info.xrMode === 'vr') {
-      ctrlLeftGeometry = new SphereGeometry(0.05, 8, 8);
+      // Opt 10: Share a single SphereGeometry across all VR controller meshes
+      if (!AvatarManager._sharedCtrlGeometry) {
+        AvatarManager._sharedCtrlGeometry = new SphereGeometry(0.05, 8, 8);
+      }
+      ctrlLeftGeometry = AvatarManager._sharedCtrlGeometry;
       ctrlLeftMaterial = new MeshStandardMaterial({ color, roughness: 0.5 });
       ctrlLeft = new Mesh(ctrlLeftGeometry, ctrlLeftMaterial);
       ctrlLeft.visible = false;
       group.add(ctrlLeft);
 
-      ctrlRightGeometry = new SphereGeometry(0.05, 8, 8);
+      ctrlRightGeometry = AvatarManager._sharedCtrlGeometry;
       ctrlRightMaterial = new MeshStandardMaterial({ color, roughness: 0.5 });
       ctrlRight = new Mesh(ctrlRightGeometry, ctrlRightMaterial);
       ctrlRight.visible = false;
@@ -194,6 +205,7 @@ export class AvatarManager {
     };
 
     this.avatars.set(info.id, instance);
+    this._playersDirty = true; // Opt 5: invalidate cache
   }
 
   /** Remove and dispose a remote avatar by playerId. */
@@ -214,6 +226,7 @@ export class AvatarManager {
     this.scene.remove(avatar.group);
     this._disposeAvatar(avatar);
     this.avatars.delete(playerId);
+    this._playersDirty = true; // Opt 5: invalidate cache
   }
 
   /** Update a remote avatar's target position/rotation from an avatar_broadcast message. */
@@ -292,9 +305,12 @@ export class AvatarManager {
     }
   }
 
-  /** Returns a snapshot of all currently tracked avatar player infos. */
+  /** Returns a cached snapshot of all currently tracked avatar player infos. */
   getPlayers(): PlayerInfo[] {
-    return Array.from(this.avatars.values()).map(a => a.info);
+    if (!this._playersDirty && this._cachedPlayers) return this._cachedPlayers;
+    this._cachedPlayers = Array.from(this.avatars.values()).map(a => a.info);
+    this._playersDirty = false;
+    return this._cachedPlayers;
   }
 
   /** Returns the number of active remote avatars. */
@@ -358,6 +374,7 @@ export class AvatarManager {
     const avatar = this.avatars.get(id);
     if (!avatar) return;
     avatar.info = info;
+    this._playersDirty = true; // Opt 5: invalidate cache on info change
     // Refresh card texture if name/color changed
     avatar.resources.cardTexture.dispose();
     const newTexture = this._createCardTexture(info.name, info.color);
@@ -424,9 +441,14 @@ export class AvatarManager {
     const r = avatar.resources;
     r.cardTexture.dispose();
     r.cardMaterial.dispose();
-    if (r.ctrlLeftGeometry) r.ctrlLeftGeometry.dispose();
+    // Opt 10: Don't dispose shared geometry — only dispose per-avatar materials
+    if (r.ctrlLeftGeometry && r.ctrlLeftGeometry !== AvatarManager._sharedCtrlGeometry) {
+      r.ctrlLeftGeometry.dispose();
+    }
     if (r.ctrlLeftMaterial) r.ctrlLeftMaterial.dispose();
-    if (r.ctrlRightGeometry) r.ctrlRightGeometry.dispose();
+    if (r.ctrlRightGeometry && r.ctrlRightGeometry !== AvatarManager._sharedCtrlGeometry) {
+      r.ctrlRightGeometry.dispose();
+    }
     if (r.ctrlRightMaterial) r.ctrlRightMaterial.dispose();
     if (r.cursorRayGeometry) r.cursorRayGeometry.dispose();
     if (r.cursorRayMaterial) r.cursorRayMaterial.dispose();

@@ -5,7 +5,7 @@
  */
 import { describe, test, expect, vi } from 'vitest';
 import { Group, PerspectiveCamera } from 'three';
-import { LayoutPlannerPlugin } from '../src/plugins/layout-planner-plugin';
+import { LayoutPlannerPlugin } from '../../realvirtual-WebViewer-Private~/src/plugins/layout-planner';
 
 // Minimal viewer mock
 function createMockViewer() {
@@ -16,12 +16,24 @@ function createMockViewer() {
     sceneFixtures,
     camera: new PerspectiveCamera(),
     controls: { enabled: true },
-    raycastManager: { addExcludeFilter: vi.fn() },
+    raycastManager: {
+      addExcludeFilter: vi.fn(),
+      addAncestorOverride: vi.fn(),
+      removeAncestorOverride: vi.fn(),
+      updateTargets: vi.fn(),
+    },
     leftPanelManager: { open: vi.fn(), close: vi.fn() },
     markRenderDirty: vi.fn(),
     fitToNodes: vi.fn(),
     highlighter: { highlight: vi.fn(), clear: vi.fn() },
     renderer: { domElement: document.createElement('canvas') },
+    on: vi.fn(() => vi.fn()),
+    getPlugin: vi.fn(),
+    currentModel: null,
+    signalStore: null,
+    transportManager: null,
+    registry: null,
+    drives: [],
   };
 }
 
@@ -80,5 +92,20 @@ describe('LayoutPlannerPlugin Lifecycle', () => {
     expect(plugin.store).toBeDefined();
     expect(typeof plugin.store.subscribe).toBe('function');
     expect(typeof plugin.store.getSnapshot).toBe('function');
+  });
+
+  test('onModelLoaded registers ancestor override', () => {
+    const viewer = createMockViewer();
+    const plugin = new LayoutPlannerPlugin();
+    plugin.onModelLoaded?.({ scene: new Group() } as any, viewer as any);
+    expect(viewer.raycastManager.addAncestorOverride).toHaveBeenCalledTimes(1);
+  });
+
+  test('dispose removes ancestor override', () => {
+    const viewer = createMockViewer();
+    const plugin = new LayoutPlannerPlugin();
+    plugin.onModelLoaded?.({ scene: new Group() } as any, viewer as any);
+    plugin.dispose?.();
+    expect(viewer.raycastManager.removeAncestorOverride).toHaveBeenCalledTimes(1);
   });
 });

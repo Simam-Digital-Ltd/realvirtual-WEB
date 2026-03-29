@@ -172,7 +172,7 @@ export class RVDrive implements RVComponent {
   /** Update drive physics - called every fixed timestep */
   update(dt: number) {
     // When not owner (multiuser client), skip ALL local physics.
-    // Position/speed are applied externally via applySyncData().
+    // Positions are applied directly via applySyncData() from multiuser channel.
     if (!this.isOwner) return;
 
     // Early-return for completely idle drives (no motion, no behaviors)
@@ -260,23 +260,22 @@ export class RVDrive implements RVComponent {
     if (isOwner) {
       this.positionOverwrite = false;
     }
-    // When !isOwner: don't set positionOverwrite here — applySyncData handles it.
-    // update() checks isOwner directly and skips all local physics.
   }
 
   /**
-   * Apply sync data from the multiuser server.
+   * Apply sync data from the multiuser server (port 7000).
    * Transport surface drives: apply speed only — position would displace the mesh.
-   * Positioning drives: apply position and update the node transform directly.
-   * Uses isTransportSurface flag (set by TransportSurface.init, matches Unity's _istransportsurface).
+   * Positioning drives: snap to position and update transform immediately.
+   * Relies on high sync rate (60 Hz) for smooth visual result.
    */
   applySyncData(position: number, speed?: number): void {
     if (this.isTransportSurface) {
       // Conveyor: only sync speed — the mesh stays in place, belt scrolls via speed
       this.currentSpeed = speed ?? this.targetSpeed;
     } else {
-      // Positioning drive: apply position and update transform immediately
+      // Direct snap — smooth at 60 Hz sync rate
       this.currentPosition = position;
+      if (speed !== undefined) this.currentSpeed = speed;
       this.applyToNode();
     }
   }

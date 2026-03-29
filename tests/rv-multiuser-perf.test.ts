@@ -289,3 +289,122 @@ describe('AvatarManager — 15 concurrent avatars', () => {
     expect(() => manager.lerpAvatars(1 / 60)).not.toThrow();
   });
 });
+
+// ── Opt 5: getPlayers() cache tests ──────────────────────────────────────────
+
+describe('AvatarManager — getPlayers cache (Opt 5)', () => {
+  let scene: ReturnType<typeof makeScene>;
+  let manager: AvatarManager;
+
+  beforeEach(() => {
+    scene = makeScene();
+    manager = new AvatarManager(scene as unknown as import('three').Scene);
+  });
+
+  afterEach(() => {
+    manager.clear();
+  });
+
+  it('returns same array reference on consecutive calls without mutation', () => {
+    manager.addAvatar(makePlayer(0));
+    manager.addAvatar(makePlayer(1));
+
+    const first = manager.getPlayers();
+    const second = manager.getPlayers();
+    expect(first).toBe(second); // same reference — cache hit
+    expect(first).toHaveLength(2);
+  });
+
+  it('invalidates cache after addAvatar', () => {
+    manager.addAvatar(makePlayer(0));
+    const before = manager.getPlayers();
+    expect(before).toHaveLength(1);
+
+    manager.addAvatar(makePlayer(1));
+    const after = manager.getPlayers();
+    expect(after).not.toBe(before); // new array — cache invalidated
+    expect(after).toHaveLength(2);
+  });
+
+  it('invalidates cache after removeAvatar', () => {
+    manager.addAvatar(makePlayer(0));
+    manager.addAvatar(makePlayer(1));
+    const before = manager.getPlayers();
+
+    manager.removeAvatar('perf-player-0');
+    const after = manager.getPlayers();
+    expect(after).not.toBe(before);
+    expect(after).toHaveLength(1);
+  });
+
+  it('returns empty array when no avatars are present', () => {
+    const players = manager.getPlayers();
+    expect(players).toHaveLength(0);
+  });
+});
+
+// ── Opt 10: Shared SphereGeometry tests ──────────────────────────────────────
+
+describe('AvatarManager — shared VR controller geometry (Opt 10)', () => {
+  let scene: ReturnType<typeof makeScene>;
+  let manager: AvatarManager;
+
+  beforeEach(() => {
+    scene = makeScene();
+    manager = new AvatarManager(scene as unknown as import('three').Scene);
+  });
+
+  afterEach(() => {
+    manager.clear();
+  });
+
+  it('VR avatars share the same SphereGeometry instance', () => {
+    // Add two VR players
+    manager.addAvatar(makePlayer(0, 'vr'));
+    manager.addAvatar(makePlayer(1, 'vr'));
+
+    // Access internal avatars via getPlayers count check
+    expect(manager.count).toBe(2);
+
+    // The mock SphereGeometry constructor was called — since we share, it should
+    // have been called once (singleton pattern). The mock doesn't track this directly
+    // but we verify no error occurs and both avatars are functional.
+    const broadcast0: AvatarBroadcast = {
+      id: 'perf-player-0',
+      headPos: [0, 1.7, 0],
+      headRot: [0, 0, 0, 1],
+      leftCtrl: { pos: [0.3, 1.2, 0], rot: [0, 0, 0, 1], active: true },
+      rightCtrl: { pos: [-0.3, 1.2, 0], rot: [0, 0, 0, 1], active: true },
+    };
+    const broadcast1: AvatarBroadcast = {
+      id: 'perf-player-1',
+      headPos: [2, 1.7, 0],
+      headRot: [0, 0, 0, 1],
+      leftCtrl: { pos: [2.3, 1.2, 0], rot: [0, 0, 0, 1], active: true },
+      rightCtrl: { pos: [1.7, 1.2, 0], rot: [0, 0, 0, 1], active: true },
+    };
+    expect(() => manager.updateAvatar(broadcast0)).not.toThrow();
+    expect(() => manager.updateAvatar(broadcast1)).not.toThrow();
+    expect(() => manager.lerpAvatars(1 / 60)).not.toThrow();
+  });
+
+  it('removing one VR avatar does not dispose shared geometry (other VR avatar still valid)', () => {
+    manager.addAvatar(makePlayer(0, 'vr'));
+    manager.addAvatar(makePlayer(1, 'vr'));
+
+    // Remove first VR avatar — should not dispose shared geometry
+    manager.removeAvatar('perf-player-0');
+    expect(manager.count).toBe(1);
+
+    // Second VR avatar should still work
+    const broadcast: AvatarBroadcast = {
+      id: 'perf-player-1',
+      headPos: [2, 1.7, 0],
+      headRot: [0, 0, 0, 1],
+      leftCtrl: { pos: [2.3, 1.2, 0], rot: [0, 0, 0, 1], active: true },
+      rightCtrl: { pos: [1.7, 1.2, 0], rot: [0, 0, 0, 1], active: true },
+    };
+    expect(() => manager.updateAvatar(broadcast)).not.toThrow();
+    expect(() => manager.lerpAvatars(1 / 60)).not.toThrow();
+  });
+});

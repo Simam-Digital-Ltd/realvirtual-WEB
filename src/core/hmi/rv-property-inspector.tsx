@@ -18,9 +18,10 @@
  * - rv-component-section.tsx — Collapsible component section
  */
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useSignalTick } from '../../hooks/use-signal-tick';
 import { useEditorPlugin } from '../../hooks/use-editor-plugin';
+import { MathUtils } from 'three';
 import {
   Box,
   Typography,
@@ -50,6 +51,7 @@ import {
 } from './rv-inspector-helpers';
 import { navigateToRef } from './rv-reference-display';
 import { ComponentSection } from './rv-component-section';
+import { Vector3Editor } from './rv-field-editors';
 import { StepState } from '../engine/rv-logic-step';
 import type { StepStateInfo } from '../engine/rv-logic-engine';
 import { STEP_STATE_COLORS, STEP_STATE_LABELS } from './rv-logic-step-colors';
@@ -187,6 +189,104 @@ function LogicStepRuntimeSection({ info }: { info: StepStateInfo }) {
   );
 }
 
+// ── Layout Transform Section ─────────────────────────────────────────────
+
+interface LayoutTransformSectionProps {
+  viewer: RVViewer;
+  nodePath: string;
+  locked: boolean;
+}
+
+function LayoutTransformSection({ viewer, nodePath, locked }: LayoutTransformSectionProps) {
+  const node = viewer.registry?.getNode(nodePath);
+
+  // Poll position/rotation at 200ms for live updates (e.g. during TransformControls drag)
+  const [tick, setTick] = useState(0);
+  const tickRef = useRef(0);
+  useEffect(() => {
+    const id = setInterval(() => { tickRef.current++; setTick(tickRef.current); }, 200);
+    return () => clearInterval(id);
+  }, []);
+
+  const pos = useMemo(() => {
+    if (!node) return { x: 0, y: 0, z: 0 };
+    return { x: +node.position.x.toFixed(4), y: +node.position.y.toFixed(4), z: +node.position.z.toFixed(4) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node, tick]);
+
+  const rot = useMemo(() => {
+    if (!node) return { x: 0, y: 0, z: 0 };
+    return {
+      x: +MathUtils.radToDeg(node.rotation.x).toFixed(2),
+      y: +MathUtils.radToDeg(node.rotation.y).toFixed(2),
+      z: +MathUtils.radToDeg(node.rotation.z).toFixed(2),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node, tick]);
+
+  const handlePositionChange = useCallback((v: { x: number; y: number; z: number }) => {
+    if (!node || locked) return;
+    node.position.set(v.x, v.y, v.z);
+    node.updateMatrixWorld(true);
+    viewer.markRenderDirty();
+    viewer.emit('layout-transform-update', {
+      path: nodePath,
+      position: [v.x, v.y, v.z] as [number, number, number],
+      rotation: [
+        MathUtils.radToDeg(node.rotation.x),
+        MathUtils.radToDeg(node.rotation.y),
+        MathUtils.radToDeg(node.rotation.z),
+      ] as [number, number, number],
+    });
+  }, [node, nodePath, viewer, locked]);
+
+  const handleRotationChange = useCallback((v: { x: number; y: number; z: number }) => {
+    if (!node || locked) return;
+    node.rotation.set(MathUtils.degToRad(v.x), MathUtils.degToRad(v.y), MathUtils.degToRad(v.z));
+    node.updateMatrixWorld(true);
+    viewer.markRenderDirty();
+    viewer.emit('layout-transform-update', {
+      path: nodePath,
+      position: [node.position.x, node.position.y, node.position.z] as [number, number, number],
+      rotation: [v.x, v.y, v.z] as [number, number, number],
+    });
+  }, [node, nodePath, viewer, locked]);
+
+  if (!node) return null;
+
+  const fieldRowSx = { display: 'flex', alignItems: 'center', px: 1, py: 0.25 };
+  const labelSx = { fontSize: 10, color: locked ? 'text.disabled' : 'text.secondary', width: 60, flexShrink: 0 };
+
+  return (
+    <Box sx={{ borderBottom: '1px solid rgba(255, 255, 255, 0.06)' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', px: 1, py: 0.5, bgcolor: 'rgba(100, 181, 246, 0.08)', borderBottom: '2px solid rgba(100, 181, 246, 0.2)' }}>
+        <Typography sx={{ fontSize: 10, fontWeight: 700, color: '#64b5f6', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          Transform
+        </Typography>
+        {locked && (
+          <Typography sx={{ fontSize: 9, color: 'text.disabled', ml: 1, fontStyle: 'italic' }}>
+            Locked
+          </Typography>
+        )}
+      </Box>
+      <Box sx={{ py: 0.5, opacity: locked ? 0.5 : 1, pointerEvents: locked ? 'none' : 'auto' }}>
+        <Box sx={fieldRowSx}>
+          <Typography sx={labelSx}>Position</Typography>
+          <Box sx={{ flex: 1 }}>
+            <Vector3Editor value={pos} onChange={handlePositionChange} />
+          </Box>
+        </Box>
+        <Box sx={fieldRowSx}>
+          <Typography sx={labelSx}>Rotation</Typography>
+          <Box sx={{ flex: 1 }}>
+            <Vector3Editor value={rot} onChange={handleRotationChange} />
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────
 
 export interface PropertyInspectorProps {
@@ -216,8 +316,15 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
       }
     }
 
-    return { components };
+    // Detect LayoutObject for transform editing
+    const layoutObj = rv.LayoutObject as Record<string, unknown> | undefined;
+
+    return { components, layoutObj };
   }, [selectedPath, viewer.registry, state.overlay]);
+
+  // Check if the selected node has a LayoutObject (for transform section)
+  const hasLayoutObject = !!nodeData?.layoutObj;
+  const layoutLocked = !!(nodeData?.layoutObj?.Locked);
 
   // Check if the selected node has a LogicStep component
   const hasLogicStep = nodeData?.components.some(c => c.type.startsWith('LogicStep_')) ?? false;
@@ -414,6 +521,11 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
       >
         {/* LogicStep Runtime Status (above component sections, hidden when Idle) */}
         {showRuntimeSection && <LogicStepRuntimeSection info={stepInfo} />}
+
+        {/* Layout Object Transform (position + rotation editing) */}
+        {hasLayoutObject && selectedPath && (
+          <LayoutTransformSection viewer={viewer} nodePath={selectedPath} locked={layoutLocked} />
+        )}
 
         {nodeData.components.length === 0 ? (
           <Typography sx={{ fontSize: 12, color: 'text.disabled', textAlign: 'center', py: 4 }}>

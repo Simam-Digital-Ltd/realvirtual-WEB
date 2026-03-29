@@ -3,7 +3,7 @@
  */
 import { describe, test, expect, vi } from 'vitest';
 import { Group, Mesh, BoxGeometry, MeshBasicMaterial } from 'three';
-import { ModelCache } from '../src/plugins/layout-planner-plugin';
+import { ModelCache } from '../../realvirtual-WebViewer-Private~/src/plugins/layout-planner';
 
 // Create a mock loader that returns a pre-built Group
 function createMockLoader() {

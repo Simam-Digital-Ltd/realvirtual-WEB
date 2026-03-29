@@ -13,13 +13,13 @@
  *   'machine-control-changed' — { state, mode, components, errorComponentIdx }
  */
 
-import type { RVViewerPlugin } from '../core/rv-plugin';
-import type { LoadResult } from '../core/engine/rv-scene-loader';
-import type { RVViewer } from '../core/rv-viewer';
+import type { RVViewerPlugin } from '../../core/rv-plugin';
+import type { LoadResult } from '../../core/engine/rv-scene-loader';
+import type { RVViewer } from '../../core/rv-viewer';
 
 // Re-export shared types from core (canonical source of truth)
-export type { MachineState, MachineMode, ComponentType, ComponentStatus, MachineComponent, MachineControlState } from '../core/types/plugin-types';
-import type { MachineState, MachineMode, MachineComponent, MachineControlState } from '../core/types/plugin-types';
+export type { MachineState, MachineMode, ComponentType, ComponentStatus, MachineComponent, MachineControlState } from '../../core/types/plugin-types';
+import type { MachineState, MachineMode, MachineComponent, MachineControlState } from '../../core/types/plugin-types';
 
 // ─── Plugin ─────────────────────────────────────────────────────────────
 

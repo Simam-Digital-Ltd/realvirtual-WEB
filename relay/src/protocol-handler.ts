@@ -42,6 +42,11 @@ export class ProtocolHandler {
   /** Maps each active WebSocket to its session context (room + player). */
   private readonly _sessions = new WeakMap<WebSocket, SessionContext>();
 
+  // Opt 9: Per-client rate limiting — sliding-window counter
+  private readonly _rateLimits = new Map<WebSocket, { count: number; windowStart: number }>();
+  private static readonly MAX_MSG_PER_SECOND_CLIENT = 500;
+  private static readonly MAX_MSG_PER_SECOND_HOST = 5000;
+
   constructor(rooms: RoomManager) {
     this._rooms = rooms;
   }
@@ -87,6 +92,7 @@ export class ProtocolHandler {
     // Remove from room state
     this._rooms.removeClient(joinCode, client.info.id);
     this._sessions.delete(ws);
+    this._rateLimits.delete(ws); // Opt 9: Clean up rate limit state
 
     // Broadcast room_leave to remaining clients
     if (room) {
@@ -99,7 +105,28 @@ export class ProtocolHandler {
 
   // ── Message routing ─────────────────────────────────────────────────────────
 
+  // Opt 9: Sliding-window rate limiter — returns true if message is allowed
+  private _checkRateLimit(ws: WebSocket): boolean {
+    const now = Date.now();
+    let state = this._rateLimits.get(ws);
+    if (!state || now - state.windowStart >= 1000) {
+      state = { count: 1, windowStart: now };
+      this._rateLimits.set(ws, state);
+      return true;
+    }
+    state.count++;
+    // Host connections get a higher limit (they send drive_sync + mu_sync at 50Hz)
+    const session = this._sessions.get(ws);
+    const limit = session?.client.info.role === 'host'
+      ? ProtocolHandler.MAX_MSG_PER_SECOND_HOST
+      : ProtocolHandler.MAX_MSG_PER_SECOND_CLIENT;
+    return state.count <= limit;
+  }
+
   private _handleMessage(ws: WebSocket, raw: string): void {
+    // Opt 9: Rate limit check — drop excess messages
+    if (!this._checkRateLimit(ws)) return;
+
     let msg: Record<string, unknown>;
     try {
       msg = JSON.parse(raw) as Record<string, unknown>;
@@ -145,6 +172,17 @@ export class ProtocolHandler {
         break;
       case 'cursor_ray':
         this._handleCursorRay(ws, session, msg);
+        break;
+      // Opt 7: Path index mapping — pass-through for protocol negotiation + indexed sync
+      case 'path_table':
+      case 'path_table_ack':
+      case 'drive_sync_idx':
+      // Host-broadcast message types — pass-through to all other clients
+      case 'drive_sync':
+      case 'mu_sync':
+      case 'avatar_broadcast':
+      case 'state_snapshot':
+        this._handlePassthrough(ws, session, raw);
         break;
       default:
         // Unknown message types are silently ignored for forward compatibility
@@ -349,6 +387,22 @@ export class ProtocolHandler {
       origin: msg['origin'],
       direction: msg['direction'],
     });
+  }
+
+  /**
+   * Pass-through handler for host-broadcast message types (drive_sync, mu_sync,
+   * path_table, path_table_ack, drive_sync_idx, state_snapshot, avatar_broadcast).
+   * Relays the raw JSON to all other clients without parsing or storing.
+   */
+  private _handlePassthrough(ws: WebSocket, session: SessionContext, raw: string): void {
+    const room = this._rooms.getRoom(session.joinCode);
+    if (!room) return;
+
+    for (const client of room.clients.values()) {
+      if (client.ws !== ws) {
+        this._sendRaw(client.ws, raw);
+      }
+    }
   }
 
   // ── Broadcast helpers ──────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { KpiDemoPlugin } from '../src/plugins/kpi-demo-plugin';
+import { KpiDemoPlugin } from '../src/plugins/demo/kpi-demo-plugin';
 
 describe('KpiDemoPlugin', () => {
   test('OEE data has 48 buckets (30min × 24h)', () => {

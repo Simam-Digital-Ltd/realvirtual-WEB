@@ -63,10 +63,18 @@ interface ViewerEmitter {
   emit(event: string, data?: unknown): void;
 }
 
+
 const THROTTLE_MS = 50;
 
 /** Filter function to exclude meshes from raycasting (overlays, etc.). */
 export type ExcludeFilter = (mesh: Object3D) => boolean;
+
+/**
+ * Override function for ancestor resolution.
+ * Given a candidate node (found by standard walk-up), return a different
+ * ancestor node to use as the resolved target, or null to skip.
+ */
+export type AncestorOverrideFn = (node: Object3D) => Object3D | null;
 
 export class RaycastManager {
   private readonly raycaster = new Raycaster();
@@ -100,6 +108,8 @@ export class RaycastManager {
   private _excludeFilters: ExcludeFilter[] = [];
   /** Which hover types are currently enabled (mapped to raycaster.layers). */
   private _enabledTypes = new Set<RaycastLayerName>();
+  /** Ancestor override callbacks — first non-null result wins. */
+  private _ancestorOverrides: AncestorOverrideFn[] = [];
 
   private readonly onPointerMove: (e: PointerEvent) => void;
 
@@ -226,6 +236,22 @@ export class RaycastManager {
   /** Add an exclude filter for mesh intersection results. */
   addExcludeFilter(filter: ExcludeFilter): void {
     this._excludeFilters.push(filter);
+  }
+
+  /**
+   * Add an ancestor override function.
+   * When resolving a raycast hit, overrides are checked first. If any override
+   * returns a non-null Object3D, that node is used instead of the standard
+   * walk-up-to-realvirtual-ancestor resolution.
+   */
+  addAncestorOverride(fn: AncestorOverrideFn): void {
+    this._ancestorOverrides.push(fn);
+  }
+
+  /** Remove a previously added ancestor override. */
+  removeAncestorOverride(fn: AncestorOverrideFn): void {
+    const idx = this._ancestorOverrides.indexOf(fn);
+    if (idx >= 0) this._ancestorOverrides.splice(idx, 1);
   }
 
   /**
@@ -433,7 +459,6 @@ export class RaycastManager {
     this._hoveredInstancedMU = hitInstancedMU;
 
     if (hitInstancedMU) {
-      // Highlight instanced MU via temporary overlay at instance matrix
       this.highlighter.highlightInstancedMU(hitInstancedMU);
     } else {
       this.highlighter.highlight(hitNode);
@@ -442,10 +467,23 @@ export class RaycastManager {
   }
 
   /** Walk up from a mesh to find the nearest ancestor with realvirtual userData.
+   *  Checks ancestor overrides first — if any override returns a node, use that.
    *  Returns the node, its type, and path. */
   private _findRVAncestor(mesh: Object3D): {
     node: Object3D; nodeType: string; nodePath: string;
   } | null {
+    // Check ancestor overrides first (e.g. layout planner full-object selection)
+    for (const override of this._ancestorOverrides) {
+      const overrideNode = override(mesh);
+      if (overrideNode) {
+        const path = this.registry.getPathForNode(overrideNode);
+        if (path) {
+          const nodeType = this._determineNodeType(overrideNode, path);
+          return { node: overrideNode, nodeType, nodePath: path };
+        }
+      }
+    }
+
     let current: Object3D | null = mesh;
     while (current) {
       const rv = current.userData?.realvirtual;

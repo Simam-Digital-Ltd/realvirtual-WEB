@@ -16,6 +16,7 @@
 
 import { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import { useEditorPlugin } from '../../hooks/use-editor-plugin';
+import { useSelection } from '../../hooks/use-selection';
 import { useSignalTick } from '../../hooks/use-signal-tick';
 import {
   Box,
@@ -479,10 +480,10 @@ export function computeAncestors(path: string): string[] {
 interface TreeNodeRowProps {
   node: TreeNode;
   depth: number;
-  selectedPath: string | null;
+  selectedPaths: Set<string>;
   expanded: Set<string>;
   onToggleExpand: (key: string) => void;
-  onSelect: (path: string) => void;
+  onSelect: (path: string, shiftKey?: boolean) => void;
   onDoubleClick: (path: string) => void;
   onHover: (path: string | null) => void;
   signalStore: SignalStore | null;
@@ -494,7 +495,7 @@ interface TreeNodeRowProps {
 const TreeNodeRow = memo(function TreeNodeRow({
   node,
   depth,
-  selectedPath,
+  selectedPaths,
   expanded,
   onToggleExpand,
   onSelect,
@@ -508,15 +509,15 @@ const TreeNodeRow = memo(function TreeNodeRow({
   const isExpanded = expanded.has(expandKey);
   const hasChildren = node.children.length > 0;
   const hasComponents = node.types.length > 0;
-  const isSelected = hasComponents && node.path === selectedPath;
+  const isSelected = hasComponents && !!node.path && selectedPaths.has(node.path);
 
   // Check if this node has a LogicStep component
   const hasLogicStep = node.types.some(isLogicStepType);
   const stepInfo = hasLogicStep ? getStepInfoForPath(logicEngine, node.path) : null;
 
-  const handleClick = useCallback(() => {
+  const handleClick = useCallback((e: React.MouseEvent) => {
     if (hasComponents && node.path) {
-      onSelect(node.path);
+      onSelect(node.path, e.shiftKey);
     } else {
       onToggleExpand(expandKey);
     }
@@ -555,6 +556,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
           pr: 2,
           py: 0,
           cursor: 'pointer',
+          userSelect: 'none',
           borderRadius: 0.5,
           minWidth: 0,
           bgcolor: isSelected ? 'rgba(79, 195, 247, 0.15)' : 'transparent',
@@ -604,7 +606,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
               key={child.name + '-' + i}
               node={child}
               depth={depth + 1}
-              selectedPath={selectedPath}
+              selectedPaths={selectedPaths}
               expanded={expanded}
               onToggleExpand={onToggleExpand}
               onSelect={onSelect}
@@ -627,8 +629,8 @@ const FLAT_ROW_HEIGHT = 20;
 
 interface FlatNodeRowProps {
   info: EditableNodeInfo;
-  selectedPath: string | null;
-  onSelect: (path: string) => void;
+  selectedPaths: Set<string>;
+  onSelect: (path: string, shiftKey?: boolean) => void;
   onDoubleClick: (path: string) => void;
   onHover: (path: string | null) => void;
   signalStore: SignalStore | null;
@@ -639,9 +641,9 @@ interface FlatNodeRowProps {
   virtualStyle?: React.CSSProperties;
 }
 
-function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, signalStore, logicEngine, depth = 0, virtualStyle }: FlatNodeRowProps) {
+function FlatNodeRow({ info, selectedPaths, onSelect, onDoubleClick, onHover, signalStore, logicEngine, depth = 0, virtualStyle }: FlatNodeRowProps) {
   const name = info.path.split('/').pop() ?? info.path;
-  const isSelected = info.path === selectedPath;
+  const isSelected = selectedPaths.has(info.path);
 
   const hasLogicStep = info.types.some(isLogicStepType);
   const stepInfo = hasLogicStep ? getStepInfoForPath(logicEngine, info.path) : null;
@@ -655,7 +657,7 @@ function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, sig
   return (
     <Box
       data-path={info.path}
-      onClick={() => onSelect(info.path)}
+      onClick={(e: React.MouseEvent) => onSelect(info.path, e.shiftKey)}
       onDoubleClick={handleDblClick}
       onMouseEnter={() => onHover(info.path)}
       onMouseLeave={() => onHover(null)}
@@ -667,6 +669,7 @@ function FlatNodeRow({ info, selectedPath, onSelect, onDoubleClick, onHover, sig
         pr: 2,
         py: 0,
         cursor: 'pointer',
+        userSelect: 'none',
         borderRadius: 0.5,
         bgcolor: isSelected ? 'rgba(79, 195, 247, 0.15)' : isContainer ? 'rgba(255, 255, 255, 0.04)' : 'transparent',
         '&:hover': {
@@ -716,11 +719,19 @@ export interface HierarchyBrowserProps {
 
 export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
   const { plugin, state } = useEditorPlugin();
+  const selection = useSelection();
 
   // Ensure pulse animation CSS is injected
   useEffect(() => { ensurePulseAnimation(); }, []);
 
   if (!plugin) return null;
+
+  // Multi-select aware: Set for O(1) lookups in row components
+  const selectedPathsSet = useMemo(
+    () => new Set(selection.selectedPaths),
+    [selection.selectedPaths],
+  );
+
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilterRaw] = useState<TypeFilter>(() => {
     try { const v = localStorage.getItem('rv-hierarchy-type-filter'); return (v as TypeFilter) ?? 'all'; } catch { return 'all'; }
@@ -859,39 +870,32 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
 
   const displayCount = flatFiltered !== null ? flatFiltered.length : counts.total;
 
-  // ── Highlight: hover + persistent selection ──
-  const hoveredRef = useRef<string | null>(null);
+  // ── Hover highlight (orange, temporary) ──
+  // Selection highlight (cyan, persistent) is handled by SelectionManager.
 
-  const highlightNode = useCallback((path: string | null) => {
-    if (!path || !viewer.registry) {
-      viewer.highlighter.clear();
-      return;
-    }
-    const node = viewer.registry.getNode(path);
-    if (node) {
-      viewer.highlighter.highlight(node, true, { includeChildDrives: true });
+  const handleHover = useCallback((path: string | null) => {
+    if (path && viewer.registry) {
+      const node = viewer.registry.getNode(path);
+      if (node) {
+        viewer.highlighter.highlight(node, true, { includeChildDrives: true });
+      } else {
+        viewer.highlighter.clear();
+      }
     } else {
       viewer.highlighter.clear();
     }
   }, [viewer]);
 
-  const handleHover = useCallback((path: string | null) => {
-    hoveredRef.current = path;
-    // Hover highlight takes priority; when mouse leaves, restore selection highlight
-    if (path) {
-      highlightNode(path);
-    } else {
-      // Restore selection highlight
-      highlightNode(state.selectedNodePath);
-    }
-  }, [highlightNode, state.selectedNodePath]);
-
   const handleSelect = useCallback(
-    (path: string) => {
+    (path: string, shiftKey = false) => {
+      if (shiftKey) {
+        viewer.selectionManager.toggleWithChildren(path);
+      } else {
+        viewer.selectionManager.select(path);
+      }
       plugin.selectNode(path, true);
-      highlightNode(path);
     },
-    [plugin, highlightNode],
+    [viewer, plugin],
   );
 
   const handleDoubleClick = useCallback(
@@ -905,15 +909,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     [viewer],
   );
 
-  // Keep selection highlight in sync when selectedNodePath changes externally
-  useEffect(() => {
-    // Only apply persistent highlight if not currently hovering something different
-    if (!hoveredRef.current) {
-      highlightNode(state.selectedNodePath);
-    }
-  }, [state.selectedNodePath, highlightNode]);
-
-  // Clear highlight when panel closes
+  // Clear hover highlight when panel closes
   useEffect(() => {
     return () => { viewer.highlighter.clear(); };
   }, [viewer]);
@@ -955,6 +951,11 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
           placeholder="Search nodes..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && flatFiltered && flatFiltered.length > 0) {
+              handleSelect(flatFiltered[0].path);
+            }
+          }}
           slotProps={{
             input: {
               startAdornment: (
@@ -1049,7 +1050,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
                   <FlatNodeRow
                     key={info.path}
                     info={info}
-                    selectedPath={state.selectedNodePath}
+                    selectedPaths={selectedPathsSet}
                     onSelect={handleSelect}
                     onDoubleClick={handleDoubleClick}
                     onHover={handleHover}
@@ -1082,7 +1083,7 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
                 key={node.name + '-' + i}
                 node={node}
                 depth={0}
-                selectedPath={state.selectedNodePath}
+                selectedPaths={selectedPathsSet}
                 expanded={expanded}
                 onToggleExpand={onToggleExpand}
                 onSelect={handleSelect}

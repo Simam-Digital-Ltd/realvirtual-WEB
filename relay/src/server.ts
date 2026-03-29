@@ -102,9 +102,22 @@ export function createServer(options: ServerOptions): {
 
   const wss = new WebSocketServer({ server: httpServer });
 
+  // ── Opt 8: Heartbeat — detect stale connections via ping/pong every 30s ──
+  const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if ((ws as any).isAlive === false) return ws.terminate();
+      (ws as any).isAlive = false;
+      ws.ping();
+    });
+  }, 30_000);
+
   wss.on('connection', (ws) => {
+    (ws as any).isAlive = true;
+    ws.on('pong', () => { (ws as any).isAlive = true; });
     handler.onConnect(ws);
   });
+
+  wss.on('close', () => clearInterval(heartbeatInterval));
 
   wss.on('error', (err) => {
     console.error('[relay] WebSocketServer error:', err.message);

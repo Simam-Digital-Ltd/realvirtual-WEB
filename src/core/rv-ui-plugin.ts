@@ -13,12 +13,14 @@ import type { RVViewer } from './rv-viewer';
 
 /** Available slots in the HMI layout. */
 export type UISlot =
-  | 'kpi-bar'        // Top: KPI cards horizontal
-  | 'button-group'   // Left: Navigation buttons vertical
-  | 'search-bar'     // Bottom center: Search field
-  | 'messages'       // Right: Notification/status tiles vertical
-  | 'views'          // Bottom right: Expandable panels (charts, tables)
-  | 'settings-tab';  // Settings dialog: Tab registration
+  | 'kpi-bar'          // Top: KPI cards horizontal
+  | 'button-group'     // Left: Navigation buttons vertical
+  | 'search-bar'       // Bottom center: Search field
+  | 'messages'         // Right: Notification/status tiles vertical
+  | 'views'            // Bottom right: Expandable panels (charts, tables)
+  | 'settings-tab'     // Settings dialog: Tab registration
+  | 'toolbar-button'   // TopBar: Additional toolbar buttons (next to hierarchy/settings)
+  | 'overlay';         // Full-screen overlay panels (left panels, modals, etc.)
 
 /** Props passed to every UI slot component. */
 export interface UISlotProps {

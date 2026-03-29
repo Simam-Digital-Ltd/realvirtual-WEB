@@ -2,7 +2,7 @@
  * TestAxesPlugin Tests — minimal mocks, same pattern as transport-stats-plugin.
  */
 import { describe, it, expect } from 'vitest';
-import { TestAxesPlugin } from '../src/plugins/test-axes-plugin';
+import { TestAxesPlugin } from '../src/plugins/demo/test-axes-plugin';
 
 // ── Helpers ──
 

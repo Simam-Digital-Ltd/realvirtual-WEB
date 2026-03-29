@@ -21,6 +21,8 @@ export interface LeftPanelSnapshot {
   activePanelWidth: number;
 }
 
+const LS_KEY_ACTIVE_PANEL = 'rv-left-panel-active';
+
 // ─── Manager ────────────────────────────────────────────────────────────
 
 export class LeftPanelManager {
@@ -28,6 +30,8 @@ export class LeftPanelManager {
   private _activePanelWidth = 0;
   private _listeners = new Set<() => void>();
   private _snapshot: LeftPanelSnapshot = { activePanel: null, activePanelWidth: 0 };
+  /** Panel widths registered via open() — used to restore width on reload. */
+  private _panelWidths = new Map<PanelId, number>();
 
   /** Currently open panel id, or null. */
   get activePanel(): PanelId | null { return this._activePanel; }
@@ -41,9 +45,11 @@ export class LeftPanelManager {
    * @param width Width in pixels for the panel
    */
   open(id: PanelId, width: number): void {
+    this._panelWidths.set(id, width);
     if (this._activePanel === id && this._activePanelWidth === width) return;
     this._activePanel = id;
     this._activePanelWidth = width;
+    this._persist();
     this._notify();
   }
 
@@ -52,7 +58,23 @@ export class LeftPanelManager {
     if (this._activePanel !== id) return;
     this._activePanel = null;
     this._activePanelWidth = 0;
+    this._persist();
     this._notify();
+  }
+
+  /**
+   * Restore the previously active panel from localStorage.
+   * Must be called after all plugins have registered their panel widths
+   * via at least one `open()` call, or pass a width map.
+   */
+  restore(defaultWidths?: Record<string, number>): void {
+    try {
+      const saved = localStorage.getItem(LS_KEY_ACTIVE_PANEL);
+      if (!saved) return;
+      const { id, width } = JSON.parse(saved) as { id: string; width: number };
+      const w = this._panelWidths.get(id) ?? defaultWidths?.[id] ?? width;
+      if (id && w > 0) this.open(id, w);
+    } catch { /* ignore corrupt data */ }
   }
 
   /** Toggle a panel open/closed. */
@@ -81,6 +103,19 @@ export class LeftPanelManager {
   };
 
   // ─── Internal ─────────────────────────────────────────────────────
+
+  private _persist(): void {
+    try {
+      if (this._activePanel) {
+        localStorage.setItem(LS_KEY_ACTIVE_PANEL, JSON.stringify({
+          id: this._activePanel,
+          width: this._activePanelWidth,
+        }));
+      } else {
+        localStorage.removeItem(LS_KEY_ACTIVE_PANEL);
+      }
+    } catch { /* ignore */ }
+  }
 
   private _notify(): void {
     // Create new snapshot object so React detects the change

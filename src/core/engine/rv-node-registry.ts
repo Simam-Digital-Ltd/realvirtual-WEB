@@ -382,6 +382,50 @@ export class NodeRegistry {
 
   // ─── Utility ────────────────────────────────────────────────────
 
+  /**
+   * Unregister an entire subtree (root + all descendants).
+   * Removes from nodes, nodePaths, components, typeIndex, suffixMap.
+   * Returns the set of removed paths for downstream cleanup.
+   */
+  unregisterSubtree(root: Object3D): Set<string> {
+    const removed = new Set<string>();
+
+    root.traverse((node) => {
+      const path = this.nodePaths.get(node);
+      if (!path) return;
+
+      removed.add(path);
+
+      // Remove from nodes map
+      this.nodes.delete(path);
+      this.nodePaths.delete(node);
+
+      // Remove from components and typeIndex
+      const compMap = this.components.get(path);
+      if (compMap) {
+        for (const type of compMap.keys()) {
+          const typeSet = this.typeIndex.get(type);
+          if (typeSet) {
+            typeSet.delete(path);
+            if (typeSet.size === 0) this.typeIndex.delete(type);
+          }
+        }
+        this.components.delete(path);
+      }
+
+      // Remove from suffixMap
+      const suffix = path.substring(path.lastIndexOf('/') + 1);
+      const arr = this.suffixMap.get(suffix);
+      if (arr) {
+        const idx = arr.indexOf(path);
+        if (idx >= 0) arr.splice(idx, 1);
+        if (arr.length === 0) this.suffixMap.delete(suffix);
+      }
+    });
+
+    return removed;
+  }
+
   /** Clear all registrations (for scene reload) */
   clear(): void {
     this.nodes.clear();

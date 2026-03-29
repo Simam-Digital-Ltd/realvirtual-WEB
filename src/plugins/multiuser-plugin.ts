@@ -286,6 +286,18 @@ export class MultiuserPlugin extends RVBehavior {
     this._inRoom = false;
   }
 
+  protected onPreFixedUpdate(_dt: number): void {
+    // Apply buffered drive/MU sync BEFORE drive.update() so interpolation starts same tick.
+    if (this._pendingDriveSync) {
+      this._applyDriveSync(this._pendingDriveSync);
+      this._pendingDriveSync = null;
+    }
+    if (this._pendingMUSync) {
+      this._applyMUSync(this._pendingMUSync);
+      this._pendingMUSync = null;
+    }
+  }
+
   protected onLateFixedUpdate(dt: number): void {
     if (!this._inRoom) return;
 
@@ -299,16 +311,6 @@ export class MultiuserPlugin extends RVBehavior {
 
   protected onFrame(frameDt: number): void {
     this._avatarManager?.lerpAvatars(frameDt);
-
-    // Apply buffered drive/MU sync — only the latest message per frame
-    if (this._pendingDriveSync) {
-      this._applyDriveSync(this._pendingDriveSync);
-      this._pendingDriveSync = null;
-    }
-    if (this._pendingMUSync) {
-      this._applyMUSync(this._pendingMUSync);
-      this._pendingMUSync = null;
-    }
   }
 
   // ── WebSocket connection ──────────────────────────────────────────────────

@@ -7,31 +7,31 @@
 
 import { useState, useSyncExternalStore } from 'react';
 import { Speed, Sensors, Warning, Build, PrecisionManufacturing } from '@mui/icons-material';
-import type { RVViewerPlugin } from '../core/rv-plugin';
-import type { UISlotEntry, UISlotProps } from '../core/rv-ui-plugin';
+import type { RVViewerPlugin } from '../../core/rv-plugin';
+import type { UISlotEntry, UISlotProps } from '../../core/rv-ui-plugin';
 
 // Core reusable components
-import { KpiCard } from '../core/hmi/KpiCard';
-import { TileCard } from '../core/hmi/TileCard';
-import { NavButton } from '../core/hmi/NavButton';
+import { KpiCard } from '../../core/hmi/KpiCard';
+import { TileCard } from '../../core/hmi/TileCard';
+import { NavButton } from '../../core/hmi/NavButton';
 
 // Custom charts (demo content)
-import { OeeChart } from './OeeChart';
-import { PartsChart } from './PartsChart';
-import { CycleTimeChart } from './CycleTimeChart';
-import { EnergyChart } from './EnergyChart';
+import { OeeChart } from '../../custom/OeeChart';
+import { PartsChart } from '../../custom/PartsChart';
+import { CycleTimeChart } from '../../custom/CycleTimeChart';
+import { EnergyChart } from '../../custom/EnergyChart';
 
 // Custom overlays
-import { SensorChartOverlay } from './SensorChartOverlay';
-import { DocViewerOverlay } from '../core/hmi/DocViewerOverlay';
+import { SensorChartOverlay } from '../../custom/SensorChartOverlay';
+import { DocViewerOverlay } from '../../core/hmi/DocViewerOverlay';
 
 // Hooks
-import { useDriveChartOpen } from '../hooks/use-drive-chart';
-import { useSensorChartOpen } from '../hooks/use-sensor-chart';
-import { useMaintenanceMode } from '../hooks/use-maintenance-mode';
+import { useDriveChartOpen } from '../../hooks/use-drive-chart';
+import { useSensorChartOpen } from '../../hooks/use-sensor-chart';
+import { useMaintenanceMode } from '../../hooks/use-maintenance-mode';
 
 // Layout constants
-import { MACHINE_PANEL_WIDTH } from '../core/hmi/layout-constants';
+import { MACHINE_PANEL_WIDTH } from '../../core/hmi/layout-constants';
 
 // ─── KPI Bar Entries ────────────────────────────────────────────────────
 

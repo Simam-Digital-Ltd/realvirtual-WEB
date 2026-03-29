@@ -11,7 +11,7 @@ import type {
   MaintenanceMode,
   MaintenanceState,
   StepResult,
-} from '../plugins/maintenance-plugin';
+} from '../plugins/demo/maintenance-plugin';
 
 /** Default state when maintenance is idle. */
 const IDLE_STATE: MaintenanceState = {

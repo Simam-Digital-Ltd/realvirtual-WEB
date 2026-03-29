@@ -9,11 +9,11 @@
 import { useState, useSyncExternalStore, useCallback } from 'react';
 import { Box, Paper, Typography, Slider, IconButton, Button } from '@mui/material';
 import { Science, Close } from '@mui/icons-material';
-import type { UISlotEntry, UISlotProps } from '../core/rv-ui-plugin';
-import type { RVDrive } from '../core/engine/rv-drive';
-import type { ActiveOnly } from '../core/engine/rv-active-only';
-import { RVBehavior } from '../core/rv-behavior';
-import { NavButton } from '../core/hmi/NavButton';
+import type { UISlotEntry, UISlotProps } from '../../core/rv-ui-plugin';
+import type { RVDrive } from '../../core/engine/rv-drive';
+import type { ActiveOnly } from '../../core/engine/rv-active-only';
+import { RVBehavior } from '../../core/rv-behavior';
+import { NavButton } from '../../core/hmi/NavButton';
 
 // ─── Slider Window ──────────────────────────────────────────────────────
 

@@ -37,20 +37,15 @@ import { CtrlXInterface } from './interfaces/ctrlx-interface';
 // WebXR plugin (immersive VR on Quest 3 and other headsets)
 import { WebXRPlugin } from './plugins/webxr-plugin';
 
-// Maintenance guide plugin (LogicStep-driven step-by-step maintenance wizard)
-import { MaintenancePlugin } from './plugins/maintenance-plugin';
-
-// Machine control panel plugin (demo HMI with PackML-inspired state machine)
-import { MachineControlPlugin } from './plugins/machine-control-plugin';
-
 // Multiuser presence plugin (browser ↔ Unity / relay server collaboration)
 import { MultiuserPlugin } from './plugins/multiuser-plugin';
 
 // First-Person View plugin (desktop WASD + mouse look walkthrough)
 import { FpvPlugin } from './plugins/fpv-plugin';
 
-// Layout Planner plugin (factory layout planning with GLB library drag & drop)
-import { LayoutPlannerPlugin } from './plugins/layout-planner-plugin';
+// Demo content plugins (KPIs, HMI buttons/messages, test axes)
+// To add/remove demo plugins, edit plugins/demo/index.ts — no changes needed here.
+import { registerDemoPlugins } from './plugins/demo';
 
 // Microsoft Teams JS SDK (lazy-loaded when ?teams=1)
 import * as microsoftTeams from '@microsoft/teams-js';
@@ -165,12 +160,18 @@ async function init() {
     .use(new SensorMonitorPlugin())
     .use(new TransportStatsPlugin())
     .use(new CameraEventsPlugin())
-    .use(new MaintenancePlugin())
-    .use(new MachineControlPlugin())
     .use(new MultiuserPlugin())
     .use(new FpvPlugin())
-    .use(new LayoutPlannerPlugin())
     .use(new RvExtrasEditorPlugin());
+
+  // --- Demo plugins (KPIs, HMI buttons/messages, test axes) ---
+  registerDemoPlugins(viewer);
+
+  // --- Performance test plugin (activated via ?perf URL param) ---
+  if (params.has('perf')) {
+    const { PerfTestPlugin } = await import('./plugins/demo/perf-test-plugin');
+    viewer.use(new PerfTestPlugin());
+  }
 
   // --- Register Private Plugins (no-op in public build) ---
   registerPrivatePlugins(viewer);

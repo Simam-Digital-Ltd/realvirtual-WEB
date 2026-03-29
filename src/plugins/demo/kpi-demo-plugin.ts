@@ -5,7 +5,7 @@
  * 3-shift manufacturing with handovers, breaks, tool wear, etc.
  */
 
-import type { RVViewerPlugin } from '../core/rv-plugin';
+import type { RVViewerPlugin } from '../../core/rv-plugin';
 
 // ─── OEE Types ──────────────────────────────────────────────────────────
 

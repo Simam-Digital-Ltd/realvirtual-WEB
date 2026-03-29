@@ -2,7 +2,7 @@
  * Tests for Layout localStorage Persistence — verify library URLs and layout auto-save.
  */
 import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { LayoutStore } from '../src/plugins/rv-layout-store';
+import { LayoutStore } from '../../realvirtual-WebViewer-Private~/src/plugins/layout-planner/rv-layout-store';
 
 describe('Layout localStorage Persistence', () => {
   beforeEach(() => localStorage.clear());

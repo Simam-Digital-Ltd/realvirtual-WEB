@@ -1,0 +1,22 @@
+{
+  "version": "1.0",
+  "name": "realvirtual Demo Library",
+  "entries": [
+    {
+      "id": "autonox-at-00028",
+      "name": "Autonox AT 00028",
+      "category": "robot",
+      "glbUrl": "./Autonox_AT_00028.glb",
+      "thumbnailUrl": "./autonox-at-00028.png",
+      "tags": ["robot", "autonox", "6-axis"]
+    },
+    {
+      "id": "fanuc-robot",
+      "name": "Fanuc Robot",
+      "category": "robot",
+      "glbUrl": "./Fanuc.glb",
+      "thumbnailUrl": "./fanuc-robot.png",
+      "tags": ["robot", "fanuc", "6-axis"]
+    }
+  ]
+}
