@@ -46,6 +46,9 @@ import { MultiuserPlugin } from './plugins/multiuser-plugin';
 // First-Person View plugin (desktop WASD + mouse look walkthrough)
 import { FpvPlugin } from './plugins/fpv-plugin';
 
+// Annotation plugin (3D markers, labels, drawing on surfaces)
+import { AnnotationPlugin } from './plugins/annotation-plugin';
+
 // Demo content plugins (KPIs, HMI buttons/messages, test axes)
 // To add/remove demo plugins, edit plugins/demo/index.ts — no changes needed here.
 import { registerDemoPlugins } from './plugins/demo';
@@ -105,6 +108,20 @@ async function init() {
       await microsoftTeams.app.initialize();
       logInfo('Teams SDK initialized');
       microsoftTeams.app.notifySuccess();
+
+      // Extract Teams display name and inject as URL param for multiuser auto-join
+      if (!params.has('name')) {
+        try {
+          const ctx = await microsoftTeams.app.getContext();
+          const teamsName = (ctx as any)?.user?.userPrincipalName?.split('@')[0]
+            ?? (ctx as any)?.user?.id?.slice(0, 8)
+            ?? 'TeamsUser';
+          params.set('name', teamsName);
+          const newUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+          window.history.replaceState(null, '', newUrl);
+          logInfo(`Teams user name: ${teamsName}`);
+        } catch { /* context unavailable — no-op */ }
+      }
     } catch (e) {
       console.warn('[main] Teams SDK init failed (running outside Teams?)', e);
     }
@@ -182,6 +199,7 @@ async function init() {
     .use(new CameraEventsPlugin())
     .use(new MultiuserPlugin())
     .use(new FpvPlugin())
+    .use(new AnnotationPlugin())
     .use(new RvExtrasEditorPlugin());
 
   // --- Demo plugins (KPIs, HMI buttons/messages, test axes) ---

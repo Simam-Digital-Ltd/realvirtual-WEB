@@ -192,7 +192,12 @@ export class SelectionManager {
         .map(p => viewer.registry?.getNode(p))
         .filter((n): n is NonNullable<typeof n> => n != null);
       if (nodes.length > 0) {
-        viewer.highlighter.highlightSelection(nodes);
+        // Include child drives in highlight when any selected node has LayoutObject
+        const hasLayout = nodes.some(n => {
+          const rv = n.userData?.realvirtual as Record<string, unknown> | undefined;
+          return !!rv?.LayoutObject;
+        });
+        viewer.highlighter.highlightSelection(nodes, { includeChildDrives: hasLayout });
       } else {
         viewer.highlighter.clearSelection();
       }

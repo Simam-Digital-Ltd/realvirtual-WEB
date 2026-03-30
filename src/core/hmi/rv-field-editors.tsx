@@ -5,7 +5,7 @@
  * ObjectEditor, SubFieldRow, FieldEditor, and the flattenObjectFields utility.
  */
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -159,6 +159,72 @@ export function StringEditor({ value, onChange }: { value: string; onChange: (v:
 
 // ── Vector3Editor ────────────────────────────────────────────────────────
 
+// ── Axis colors ──────────────────────────────────────────────────────────
+
+const AXIS_COLORS = { x: '#ef5350', y: '#66bb6a', z: '#4fc3f7' } as const;
+
+/**
+ * DragLabel — Unity-style draggable axis label.
+ * Click-drag horizontally on the label to scrub the numeric value.
+ * Sensitivity scales with drag distance; holding Shift for fine control.
+ */
+function DragLabel({
+  axis,
+  value,
+  onDrag,
+  onDragEnd,
+}: {
+  axis: 'x' | 'y' | 'z';
+  value: number;
+  onDrag: (newValue: number) => void;
+  onDragEnd: () => void;
+}) {
+  const dragRef = useRef<{ startX: number; startValue: number } | null>(null);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startValue: value };
+  }, [value]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const sensitivity = e.shiftKey ? 0.01 : 0.1;
+    const newValue = +(dragRef.current.startValue + dx * sensitivity).toFixed(4);
+    onDrag(newValue);
+  }, [onDrag]);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    dragRef.current = null;
+    onDragEnd();
+  }, [onDragEnd]);
+
+  return (
+    <Typography
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      sx={{
+        fontSize: 9,
+        fontWeight: 600,
+        color: AXIS_COLORS[axis],
+        width: 10,
+        textAlign: 'center',
+        textTransform: 'uppercase',
+        flexShrink: 0,
+        cursor: 'ew-resize',
+        userSelect: 'none',
+        '&:hover': { opacity: 0.8 },
+      }}
+    >
+      {axis}
+    </Typography>
+  );
+}
+
 export function Vector3Editor({ value, onChange }: { value: { x: number; y: number; z: number }; onChange: (v: { x: number; y: number; z: number }) => void }) {
   const [local, setLocal] = useState({ x: String(value.x), y: String(value.y), z: String(value.z) });
 
@@ -170,6 +236,16 @@ export function Vector3Editor({ value, onChange }: { value: { x: number; y: numb
       setLocal((prev) => ({ ...prev, [axis]: String(value[axis]) }));
     }
   };
+
+  const handleDrag = useCallback((axis: 'x' | 'y' | 'z', newValue: number) => {
+    setLocal((prev) => ({ ...prev, [axis]: String(newValue) }));
+    onChange({ ...value, [axis]: newValue });
+  }, [onChange, value]);
+
+  const handleDragEnd = useCallback(() => {
+    // Sync local display with current value after drag completes
+    setLocal({ x: String(value.x), y: String(value.y), z: String(value.z) });
+  }, [value]);
 
   const axisStyle = {
     width: '100%',
@@ -189,17 +265,12 @@ export function Vector3Editor({ value, onChange }: { value: { x: number; y: numb
     <Box sx={{ display: 'flex', gap: 0.5, width: '100%' }}>
       {(['x', 'y', 'z'] as const).map((axis) => (
         <Box key={axis} sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 0.25 }}>
-          <Typography sx={{
-            fontSize: 9,
-            fontWeight: 600,
-            color: axis === 'x' ? '#ef5350' : axis === 'y' ? '#66bb6a' : '#4fc3f7',
-            width: 8,
-            textAlign: 'center',
-            textTransform: 'uppercase',
-            flexShrink: 0,
-          }}>
-            {axis}
-          </Typography>
+          <DragLabel
+            axis={axis}
+            value={value[axis]}
+            onDrag={(v) => handleDrag(axis, v)}
+            onDragEnd={handleDragEnd}
+          />
           <TextField
             size="small"
             type="number"

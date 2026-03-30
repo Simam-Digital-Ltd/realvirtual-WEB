@@ -142,6 +142,7 @@ describe('SelectionManager', () => {
     sm.select('Robot/Axis1');
     expect(viewer.highlighter.highlightSelection).toHaveBeenCalledWith(
       [viewer._nodes.get('Robot/Axis1')],
+      { includeChildDrives: false },
     );
   });
 
@@ -160,6 +161,7 @@ describe('SelectionManager', () => {
         viewer._nodes.get('Robot/Axis1'),
         viewer._nodes.get('Robot/Axis2'),
       ]),
+      { includeChildDrives: false },
     );
   });
 

@@ -1591,38 +1591,56 @@ Signal-Richtung wird aus rv_extras gelesen (`direction: "read"` oder `"write"`).
 ## 37. Architektur-Diagramm
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                        Browser                                │
-│                                                               │
-│  ┌─── React UI (Ebene 2+3) ──────────────────────────────┐  │
-│  │  Alarm-Liste │ KPI-Bar │ Watchlist │ Panels │ Eingaben │  │
-│  │  SignalStore ← useSignal() → Komponenten               │  │
-│  └────────────────────────┬───────────────────────────────┘  │
-│                           │                                   │
-│  ┌─── CSS2DRenderer (Ebene 1) ────────────────────────────┐  │
-│  │  Status-Badges │ Wert-Labels │ Sparklines │ Alarm-Icons │  │
-│  └────────────────────────┬───────────────────────────────┘  │
-│                           │                                   │
-│  ┌─── Three.js Core ─────┴───────────────────────────────┐  │
-│  │                                                        │  │
-│  │  RVScene │ Drive │ Sensor │ TransportSurface │ LogicStep│  │
-│  │  Registry │ Search │ Highlight │ SimulationLoop        │  │
-│  │  SignalStore │ Raycaster │ OrbitControls               │  │
-│  └────────────────────────────────────────────────────────┘  │
-│                           │                                   │
-│  ┌─── Datenquellen (austauschbar) ────────────────────────┐  │
-│  │  WebSocket │ MQTT/WS │ REST (S7 API) │ Recording-File  │  │
-│  └────────────────────────┬───────────────────────────────┘  │
-└───────────────────────────┼───────────────────────────────────┘
-                            │
-┌───────────────────────────┼───────────────────────────────────┐
-│  realvirtual Core │ MQTT Broker │ S7-1500 Web API (direkt)    │
-│  ↕                  ↕              ↕                           │
-│  S7 │ ADS │ OPC UA │ MQTT │ Fanuc │ EtherNet/IP              │
-└───────────────────────────────────────────────────────────────┘
-                            │
-                  PLC / Robot Controller
+┌──────────────────────────────────────────────────────────────────┐
+│                          Browser                                  │
+│                                                                   │
+│  ┌─── React UI (Ebene 2+3) ──────────────────────────────────┐  │
+│  │  Alarm-Liste │ KPI-Bar │ Watchlist │ Panels │ Eingaben     │  │
+│  │  SignalStore ← useSignal() → Komponenten                   │  │
+│  │  ContextMenuStore │ UIContextStore │ LeftPanelManager      │  │
+│  │  Settings-Tabs (Model, Visual, Physics, Interfaces, Dev)   │  │
+│  └──────────────────────────┬─────────────────────────────────┘  │
+│                              │                                    │
+│  ┌─── CSS2DRenderer (Ebene 1) ────────────────────────────────┐  │
+│  │  Status-Badges │ Wert-Labels │ Sparklines │ Alarm-Icons    │  │
+│  └──────────────────────────┬─────────────────────────────────┘  │
+│                              │                                    │
+│  ┌─── Three.js Core ────────┴────────────────────────────────┐  │
+│  │                                                            │  │
+│  │  RVViewer ─┬─ CameraManager (FOV, Projektion, Animation)  │  │
+│  │            └─ VisualSettingsManager (Licht, Schatten, DPR) │  │
+│  │                                                            │  │
+│  │  Drive │ Sensor │ TransportSurface │ LogicStep │ Grip      │  │
+│  │  NodeRegistry │ SelectionManager │ HighlightManager        │  │
+│  │  SignalStore │ Raycaster │ OrbitControls │ SimulationLoop   │  │
+│  │  Constants (MM_TO_METERS, DRAG_THRESHOLD_PX, DPR_CAP)     │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                              │                                    │
+│  ┌─── Datenquellen (austauschbar) ────────────────────────────┐  │
+│  │  WebSocket │ MQTT/WS │ REST (S7 API) │ Recording-File      │  │
+│  └──────────────────────────┬─────────────────────────────────┘  │
+└──────────────────────────────┼────────────────────────────────────┘
+                               │
+┌──────────────────────────────┼────────────────────────────────────┐
+│  realvirtual Core │ MQTT Broker │ S7-1500 Web API (direkt)        │
+│  ↕                  ↕              ↕                               │
+│  S7 │ ADS │ OPC UA │ MQTT │ Fanuc │ EtherNet/IP                  │
+└───────────────────────────────────────────────────────────────────┘
+                               │
+                     PLC / Robot Controller
 ```
+
+### Architektur-Änderungen seit Originalkonzept
+
+| Bereich | Änderung | Grund |
+|---|---|---|
+| **CameraManager** | Aus RVViewer extrahiert | Kamera-Logik (FOV, Projektion, Animation, Viewport-Offset) als eigene Klasse |
+| **VisualSettingsManager** | Aus RVViewer extrahiert | Licht, Schatten, Tone Mapping, DPR als eigene Klasse |
+| **ContextMenuStore** | Neu | Plugin-erweiterbare Kontextmenüs per Rechtsklick/Long-Press |
+| **UIContextStore** | Neu | Kontext-abhängige UI-Sichtbarkeit (FPV, Planner, Maintenance, XR, Kiosk) |
+| **SelectionManager** | Neu | Zentralisierte Objekt-Selektion mit Events und Highlight-Integration |
+| **Settings-Tabs** | TopBar aufgeteilt | 1788→319 Zeilen; Tabs in `settings/` Verzeichnis extrahiert |
+| **Constants** | Neu (`rv-constants.ts`) | Magic Numbers zentralisiert (MM_TO_METERS, DRAG_THRESHOLD_PX, DPR_CAP) |
 
 ---
 

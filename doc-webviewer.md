@@ -40,6 +40,8 @@ src/
 ├── rv-test-runner.ts                    # Dev-only in-browser test runner
 ├── core/
 │   ├── rv-viewer.ts                     # RVViewer facade (scene, sim loop, plugins, events)
+│   ├── rv-camera-manager.ts             # CameraManager (projection, animation, viewport offset)
+│   ├── rv-visual-settings-manager.ts    # VisualSettingsManager (lighting, shadows, tone mapping)
 │   ├── rv-plugin.ts                     # RVViewerPlugin interface (lifecycle + optional UI slots)
 │   ├── rv-events.ts                     # Typed EventEmitter<TEvents>
 │   ├── rv-behavior.ts                    # RVBehavior abstract base class (MonoBehaviour-like)
@@ -85,10 +87,13 @@ src/
 │   │   ├── rv-group-registry.ts         # Group definitions and visibility
 │   │   ├── rv-physics-world.ts          # Rapier.js physics world wrapper
 │   │   ├── rapier-physics-plugin.ts     # Physics-based transport (replaces kinematic)
+│   │   ├── rv-constants.ts              # Shared numeric constants (MM_TO_METERS, DRAG_THRESHOLD_PX, etc.)
 │   │   ├── rv-debug.ts                  # Structured category-based debug logging
 │   │   └── rv-extras-validator.ts       # Dev-mode GLB extras parity checker
 │   └── hmi/                             # React HMI layout components (MUI-based)
 │       ├── rv-app-config.ts             # App config singleton (settings.json, lock mode, plugins)
+│       ├── ui-context-store.ts          # Context-aware UI visibility (activateContext, useUIVisible)
+│       ├── context-menu-store.ts        # Plugin-extensible right-click context menus
 │       ├── visual-settings-store.ts     # Visual settings (shadows, light, cameras)
 │       ├── physics-settings-store.ts    # Physics settings (Rapier.js)
 │       ├── search-settings-store.ts     # Search/filter settings
@@ -99,6 +104,13 @@ src/
 │       ├── KpiBar.tsx                   # Top KPI card container (slot: kpi-bar)
 │       ├── ButtonPanel.tsx              # Left sidebar with nav buttons (slot: button-group)
 │       ├── MessagePanel.tsx             # Right message panel (slot: messages)
+│       ├── settings/                    # Settings panel tabs (extracted from TopBar)
+│       │   ├── ModelTab.tsx             # Model/renderer selection
+│       │   ├── VisualTab.tsx            # Lighting, shadows, tone mapping
+│       │   ├── PhysicsTab.tsx           # Rapier.js toggle, gravity
+│       │   ├── InterfacesTab.tsx        # WebSocket/MQTT/ctrlX config
+│       │   ├── DevToolsTab.tsx          # FPS, benchmarks, debug
+│       │   └── TestsTab.tsx             # Feature test runner
 │       ├── TopBar.tsx, BottomBar.tsx     # Top/bottom bars
 │       ├── KpiCard.tsx, TileCard.tsx     # Reusable card components
 │       ├── ChartPanel.tsx               # Draggable/resizable chart overlay
@@ -109,6 +121,9 @@ src/
 │       ├── GroupsOverlay.tsx            # Group visibility toggles
 │       ├── left-panel-manager.ts        # LeftPanel mutual exclusion coordinator
 │       ├── layout-constants.ts          # Shared positioning constants
+│       ├── shared-sx.ts                 # Reusable MUI sx style fragments
+│       ├── chart-theme.ts              # Shared ECharts theme constants
+│       ├── chart-constants.ts           # Chart color/size constants
 │       ├── group-visibility-store.ts    # Group visibility state
 │       └── tooltip/                     # Generic tooltip system
 │           ├── tooltip-store.ts         # TooltipStore (useSyncExternalStore, priority resolution)
@@ -486,6 +501,54 @@ Each settings store (`visual`, `physics`, `search`, `interface`) follows this 3-
 
 `lockSettings` is an admin override — it only comes from `settings.json` or the `?lockSettings` URL param, never from localStorage.
 
+### Context Visibility Overrides
+
+Control which HMI elements are visible or hidden based on active "contexts" (e.g. `fpv`, `planner`, `maintenance`, `xr`, `kiosk`). Rules are declared per UI element with `hiddenIn` and `shownOnlyIn`:
+
+```json
+{
+  "uiVisibility": {
+    "kpi-bar":      { "hiddenIn": ["fpv", "xr"] },
+    "bottom-bar":   { "hiddenIn": ["fpv", "xr", "planner"] },
+    "button-panel": { "hiddenIn": ["xr"] },
+    "top-bar":      { "hiddenIn": ["xr"] },
+    "messages":     { "hiddenIn": ["fpv", "planner"] },
+    "views":        { "hiddenIn": ["fpv", "planner"] },
+    "kiosk-overlay": { "shownOnlyIn": ["kiosk"] }
+  }
+}
+```
+
+**Rule semantics:**
+- `hiddenIn: ["fpv", "xr"]` — element is hidden when ANY of these contexts is active
+- `shownOnlyIn: ["kiosk"]` — element is visible ONLY when ALL listed contexts are active
+- No rule → always visible (default)
+- Rules compose with the existing `H` key HMI toggle via AND logic
+
+**Built-in contexts:** `fpv` (first-person view), `planner` (layout planner), `maintenance`, `xr` (VR/AR), `kiosk`
+
+Plugins activate/deactivate contexts programmatically:
+
+```typescript
+import { activateContext, deactivateContext, setContext } from './core/hmi/ui-context-store';
+
+activateContext('fpv');     // Hides elements with hiddenIn: ['fpv']
+deactivateContext('fpv');   // Restores visibility
+setContext('kiosk', true);  // Convenience toggle
+```
+
+React components subscribe via the `useUIVisible()` hook:
+
+```typescript
+import { useUIVisible } from './core/hmi/ui-context-store';
+
+function KpiBar() {
+  const visible = useUIVisible('kpi-bar', { hiddenIn: ['fpv', 'xr'] });
+  if (!visible) return null;
+  // ...
+}
+```
+
 ### URL Parameter Overrides
 
 | Parameter | Effect |
@@ -683,6 +746,50 @@ realvirtual WEB runs natively inside Microsoft Teams as an interactive app — n
 - The `teams-app/` directory contains `manifest.json`, `color.png` (192x192), and `outline.png` (32x32)
 
 **Configurable tabs** allow per-channel model selection. The config page (`teams-config.html`) lets users set a custom model URL when adding the tab to a channel.
+
+## Shared Constants
+
+Centralized numeric constants in `rv-constants.ts` replace magic numbers across the codebase:
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `MM_TO_METERS` | `1000` | Unity mm → Three.js meters conversion factor |
+| `DRAG_THRESHOLD_PX` | `8` | Min pixel distance before pointerdown→move is treated as drag |
+| `DEFAULT_DPR_CAP` | `1.5` | Device pixel ratio cap to limit GPU load on HiDPI screens |
+| `lastPathSegment(path)` | — | Extracts last segment from hierarchy path (`"Root/Child/Leaf"` → `"Leaf"`) |
+
+## Context Menus
+
+Plugin-extensible right-click context menus on 3D objects. Plugins register menu items via `ContextMenuStore`; items are filtered by condition callbacks at open time, labels can be dynamic functions, and errors in conditions are caught and treated as `false`.
+
+```typescript
+import { contextMenuStore } from './core/hmi/context-menu-store';
+
+// Register items from a plugin
+contextMenuStore.register({
+  pluginId: 'my-plugin',
+  items: [
+    {
+      id: 'focus',
+      label: 'Focus Camera',
+      action: (target) => viewer.focusByPath(target.path),
+      order: 10,
+    },
+    {
+      id: 'inspect',
+      label: (target) => `Inspect ${target.path.split('/').pop()}`,
+      condition: (target) => target.types.includes('Drive'),
+      action: (target) => openInspector(target.path),
+      order: 20,
+    },
+  ],
+});
+
+// Unregister on plugin dispose
+contextMenuStore.unregister('my-plugin');
+```
+
+The context menu opens on right-click (with drag-distance guard) and touch long-press (500ms). It renders via MUI `<Menu>` in `ContextMenuLayer.tsx`.
 
 ## Extending
 

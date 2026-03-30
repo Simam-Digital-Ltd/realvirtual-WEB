@@ -36,6 +36,7 @@ import type { PlayerInfo, AvatarBroadcast } from '../core/engine/rv-avatar-manag
 import { RVMovingUnit, computeTemplateAABBInfo } from '../core/engine/rv-mu';
 import type { InstancedMovingUnit } from '../core/engine/rv-mu';
 import type { WebXRPlugin } from './webxr-plugin';
+import type { AnnotationPluginAPI } from '../core/types/plugin-types';
 
 // ── Public snapshot emitted on every state transition ───────────────────────
 
@@ -80,6 +81,37 @@ export interface StateSnapshot {
   signals: SignalSnapshot[];
   drives: DriveSnapshot[];
   players: PlayerInfo[];
+}
+
+// ── Shared View external subscribers for React ──────────────────────────────
+
+export interface SharedViewSnapshot {
+  following: boolean;
+  operatorName: string;
+  operatorId: string;
+  onUnfollow: () => void;
+}
+
+type SharedViewListener = () => void;
+const _sharedViewListeners = new Set<SharedViewListener>();
+let _sharedViewSnapshot: SharedViewSnapshot = {
+  following: false,
+  operatorName: '',
+  operatorId: '',
+  onUnfollow: () => {},
+};
+
+function _notifySharedView(): void {
+  for (const l of _sharedViewListeners) l();
+}
+
+export function subscribeSharedView(listener: SharedViewListener): () => void {
+  _sharedViewListeners.add(listener);
+  return () => { _sharedViewListeners.delete(listener); };
+}
+
+export function getSharedViewSnapshot(): SharedViewSnapshot {
+  return _sharedViewSnapshot;
 }
 
 // ── Default configuration ────────────────────────────────────────────────────
@@ -137,6 +169,17 @@ export class MultiuserPlugin extends RVBehavior {
 
   // ── Drive lookup cache (built once on first drive_sync for O(1) matching) ──
   private _driveMap: Map<string, import('../core/engine/rv-drive').RVDrive> | null = null;
+
+  // ── Shared View state ──
+  private _sharedViewFollowing = false;
+  private _sharedViewOperatorId = '';
+  private _sharedViewOperatorName = '';
+  private _sharedViewLastBroadcast = 0;
+  /** Whether this client is the shared view operator. */
+  private _isSharedViewOperator = false;
+
+  // ── Shared View auto-unfollow timeout (5s without avatar_broadcast from operator) ──
+  private static readonly SHARED_VIEW_TIMEOUT_MS = 5000;
 
   // ── "Latest only" message buffers ──
   // Unity sends drive_sync/mu_sync every FixedUpdate (~50Hz). Between browser
@@ -209,11 +252,48 @@ export class MultiuserPlugin extends RVBehavior {
     this._send({ type: 'cursor_ray', origin, direction });
   }
 
+  // ── Shared View API ──────────────────────────────────────────────────────
+
+  /**
+   * Toggle shared view mode — operator forces all observers to follow their camera.
+   * Only operators can activate; observers can only unfollow.
+   */
+  toggleSharedView(active: boolean): void {
+    if (active) {
+      this._isSharedViewOperator = true;
+      this._send({ type: 'shared_view_on' });
+    } else {
+      this._isSharedViewOperator = false;
+      this._send({ type: 'shared_view_off' });
+    }
+  }
+
+  /** Whether this client is currently the shared view operator. */
+  get isSharedViewOperator(): boolean { return this._isSharedViewOperator; }
+
+  /** Whether this client is currently following a shared view operator. */
+  get isFollowingSharedView(): boolean { return this._sharedViewFollowing; }
+
+  /** Stop following the shared view operator (observer-initiated unfollow). */
+  unfollowSharedView(): void {
+    this._stopFollowing();
+  }
+
+  /**
+   * Send a "look at this" ping to all observers.
+   * @param target World-space position to orbit to
+   */
+  sendLookAt(target: [number, number, number]): void {
+    this._send({ type: 'look_at', target });
+  }
+
   /** Disconnect from the current session and remove all remote avatars. */
   leaveSession(): void {
     this._destroyed = true;
     this._clearReconnect();
     this._sendLeave();
+    this._stopFollowing(); // Auto-unfollow on leave
+    this._isSharedViewOperator = false;
     this._disconnect();
     this._avatarManager?.clear();
     this._inRoom = false;
@@ -256,7 +336,7 @@ export class MultiuserPlugin extends RVBehavior {
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-  protected onStart(result: LoadResult): void {
+  protected onStart(_result: LoadResult): void {
     if (!this.scene) return;
     this._avatarManager = new AvatarManager(this.scene);
 
@@ -265,10 +345,20 @@ export class MultiuserPlugin extends RVBehavior {
       this._avatarManager.setCamera(this.viewer.camera);
     }
 
+    // Set up annotation sync: connect the annotation plugin to our send method
+    if (this.viewer) {
+      const annPlugin = this.viewer.getPlugin<AnnotationPluginAPI & { setSyncSend?(fn: (type: string, payload: object) => void): void }>('annotations');
+      if (annPlugin && typeof annPlugin.setSyncSend === 'function') {
+        annPlugin.setSyncSend((type: string, payload: object) => {
+          this._send({ type, ...payload });
+        });
+      }
+    }
+
     // Phase 3: Check URL query parameters — support both short keys (?server, ?name, ?role)
     // and the original Phase 1 keys (?multiuserServer, ?multiuserName) for backward compatibility.
     const params = new URLSearchParams(window.location.search);
-    const server = params.get('server') ?? params.get('multiuserServer');
+    const server = params.get('server') ?? params.get('relay') ?? params.get('multiuserServer');
     const name = params.get('name') ?? params.get('multiuserName') ?? 'Browser';
     const color = params.get('multiuserColor') ?? '#2196F3';
     const role = params.get('role') ?? params.get('multiuserRole') ?? 'observer';
@@ -320,6 +410,15 @@ export class MultiuserPlugin extends RVBehavior {
 
   protected onFrame(frameDt: number): void {
     this._avatarManager?.lerpAvatars(frameDt);
+
+    // Shared view auto-unfollow: if no avatar_broadcast from operator for 5s
+    if (this._sharedViewFollowing && this._sharedViewLastBroadcast > 0) {
+      const elapsed = performance.now() - this._sharedViewLastBroadcast;
+      if (elapsed > MultiuserPlugin.SHARED_VIEW_TIMEOUT_MS) {
+        debug('multiuser', 'Shared view operator timeout — auto-unfollowing');
+        this._stopFollowing();
+      }
+    }
   }
 
   // ── WebSocket connection ──────────────────────────────────────────────────
@@ -360,6 +459,8 @@ export class MultiuserPlugin extends RVBehavior {
 
     this._ws.onclose = () => {
       this._inRoom = false;
+      this._stopFollowing(); // Auto-unfollow on disconnect
+      this._isSharedViewOperator = false;
       const wasConnected = this._status === 'connected';
       this._status = 'error';
       this._statusMessage = wasConnected ? 'Connection lost — reconnecting…' : 'Could not connect — retrying…';
@@ -549,6 +650,23 @@ export class MultiuserPlugin extends RVBehavior {
       case 'cursor_ray':
         this._handleCursorRay(msg);
         break;
+      // ── Shared View messages ──
+      case 'shared_view_on':
+        this._handleSharedViewOn(msg);
+        break;
+      case 'shared_view_off':
+        this._handleSharedViewOff(msg);
+        break;
+      case 'look_at':
+        this._handleLookAt(msg);
+        break;
+      // ── Annotation messages ──
+      case 'annotation_add':
+      case 'annotation_update':
+      case 'annotation_remove':
+      case 'annotation_sync':
+        this._handleAnnotationMessage(type, msg);
+        break;
       case 'error':
         this._handleServerError(msg);
         break;
@@ -588,6 +706,28 @@ export class MultiuserPlugin extends RVBehavior {
   private _handleAvatarBroadcast(msg: Record<string, unknown>): void {
     if (!this._avatarManager) return;
     this._avatarManager.updateAvatar(msg as unknown as AvatarBroadcast);
+
+    // ── Shared View: follow operator's camera ──
+    const senderId = msg['id'] as string | undefined;
+    if (this._sharedViewFollowing && senderId === this._sharedViewOperatorId && this.viewer) {
+      this._sharedViewLastBroadcast = performance.now();
+
+      const headPos = msg['headPos'] as [number, number, number] | undefined;
+      const headRot = msg['headRot'] as [number, number, number, number] | undefined;
+      const cameraTarget = msg['cameraTarget'] as [number, number, number] | undefined;
+
+      if (headPos && headRot && cameraTarget) {
+        // Frame-rate-independent lerp: t = 1 - (1 - 0.25)^(dt * 60)
+        // Using fixed dt approximation at 30Hz avatar update rate
+        const t = 0.25;
+        const cam = this.viewer.camera;
+        cam.position.lerp(_tmpVec3.set(headPos[0], headPos[1], headPos[2]), t);
+        cam.quaternion.slerp(_tmpQuat.set(headRot[0], headRot[1], headRot[2], headRot[3]), t);
+        this.viewer.controls.target.lerp(_tmpVec3.set(cameraTarget[0], cameraTarget[1], cameraTarget[2]), t);
+        this.viewer.controls.update();
+        this.viewer.markRenderDirty();
+      }
+    }
   }
 
   // ── Phase 3 incoming handlers ─────────────────────────────────────────────
@@ -818,6 +958,81 @@ export class MultiuserPlugin extends RVBehavior {
     const direction = msg['direction'] as [number, number, number] | undefined;
     if (id && origin && direction) {
       this._avatarManager.updateCursorRay(id, origin, direction);
+    }
+  }
+
+  // ── Shared View handlers ──────────────────────────────────────────────────
+
+  private _handleSharedViewOn(msg: Record<string, unknown>): void {
+    const operatorId = msg['id'] as string | undefined;
+    if (!operatorId || !this.viewer) return;
+
+    // Find operator name from avatar manager
+    const players = this._avatarManager?.getPlayers() ?? [];
+    const operator = players.find(p => p.id === operatorId);
+    const operatorName = operator?.name ?? 'Operator';
+
+    this._sharedViewFollowing = true;
+    this._sharedViewOperatorId = operatorId;
+    this._sharedViewOperatorName = operatorName;
+    this._sharedViewLastBroadcast = performance.now();
+
+    this.viewer.setSharedViewMode(true);
+
+    this._emitSharedViewSnapshot();
+    debug('multiuser', `Now following ${operatorName}'s view`);
+  }
+
+  private _handleSharedViewOff(msg: Record<string, unknown>): void {
+    const operatorId = msg['id'] as string | undefined;
+    if (!operatorId) return;
+    // Only unfollow if we were following this specific operator
+    if (this._sharedViewOperatorId === operatorId) {
+      this._stopFollowing();
+    }
+  }
+
+  private _handleLookAt(msg: Record<string, unknown>): void {
+    if (!this.viewer) return;
+    const target = msg['target'] as [number, number, number] | undefined;
+    if (!target) return;
+
+    const targetVec = new Vector3(target[0], target[1], target[2]);
+    this.viewer.controls.target.copy(targetVec);
+    this.viewer.controls.update();
+    this.viewer.markRenderDirty();
+  }
+
+  /** Stop following shared view — re-enable controls. */
+  private _stopFollowing(): void {
+    if (!this._sharedViewFollowing) return;
+    this._sharedViewFollowing = false;
+    this._sharedViewOperatorId = '';
+    this._sharedViewOperatorName = '';
+
+    this.viewer?.setSharedViewMode(false);
+    this._emitSharedViewSnapshot();
+    debug('multiuser', 'Stopped following shared view');
+  }
+
+  private _emitSharedViewSnapshot(): void {
+    const self = this;
+    _sharedViewSnapshot = {
+      following: this._sharedViewFollowing,
+      operatorName: this._sharedViewOperatorName,
+      operatorId: this._sharedViewOperatorId,
+      onUnfollow: () => self._stopFollowing(),
+    };
+    _notifySharedView();
+  }
+
+  // ── Annotation sync handler ──────────────────────────────────────────────
+
+  private _handleAnnotationMessage(type: string, msg: Record<string, unknown>): void {
+    if (!this.viewer) return;
+    const annPlugin = this.viewer.getPlugin<AnnotationPluginAPI & { handleRemoteMessage?(type: string, msg: Record<string, unknown>): void }>('annotations');
+    if (annPlugin && typeof annPlugin.handleRemoteMessage === 'function') {
+      annPlugin.handleRemoteMessage(type, msg);
     }
   }
 

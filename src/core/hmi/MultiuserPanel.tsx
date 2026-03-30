@@ -1,14 +1,9 @@
 /**
- * MultiuserPanel — Simple join/leave popup for the TopBar.
+ * MultiuserPanel — Simplified join/share popup for the TopBar.
  *
- * Shows a compact dropdown with:
- *   - Display name field
- *   - Server URL field (pre-filled from settings/URL params)
- *   - Optional join code field
- *   - Join button
- *   - When connected: player list + disconnect button
- *
- * Advanced settings (role, enable/disable) are in the Multiuser settings tab.
+ * Default flow: enter name + session code → Join & Share.
+ * Auto-detects mode: ws:// input = direct connection, otherwise = relay with join code.
+ * Advanced "Direct Connection" section is collapsible for power users.
  */
 
 import { useState, useEffect, useCallback, useRef, memo } from 'react';
@@ -19,10 +14,9 @@ import {
   TextField,
   IconButton,
   Divider,
-  ToggleButtonGroup,
-  ToggleButton,
+  Collapse,
 } from '@mui/material';
-import { Close, PersonOutline, WifiOff, Wifi } from '@mui/icons-material';
+import { Close, PersonOutline, WifiOff, Wifi, Share, ExpandMore, ExpandLess } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useMultiuser } from '../../hooks/use-multiuser';
 import { loadMultiuserSettings, saveMultiuserSettings } from './multiuser-settings-store';
@@ -42,7 +36,6 @@ const INPUT_SX = {
 
 // ── Sub-components ────────────────────────────────────────────────────────
 
-// Opt 5a: React.memo prevents re-render when player props haven't changed
 const PlayerRow = memo(function PlayerRow({ player }: { player: PlayerInfo }) {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.3 }}>
@@ -62,6 +55,14 @@ const PlayerRow = memo(function PlayerRow({ player }: { player: PlayerInfo }) {
   );
 });
 
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+/** Returns true if the input looks like a WebSocket URL (direct connection). */
+function isDirectUrl(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return v.startsWith('ws://') || v.startsWith('wss://');
+}
+
 // ── Panel ─────────────────────────────────────────────────────────────────
 
 interface MultiuserPanelProps {
@@ -72,19 +73,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
   const viewer = useViewer();
   const mu = useMultiuser();
 
-  // Pre-fill from persisted settings, then override with URL params/plugin state
-  const [connectionMode, setConnectionMode] = useState<'local' | 'relay'>(() => {
-    const s = loadMultiuserSettings();
-    return s.connectionMode || 'local';
-  });
-  const [serverUrl, setServerUrl] = useState(() => {
-    const s = loadMultiuserSettings();
-    return s.serverUrl || '';
-  });
-  const [relayUrl, setRelayUrl] = useState(() => {
-    const s = loadMultiuserSettings();
-    return s.relayUrl || 'wss://download.realvirtual.io/relay';
-  });
+  // State
   const [localName, setLocalName] = useState(() => {
     const s = loadMultiuserSettings();
     return s.displayName || 'Browser';
@@ -93,22 +82,39 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
     const s = loadMultiuserSettings();
     return s.joinCode || '';
   });
+  const [relayUrl, setRelayUrl] = useState(() => {
+    const s = loadMultiuserSettings();
+    return s.relayUrl || 'wss://download.realvirtual.io/relay';
+  });
+  const [directUrl, setDirectUrl] = useState(() => {
+    const s = loadMultiuserSettings();
+    return s.serverUrl || '';
+  });
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Sync from plugin/URL on mount
-  const serverUrlRef = useRef(serverUrl);
-  serverUrlRef.current = serverUrl;
+  const directUrlRef = useRef(directUrl);
+  directUrlRef.current = directUrl;
   useEffect(() => {
     const plugin = viewer.getPlugin<MultiuserPluginAPI>('multiuser');
     if (plugin) {
-      if (plugin.serverUrl && !serverUrlRef.current) setServerUrl(plugin.serverUrl);
       if (plugin.localName) setLocalName(plugin.localName);
       if (plugin.joinCode) setJoinCode(plugin.joinCode);
     }
     const params = new URLSearchParams(window.location.search);
-    const urlServer = params.get('server') ?? params.get('multiuserServer');
+    const urlServer = params.get('server') ?? params.get('relay') ?? params.get('multiuserServer');
     const urlName = params.get('name') ?? params.get('multiuserName');
     const urlCode = params.get('joinCode') ?? params.get('code');
-    if (urlServer && !serverUrlRef.current) setServerUrl(urlServer);
+    // If URL has a server that looks like ws://, pre-fill direct; otherwise treat as relay
+    if (urlServer) {
+      if (isDirectUrl(urlServer)) {
+        setDirectUrl(urlServer);
+        setShowAdvanced(true);
+      } else {
+        setRelayUrl(urlServer);
+      }
+    }
     if (urlName) setLocalName(urlName);
     if (urlCode) setJoinCode(urlCode);
   }, [viewer]);
@@ -116,33 +122,60 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
   // Keep in sync when connected
   useEffect(() => {
     if (mu.connected && mu.localName) setLocalName(mu.localName);
-    if (mu.connected && mu.serverUrl) setServerUrl(mu.serverUrl);
-  }, [mu.connected, mu.localName, mu.serverUrl]);
+  }, [mu.connected, mu.localName]);
+
+  // Determine connection mode from current state
+  const useDirectMode = showAdvanced && directUrl.trim() && isDirectUrl(directUrl);
 
   const handleJoin = useCallback(() => {
     const plugin = viewer.getPlugin<MultiuserPluginAPI>('multiuser');
-    if (!plugin) {
-      console.warn('[MultiuserPanel] MultiuserPluginAPI not found.');
-      return;
-    }
-    // Persist current values
+    if (!plugin) return;
+
+    // Persist
     const settings = loadMultiuserSettings();
-    settings.connectionMode = connectionMode;
-    settings.serverUrl = serverUrl;
+    settings.connectionMode = useDirectMode ? 'local' : 'relay';
+    settings.serverUrl = directUrl;
     settings.relayUrl = relayUrl;
     settings.displayName = localName;
     settings.joinCode = joinCode;
     saveMultiuserSettings(settings);
 
-    const url = connectionMode === 'relay' ? relayUrl : serverUrl;
+    const url = useDirectMode ? directUrl : relayUrl;
     const role = plugin.localRole || 'observer';
-    plugin.joinSession(url, localName, undefined, role, joinCode || undefined);
-  }, [viewer, connectionMode, serverUrl, relayUrl, localName, joinCode]);
+    plugin.joinSession(url, localName, undefined, role, useDirectMode ? undefined : (joinCode || undefined));
+  }, [viewer, useDirectMode, directUrl, relayUrl, localName, joinCode]);
 
   const handleDisconnect = useCallback(() => {
-    const plugin = viewer.getPlugin<MultiuserPluginAPI>('multiuser');
-    plugin?.leaveSession();
+    viewer.getPlugin<MultiuserPluginAPI>('multiuser')?.leaveSession();
   }, [viewer]);
+
+  const buildShareUrl = useCallback(() => {
+    const base = window.location.origin + window.location.pathname;
+    const shareParams = new URLSearchParams();
+    const activeServer = mu.serverUrl || (useDirectMode ? directUrl : relayUrl);
+    if (activeServer) shareParams.set('server', activeServer);
+    if (joinCode) shareParams.set('joinCode', joinCode);
+    shareParams.set('name', 'Guest');
+    const currentModel = new URLSearchParams(window.location.search).get('model');
+    if (currentModel) shareParams.set('model', currentModel);
+    return base + '?' + shareParams.toString();
+  }, [mu.serverUrl, useDirectMode, directUrl, relayUrl, joinCode]);
+
+  const copyShareLink = useCallback(() => {
+    navigator.clipboard.writeText(buildShareUrl()).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [buildShareUrl]);
+
+  const handleJoinAndShare = useCallback(() => {
+    handleJoin();
+    copyShareLink();
+  }, [handleJoin, copyShareLink]);
+
+  const canJoin = useDirectMode
+    ? !!directUrl.trim()
+    : !!joinCode.trim();
 
   const isConnected = mu.connected;
   const players: PlayerInfo[] = mu.players;
@@ -177,100 +210,101 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
 
       <Divider sx={{ borderColor: BORDER, mb: 1 }} />
 
-      {/* Join form */}
+      {/* ── Join form (disconnected) ── */}
       {!isConnected && (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-          {/* Connection Mode Toggle */}
-          <ToggleButtonGroup
-            value={connectionMode}
-            exclusive
-            onChange={(_e, val) => { if (val) setConnectionMode(val); }}
-            size="small"
-            fullWidth
-            sx={{
-              '& .MuiToggleButton-root': {
-                fontSize: 11, textTransform: 'none', py: 0.4,
-                color: 'rgba(255,255,255,0.5)', borderColor: BORDER,
-                '&.Mui-selected': { color: '#fff', bgcolor: 'rgba(21,101,192,0.5)', borderColor: '#1565c0' },
-              },
-            }}
-          >
-            <ToggleButton value="local">Local</ToggleButton>
-            <ToggleButton value="relay">Relay</ToggleButton>
-          </ToggleButtonGroup>
-
           <TextField
             fullWidth size="small"
             placeholder="Your Name"
             value={localName}
             onChange={(e) => setLocalName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleJoin(); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && canJoin) handleJoinAndShare(); }}
             sx={INPUT_SX}
           />
 
-          {/* Local mode: direct server URL */}
-          {connectionMode === 'local' && (
-            <TextField
-              fullWidth size="small"
-              placeholder="ws://192.168.1.5:7000"
-              value={serverUrl}
-              onChange={(e) => setServerUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleJoin(); }}
-              sx={INPUT_SX}
-            />
-          )}
-
-          {/* Relay mode: relay URL */}
-          {connectionMode === 'relay' && (
-            <TextField
-              fullWidth size="small"
-              placeholder="wss://download.realvirtual.io/relay"
-              value={relayUrl}
-              onChange={(e) => setRelayUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleJoin(); }}
-              sx={INPUT_SX}
-            />
-          )}
-
           <TextField
             fullWidth size="small"
-            placeholder={connectionMode === 'relay' ? 'Join Code (required)' : 'Join Code (optional)'}
+            placeholder="Session Code"
             value={joinCode}
             onChange={(e) => setJoinCode(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleJoin(); }}
-            sx={{ ...INPUT_SX, '& .MuiInputBase-input': { ...INPUT_SX['& .MuiInputBase-input'], textTransform: 'uppercase', fontFamily: 'monospace' } }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && canJoin) handleJoinAndShare(); }}
+            sx={{ ...INPUT_SX, '& .MuiInputBase-input': { ...INPUT_SX['& .MuiInputBase-input'], textTransform: 'uppercase', fontFamily: 'monospace', letterSpacing: '0.1em' } }}
           />
+
+          {/* Primary action */}
           <Button
             fullWidth variant="contained" size="small"
-            onClick={handleJoin}
-            disabled={
-              mu.status === 'connecting' ||
-              (connectionMode === 'local' && !serverUrl.trim()) ||
-              (connectionMode === 'relay' && (!relayUrl.trim() || !joinCode.trim()))
-            }
-            sx={{ fontSize: 11, textTransform: 'none', mt: 0.25, bgcolor: '#1565c0', '&:hover': { bgcolor: '#1976d2' } }}
+            onClick={handleJoinAndShare}
+            disabled={mu.status === 'connecting' || !canJoin}
+            startIcon={<Share sx={{ fontSize: 14 }} />}
+            sx={{
+              fontSize: 12, textTransform: 'none', mt: 0.25, py: 0.75,
+              bgcolor: '#1565c0', '&:hover': { bgcolor: '#1976d2' },
+              '&.Mui-disabled': { bgcolor: 'rgba(21,101,192,0.3)', color: 'rgba(255,255,255,0.3)' },
+            }}
           >
-            {mu.status === 'connecting' ? 'Connecting…' : 'Join'}
+            {mu.status === 'connecting' ? 'Connecting…' : copied ? 'Link Copied!' : 'Join & Share'}
           </Button>
+
           {mu.statusMessage && (
             <Typography sx={{
-              fontSize: 10, mt: 0.5, textAlign: 'center',
+              fontSize: 10, mt: 0.25, textAlign: 'center',
               color: mu.status === 'error' ? '#ef5350' : 'rgba(255,255,255,0.45)',
             }}>
               {mu.statusMessage}
             </Typography>
           )}
+
+          {/* Advanced: direct connection */}
+          <Box
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            sx={{
+              display: 'flex', alignItems: 'center', cursor: 'pointer',
+              mt: 0.25, py: 0.25,
+              '&:hover': { '& .MuiTypography-root': { color: 'rgba(255,255,255,0.55)' } },
+            }}
+          >
+            {showAdvanced
+              ? <ExpandLess sx={{ fontSize: 14, color: 'rgba(255,255,255,0.3)' }} />
+              : <ExpandMore sx={{ fontSize: 14, color: 'rgba(255,255,255,0.3)' }} />}
+            <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', ml: 0.25 }}>
+              Direct connection
+            </Typography>
+          </Box>
+
+          <Collapse in={showAdvanced}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+              <TextField
+                fullWidth size="small"
+                placeholder="ws://192.168.1.5:7000"
+                value={directUrl}
+                onChange={(e) => setDirectUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && canJoin) handleJoin(); }}
+                sx={INPUT_SX}
+              />
+              {directUrl.trim() && isDirectUrl(directUrl) && (
+                <Button
+                  fullWidth variant="outlined" size="small"
+                  onClick={handleJoin}
+                  disabled={mu.status === 'connecting'}
+                  sx={{
+                    fontSize: 11, textTransform: 'none',
+                    borderColor: 'rgba(255,255,255,0.15)',
+                    color: 'rgba(255,255,255,0.65)',
+                    '&:hover': { borderColor: '#4fc3f7', color: '#4fc3f7', bgcolor: 'rgba(79,195,247,0.06)' },
+                  }}
+                >
+                  {mu.status === 'connecting' ? 'Connecting…' : 'Connect Direct'}
+                </Button>
+              )}
+            </Box>
+          </Collapse>
         </Box>
       )}
 
-      {/* Connected state */}
+      {/* ── Connected state ── */}
       {isConnected && (
         <Box>
-          {/* Server URL */}
-          <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', mb: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {mu.serverUrl}
-          </Typography>
-
           {/* Local player */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.3 }}>
             <PersonOutline sx={{ fontSize: 12, color: '#2196F3' }} />
@@ -294,6 +328,20 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
           )}
 
           <Divider sx={{ borderColor: BORDER, my: 0.75 }} />
+
+          <Button
+            fullWidth variant="outlined" size="small"
+            onClick={copyShareLink}
+            startIcon={<Share sx={{ fontSize: 12 }} />}
+            sx={{
+              fontSize: 11, textTransform: 'none', mb: 0.5,
+              borderColor: 'rgba(255,255,255,0.15)',
+              color: 'rgba(255,255,255,0.65)',
+              '&:hover': { borderColor: '#4fc3f7', color: '#4fc3f7', bgcolor: 'rgba(79,195,247,0.06)' },
+            }}
+          >
+            {copied ? 'Link Copied!' : 'Share Session Link'}
+          </Button>
 
           <Button
             fullWidth variant="outlined" size="small"

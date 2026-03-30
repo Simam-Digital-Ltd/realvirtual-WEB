@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useSyncExternalStore, useRef } from 'react';
 import { useEditorPlugin } from '../../hooks/use-editor-plugin';
 import { Typography, Box, IconButton, Paper, Tabs, Tab, Tooltip } from '@mui/material';
-import { Settings, Close, AccountTree, ViewInAr, People } from '@mui/icons-material';
+import { Settings, Close, AccountTree, ViewInAr, People, PushPin } from '@mui/icons-material';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { useViewer } from '../../hooks/use-viewer';
 import type { WebXRPluginAPI } from '../types/plugin-types';
@@ -102,6 +102,24 @@ export function TopBar() {
           </Tooltip>
         )}
         <SlotRenderer slot="toolbar-button" />
+        {!isMobile && (
+          <Tooltip title="Annotations" placement="bottom">
+            <IconButton
+              size="small"
+              color={panelSnapshot.activePanel === 'annotations' ? 'primary' : 'inherit'}
+              sx={{ p: 0.75 }}
+              onClick={() => {
+                lpm.toggle('annotations', 280);
+                setVrOpen(false);
+                setMuOpen(false);
+                setSettingsOpen(false);
+                if (hierarchyOpen) plugin?.togglePanel();
+              }}
+            >
+              {panelSnapshot.activePanel === 'annotations' ? <Close fontSize="small" /> : <PushPin fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        )}
         {showMultiuser && !isMobile && (
           <Tooltip title={muOpen ? 'Close Multiuser' : 'Multiuser'} placement="bottom">
             <IconButton

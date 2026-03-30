@@ -5,14 +5,16 @@
  * placement at the right-click / long-press position. Items are pre-filtered
  * and sorted by ContextMenuStore.open() — this component only renders.
  *
+ * - Header shows the target node name (last path segment)
  * - Items with `danger: true` get red text (#ef5350)
  * - Items with `dividerBefore: true` get a <Divider /> above them
  * - Click handler: call item.action(target), then store.close()
  * - MUI handles close-on-click-outside and Escape natively
+ * - Hover highlight is held while the menu is open (released on close)
  */
 
 import { useCallback } from 'react';
-import { Menu, MenuItem, Divider } from '@mui/material';
+import { Menu, MenuItem, Divider, Box, Typography } from '@mui/material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useContextMenu } from './context-menu-store';
 import type { ContextMenuTarget, ResolvedContextMenuItem } from './context-menu-store';
@@ -23,6 +25,11 @@ export function ContextMenuLayer() {
 
   const handleClose = useCallback(() => {
     viewer.contextMenu.close();
+    // Release hover highlight hold
+    if (viewer.raycastManager) {
+      viewer.raycastManager.holdHover = false;
+      viewer.highlighter.clear();
+    }
   }, [viewer]);
 
   const handleItemClick = useCallback(
@@ -33,11 +40,18 @@ export function ContextMenuLayer() {
         console.error(`[ContextMenu] Action '${item.id}' error:`, e);
       }
       viewer.contextMenu.close();
+      if (viewer.raycastManager) {
+        viewer.raycastManager.holdHover = false;
+        viewer.highlighter.clear();
+      }
     },
     [viewer],
   );
 
   if (!snap.open || !snap.pos || !snap.target) return null;
+
+  // Extract display name from path (last segment)
+  const nodeName = snap.target.path.split('/').pop() ?? snap.target.path;
 
   return (
     <Menu
@@ -54,7 +68,7 @@ export function ContextMenuLayer() {
             boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
             minWidth: 160,
             '& .MuiMenuItem-root': {
-              fontSize: 13,
+              fontSize: 12,
               py: 0.5,
               px: 1.5,
             },
@@ -62,6 +76,13 @@ export function ContextMenuLayer() {
         },
       }}
     >
+      {/* Header — node name */}
+      <Box sx={{ px: 1.5, py: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+        <Typography sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+          {nodeName}
+        </Typography>
+      </Box>
+
       {snap.items.map((item, i) => [
         item.dividerBefore && i > 0 && (
           <Divider key={`div-${item.id}`} sx={{ my: 0.5, borderColor: 'rgba(255,255,255,0.08)' }} />

@@ -93,6 +93,8 @@ export class RaycastManager {
 
   /** When false, hover raycasting is suppressed (e.g. during orbit/pinch). */
   private _enabled = true;
+  /** When true, hover highlight is held (not cleared). Used while context menu is open. */
+  private _holdHover = false;
   /** Last known pointer position for UI tooltip positioning. */
   pointerClientX = 0;
   pointerClientY = 0;
@@ -162,6 +164,10 @@ export class RaycastManager {
 
   /** Whether hover detection is currently enabled. */
   get enabled(): boolean { return this._enabled; }
+
+  /** Hold the current hover highlight (prevents clearing). Used while context menu is open. */
+  set holdHover(hold: boolean) { this._holdHover = hold; }
+  get holdHover(): boolean { return this._holdHover; }
 
   /**
    * Register targets for a node type. Sets the corresponding layer
@@ -461,7 +467,9 @@ export class RaycastManager {
     if (hitInstancedMU) {
       this.highlighter.highlightInstancedMU(hitInstancedMU);
     } else {
-      this.highlighter.highlight(hitNode);
+      // LayoutObject nodes need includeChildDrives to highlight the full subtree
+      const isLayout = !!(hitNode.userData?.realvirtual as Record<string, unknown> | undefined)?.LayoutObject;
+      this.highlighter.highlight(hitNode, false, { includeChildDrives: isLayout });
     }
     this.renderer.domElement.style.cursor = 'pointer';
   }
@@ -550,6 +558,7 @@ export class RaycastManager {
 
   /** Clear hover state and restore cursor. */
   private _clearHover(): void {
+    if (this._holdHover) return; // Keep highlight while context menu is open
     if (this._hoveredNode) {
       const prevNode = this._hoveredNode;
       const prevType = this._hoveredNodeType ?? 'Unknown';

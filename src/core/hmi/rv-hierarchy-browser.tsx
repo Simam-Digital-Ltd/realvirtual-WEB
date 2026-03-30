@@ -177,7 +177,14 @@ function buildTree(
   }
   stripMaps(root);
 
-  return root.children;
+  // Flatten GLB root wrapper: if top level has a single child with no component types
+  // (the synthetic gltf.scene node like "demoglb"), skip it and show its children instead.
+  let topNodes = root.children;
+  while (topNodes.length === 1 && topNodes[0].types.length === 0 && topNodes[0].children.length > 0) {
+    topNodes = topNodes[0].children;
+  }
+
+  return topNodes;
 }
 
 function filterTree(nodes: TreeNode[], term: string): TreeNode[] {
@@ -1045,6 +1052,10 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
         types: viewer.registry.getComponentTypes(path),
         extras: (node.userData?.realvirtual ?? {}) as Record<string, unknown>,
       };
+      // Highlight the node and hold hover while context menu is open
+      const isLayout = !!(node.userData?.realvirtual as Record<string, unknown> | undefined)?.LayoutObject;
+      viewer.highlighter.highlight(node, false, { includeChildDrives: isLayout });
+      if (viewer.raycastManager) viewer.raycastManager.holdHover = true;
       viewer.contextMenu.open({ x: e.clientX, y: e.clientY }, target);
     },
     [viewer],

@@ -34,6 +34,8 @@ import {
 import {
   RestartAlt,
   FilterList,
+  Lock,
+  LockOpen,
 } from '@mui/icons-material';
 import type { RVViewer } from '../rv-viewer';
 import { getOverriddenFields } from '../engine/rv-extras-overlay-store';
@@ -195,9 +197,10 @@ interface LayoutTransformSectionProps {
   viewer: RVViewer;
   nodePath: string;
   locked: boolean;
+  onToggleLock?: () => void;
 }
 
-function LayoutTransformSection({ viewer, nodePath, locked }: LayoutTransformSectionProps) {
+function LayoutTransformSection({ viewer, nodePath, locked, onToggleLock }: LayoutTransformSectionProps) {
   const node = viewer.registry?.getNode(nodePath);
 
   // Poll position/rotation at 200ms for live updates (e.g. during TransformControls drag)
@@ -224,50 +227,69 @@ function LayoutTransformSection({ viewer, nodePath, locked }: LayoutTransformSec
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node, tick]);
 
-  const handlePositionChange = useCallback((v: { x: number; y: number; z: number }) => {
-    if (!node || locked) return;
-    node.position.set(v.x, v.y, v.z);
-    node.updateMatrixWorld(true);
+  const emitTransformUpdate = useCallback(() => {
+    if (!node) return;
     viewer.markRenderDirty();
     viewer.emit('layout-transform-update', {
       path: nodePath,
-      position: [v.x, v.y, v.z] as [number, number, number],
+      position: [node.position.x, node.position.y, node.position.z] as [number, number, number],
       rotation: [
         MathUtils.radToDeg(node.rotation.x),
         MathUtils.radToDeg(node.rotation.y),
         MathUtils.radToDeg(node.rotation.z),
       ] as [number, number, number],
     });
-  }, [node, nodePath, viewer, locked]);
+  }, [node, nodePath, viewer]);
+
+  const handlePositionChange = useCallback((v: { x: number; y: number; z: number }) => {
+    if (!node || locked) return;
+    node.position.set(v.x, v.y, v.z);
+    node.updateMatrixWorld(true);
+    emitTransformUpdate();
+  }, [node, locked, emitTransformUpdate]);
 
   const handleRotationChange = useCallback((v: { x: number; y: number; z: number }) => {
     if (!node || locked) return;
     node.rotation.set(MathUtils.degToRad(v.x), MathUtils.degToRad(v.y), MathUtils.degToRad(v.z));
     node.updateMatrixWorld(true);
-    viewer.markRenderDirty();
-    viewer.emit('layout-transform-update', {
-      path: nodePath,
-      position: [node.position.x, node.position.y, node.position.z] as [number, number, number],
-      rotation: [v.x, v.y, v.z] as [number, number, number],
-    });
-  }, [node, nodePath, viewer, locked]);
+    emitTransformUpdate();
+  }, [node, locked, emitTransformUpdate]);
+
+  const handleResetPosition = useCallback(() => {
+    if (!node || locked) return;
+    node.position.set(0, 0, 0);
+    node.updateMatrixWorld(true);
+    emitTransformUpdate();
+  }, [node, locked, emitTransformUpdate]);
+
+  const handleResetRotation = useCallback(() => {
+    if (!node || locked) return;
+    node.rotation.set(0, 0, 0);
+    node.updateMatrixWorld(true);
+    emitTransformUpdate();
+  }, [node, locked, emitTransformUpdate]);
 
   if (!node) return null;
 
   const fieldRowSx = { display: 'flex', alignItems: 'center', px: 1, py: 0.25 };
-  const labelSx = { fontSize: 10, color: locked ? 'text.disabled' : 'text.secondary', width: 60, flexShrink: 0 };
+  const labelSx = { fontSize: 10, color: locked ? 'text.disabled' : 'text.secondary', width: 52, flexShrink: 0, cursor: 'default' };
+  const resetBtnSx = { p: 0.15, color: 'text.disabled', flexShrink: 0, '&:hover': { color: '#ffa726' } };
 
   return (
     <Box sx={{ borderBottom: '1px solid rgba(255, 255, 255, 0.06)' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', px: 1, py: 0.5, bgcolor: 'rgba(100, 181, 246, 0.08)', borderBottom: '2px solid rgba(100, 181, 246, 0.2)' }}>
-        <Typography sx={{ fontSize: 10, fontWeight: 700, color: '#64b5f6', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        <Typography sx={{ fontSize: 10, fontWeight: 700, color: '#64b5f6', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
           Transform
         </Typography>
-        {locked && (
-          <Typography sx={{ fontSize: 9, color: 'text.disabled', ml: 1, fontStyle: 'italic' }}>
-            Locked
-          </Typography>
-        )}
+        <Tooltip title={locked ? 'Unlock object' : 'Lock object'}>
+          <IconButton
+            size="small"
+            onClick={onToggleLock}
+            sx={{ p: 0.25, color: locked ? '#ffa726' : 'text.secondary', '&:hover': { color: locked ? '#ffb74d' : 'text.primary' } }}
+          >
+            {locked ? <Lock sx={{ fontSize: 14 }} /> : <LockOpen sx={{ fontSize: 14 }} />}
+          </IconButton>
+        </Tooltip>
       </Box>
       <Box sx={{ py: 0.5, opacity: locked ? 0.5 : 1, pointerEvents: locked ? 'none' : 'auto' }}>
         <Box sx={fieldRowSx}>
@@ -275,12 +297,22 @@ function LayoutTransformSection({ viewer, nodePath, locked }: LayoutTransformSec
           <Box sx={{ flex: 1 }}>
             <Vector3Editor value={pos} onChange={handlePositionChange} />
           </Box>
+          <Tooltip title="Reset position to 0,0,0">
+            <IconButton size="small" onClick={handleResetPosition} sx={resetBtnSx}>
+              <RestartAlt sx={{ fontSize: 12 }} />
+            </IconButton>
+          </Tooltip>
         </Box>
         <Box sx={fieldRowSx}>
           <Typography sx={labelSx}>Rotation</Typography>
           <Box sx={{ flex: 1 }}>
             <Vector3Editor value={rot} onChange={handleRotationChange} />
           </Box>
+          <Tooltip title="Reset rotation to 0,0,0">
+            <IconButton size="small" onClick={handleResetRotation} sx={resetBtnSx}>
+              <RestartAlt sx={{ fontSize: 12 }} />
+            </IconButton>
+          </Tooltip>
         </Box>
       </Box>
     </Box>
@@ -326,8 +358,15 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
   }, [selectedPath, viewer.registry]);
 
   // Check if the selected node has a LayoutObject (for transform section)
+  // Re-read Locked from live userData on any state change (state is always a new ref after notify())
   const hasLayoutObject = !!nodeData?.layoutObj;
-  const layoutLocked = !!(nodeData?.layoutObj?.Locked);
+  const layoutLocked = useMemo(() => {
+    if (!selectedPath || !viewer.registry) return false;
+    const node = viewer.registry.getNode(selectedPath);
+    const rv = node?.userData?.realvirtual as Record<string, Record<string, unknown>> | undefined;
+    return !!(rv?.LayoutObject?.Locked);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPath, viewer.registry, state]);
 
   // Check if the selected node has a LogicStep component
   const hasLogicStep = nodeData?.components.some(c => c.type.startsWith('LogicStep_')) ?? false;
@@ -527,7 +566,12 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
 
         {/* Layout Object Transform (position + rotation editing) */}
         {hasLayoutObject && selectedPath && (
-          <LayoutTransformSection viewer={viewer} nodePath={selectedPath} locked={layoutLocked} />
+          <LayoutTransformSection
+            viewer={viewer}
+            nodePath={selectedPath}
+            locked={layoutLocked}
+            onToggleLock={() => handleFieldEdit('LayoutObject', 'Locked', !layoutLocked)}
+          />
         )}
 
         {nodeData.components.length === 0 ? (

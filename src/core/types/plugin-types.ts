@@ -147,3 +147,44 @@ export interface MultiuserPluginAPI {
   joinSession(serverUrl: string, name: string, color?: string, role?: string, joinCode?: string): void;
   leaveSession(): void;
 }
+
+// ─── Annotation Types ──────────────────────────────────────────────────
+
+/** A 3D annotation marker placed on a surface in the scene. */
+export interface Annotation {
+  id: string;
+  position: [number, number, number];
+  normal: [number, number, number];
+  text: string;
+  color: string;
+  author: string;
+  timestamp: number;
+  nodePath?: string;
+  category?: 'note' | 'issue' | 'measurement';
+  /** Drawing annotation: polyline points in world space. */
+  points?: [number, number, number][];
+  lineColor?: string;
+  lineWidth?: number;
+  /** Saved camera view — restored when clicking the annotation. */
+  cameraPos?: [number, number, number];
+  cameraTarget?: [number, number, number];
+}
+
+/**
+ * Public API surface of AnnotationPlugin consumed by core HMI panels.
+ */
+export interface AnnotationPluginAPI {
+  readonly id: string;
+  addAnnotation(position: [number, number, number], normal: [number, number, number], text: string, color?: string, nodePath?: string, category?: Annotation['category']): Annotation;
+  removeAnnotation(id: string): void;
+  updateAnnotation(id: string, changes: Partial<Pick<Annotation, 'text' | 'color' | 'category'>>): void;
+  getAnnotations(): Annotation[];
+  /** Whether annotation placement mode is active. */
+  annotationMode: boolean;
+  /** Currently selected annotation ID, or null. */
+  selectedAnnotation: string | null;
+  /** Focus camera on an annotation. */
+  focusAnnotation(id: string): void;
+  /** Add a drawing annotation (polyline). */
+  addDrawing?(points: [number, number, number][], lineColor?: string, lineWidth?: number): Annotation;
+}

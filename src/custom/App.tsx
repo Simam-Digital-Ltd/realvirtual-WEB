@@ -24,6 +24,12 @@ import { tooltipStore } from '../core/hmi/tooltip/tooltip-store';
 
 // Context menu (plugin-extensible right-click / long-press menu)
 import { ContextMenuLayer } from '../core/hmi/ContextMenuLayer';
+import { SetPositionDialog } from '../core/hmi/SetPositionDialog';
+
+// Annotation & Shared View overlays
+import { AnnotationPanel } from '../core/hmi/AnnotationPanel';
+import { SharedViewBanner } from '../core/hmi/SharedViewBanner';
+import { AnnotationEditModal } from '../core/hmi/AnnotationEditModal';
 
 // Demo chart overlays
 import { DriveChartOverlay } from './DriveChartOverlay';
@@ -71,7 +77,7 @@ export function App() {
   // These defaults can be overridden by settings.json `ui.visibilityOverrides`.
   const showKpiBar = useUIVisible('kpi-bar', { hiddenIn: ['fpv', 'planner', 'xr'] });
   const showTopBar = useUIVisible('top-bar', { hiddenIn: ['xr'] });
-  const showButtonPanel = useUIVisible('button-panel', { hiddenIn: ['fpv', 'xr'] });
+  const showButtonPanel = useUIVisible('button-panel', { hiddenIn: ['fpv', 'planner', 'xr'] });
   const showMessagePanel = useUIVisible('message-panel', { hiddenIn: ['fpv', 'planner', 'xr'] });
   const showViewsSlot = useUIVisible('views-slot', { hiddenIn: ['fpv', 'planner', 'xr'] });
 
@@ -80,12 +86,16 @@ export function App() {
       <HMIShell>
         <TooltipLayer />
         <ContextMenuLayer />
+        <SetPositionDialog />
         {hmiVisible && showKpiBar && <KpiBar />}
         {hmiVisible && showTopBar && <TopBar />}
         {hmiVisible && showButtonPanel && <ButtonPanel />}
         {hmiVisible && showMessagePanel && <MessagePanel />}
         <BottomBar />
         {hmiVisible && showViewsSlot && <SlotRenderer slot="views" />}
+        <SharedViewBanner />
+        {hmiVisible && <AnnotationPanel />}
+        <AnnotationEditModal />
       </HMIShell>
       <DriveTooltipController />
       <DriveChartOverlay />

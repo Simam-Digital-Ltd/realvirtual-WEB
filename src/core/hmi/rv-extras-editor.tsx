@@ -10,8 +10,47 @@
 import type { RVViewerPlugin } from '../rv-plugin';
 import type { LoadResult } from '../engine/rv-scene-loader';
 import type { RVViewer } from '../rv-viewer';
+import type { ContextMenuTarget } from './context-menu-store';
 import { loadOverlay, saveOverlay, saveOriginals, loadOriginals, removeOriginals, type RVExtrasOverlay } from '../engine/rv-extras-overlay-store';
 import { isHiddenComponentType } from './rv-inspector-helpers';
+import { openSetPositionDialog } from './SetPositionDialog';
+
+// ─── Layout Object Helpers (for context menu) ──────────────────────────
+
+/** Check if a context menu target has a LayoutObject component. */
+function hasLayoutObject(target: ContextMenuTarget): boolean {
+  return !!(target.extras as Record<string, unknown>)?.LayoutObject;
+}
+
+/** Check if a node at the given path is locked. */
+function isNodeLocked(viewer: RVViewer, path: string): boolean {
+  const node = viewer.registry?.getNode(path);
+  const rv = node?.userData?.realvirtual as Record<string, Record<string, unknown>> | undefined;
+  return !!(rv?.LayoutObject?.Locked);
+}
+
+/**
+ * Get the effective list of layout object paths for a context menu action.
+ * If multiple objects are selected, returns all selected paths that have LayoutObject.
+ * Otherwise returns just the target path.
+ */
+function getLayoutPaths(viewer: RVViewer, target: ContextMenuTarget): string[] {
+  const sel = viewer.selectionManager;
+  if (sel.count > 1) {
+    const paths = [...sel.selectedPaths].filter(p => {
+      const node = viewer.registry?.getNode(p);
+      const rv = node?.userData?.realvirtual as Record<string, unknown> | undefined;
+      return !!rv?.LayoutObject;
+    });
+    if (paths.length > 0) return paths;
+  }
+  return [target.path];
+}
+
+/** Get count of layout objects that will be affected. */
+function getLayoutCount(viewer: RVViewer, target: ContextMenuTarget): number {
+  return getLayoutPaths(viewer, target).length;
+}
 
 // ─── Editable Node Info ──────────────────────────────────────────────────
 
@@ -200,6 +239,8 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
 
   /** Unsubscribe functions for viewer events. */
   private _eventUnsubs: (() => void)[] = [];
+  /** Ancestor override for LayoutObject hover resolution. */
+  private _layoutAncestorOverride: ((mesh: import('three').Object3D) => import('three').Object3D | null) | null = null;
 
   /** The RVViewer instance (available after onModelLoaded). */
   get viewer(): RVViewer | null { return this._viewer; }
@@ -373,6 +414,94 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
     rv[componentType][fieldName] = value;
   }
 
+  // ── Layout Context Menu ──
+
+  /** Register context menu items for LayoutObject nodes (lock, delete, edit, set position). */
+  private _registerLayoutContextMenu(viewer: RVViewer): void {
+    const plugin = this;
+
+    viewer.contextMenu.register({
+      pluginId: 'layout-objects',
+      items: [
+        // ── Edit (open hierarchy + inspector) ──
+        {
+          id: 'layout.edit',
+          label: 'Edit',
+          order: 10,
+          condition: hasLayoutObject,
+          action: (target) => {
+            plugin.selectAndReveal(target.path, true);
+          },
+        },
+        // ── Lock / Unlock ──
+        {
+          id: 'layout.lock',
+          label: (target) => {
+            const paths = getLayoutPaths(viewer, target);
+            const allLocked = paths.every(p => isNodeLocked(viewer, p));
+            const count = paths.length;
+            const verb = allLocked ? 'Unlock' : 'Lock';
+            return count > 1 ? `${verb} (${count})` : verb;
+          },
+          order: 20,
+          condition: hasLayoutObject,
+          action: (target) => {
+            const paths = getLayoutPaths(viewer, target);
+            const allLocked = paths.every(p => isNodeLocked(viewer, p));
+            const newLocked = !allLocked;
+            for (const p of paths) {
+              plugin.updateOverlayField(p, 'LayoutObject', 'Locked', newLocked);
+            }
+          },
+        },
+        // ── Set Transform ──
+        {
+          id: 'layout.settransform',
+          label: (target) => {
+            const count = getLayoutCount(viewer, target);
+            return count > 1 ? `Set Transform (${count})` : 'Set Transform';
+          },
+          order: 30,
+          condition: (target) => {
+            if (!hasLayoutObject(target)) return false;
+            // Hide if all are locked
+            return getLayoutPaths(viewer, target).some(p => !isNodeLocked(viewer, p));
+          },
+          action: (target) => {
+            const paths = getLayoutPaths(viewer, target).filter(p => !isNodeLocked(viewer, p));
+            if (paths.length > 0) openSetPositionDialog(viewer, paths);
+          },
+        },
+        // ── Delete ──
+        {
+          id: 'layout.delete',
+          label: (target) => {
+            const count = getLayoutCount(viewer, target);
+            return count > 1 ? `Delete (${count})` : 'Delete';
+          },
+          order: 200,
+          danger: true,
+          dividerBefore: true,
+          condition: (target) => {
+            if (!hasLayoutObject(target)) return false;
+            return getLayoutPaths(viewer, target).some(p => !isNodeLocked(viewer, p));
+          },
+          action: (target) => {
+            const paths = getLayoutPaths(viewer, target).filter(p => !isNodeLocked(viewer, p));
+            for (const p of paths) {
+              const node = viewer.registry?.getNode(p);
+              if (node) node.visible = false;
+              viewer.selectionManager.deselect(p);
+            }
+            viewer.markRenderDirty();
+            viewer.emit('layout-objects-deleted', { paths });
+            plugin.refreshEditableNodes();
+          },
+        },
+      ],
+    });
+  }
+
   // ── Lifecycle ──
 
   onModelLoaded(result: LoadResult, viewer: RVViewer): void {
@@ -422,6 +551,24 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
       // userData already has overlay values. The persisted sidecar from a
       // previous session provides the true originals. For new overrides made
       // in this session, snapshotOriginal() captures them on first edit.)
+    }
+
+    // Register layout object context menu items
+    this._registerLayoutContextMenu(viewer);
+
+    // Register ancestor override so hovering any child of a LayoutObject
+    // resolves to the LayoutObject root (full subtree hover highlight)
+    if (viewer.raycastManager) {
+      this._layoutAncestorOverride = (mesh: import('three').Object3D) => {
+        let current: import('three').Object3D | null = mesh;
+        while (current) {
+          const rv = current.userData?.realvirtual as Record<string, unknown> | undefined;
+          if (rv?.LayoutObject) return current;
+          current = current.parent;
+        }
+        return null;
+      };
+      viewer.raycastManager.addAncestorOverride(this._layoutAncestorOverride);
     }
 
     // Subscribe to selection-changed for loose-coupled scene interaction
@@ -487,6 +634,12 @@ export class RvExtrasEditorPlugin implements RVViewerPlugin {
     // Unsubscribe viewer events
     for (const unsub of this._eventUnsubs) unsub();
     this._eventUnsubs.length = 0;
+
+    // Remove ancestor override
+    if (this._layoutAncestorOverride && this._viewer?.raycastManager) {
+      this._viewer.raycastManager.removeAncestorOverride(this._layoutAncestorOverride);
+      this._layoutAncestorOverride = null;
+    }
 
     this._editableNodes = [];
     this._overlay = null;

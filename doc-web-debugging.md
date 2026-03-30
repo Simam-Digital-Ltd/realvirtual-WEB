@@ -342,6 +342,35 @@ test('my test', async ({ page }) => {
 3. Run e2e smoke test: `npx playwright test e2e/smoke.spec.ts`
 4. Check logs: `/debugweb logs warn` for any new warnings
 
+### Debugging Context Menus
+
+Context menus are managed by `ContextMenuStore` (`context-menu-store.ts`). When a right-click menu doesn't show expected items:
+
+1. **Check registrations** — In the browser console:
+   ```js
+   import contextMenuStore from './core/hmi/context-menu-store';
+   // The store's snapshot shows open state and resolved items
+   console.log(contextMenuStore.getSnapshot());
+   ```
+
+2. **Condition evaluation errors are swallowed** — If a menu item's `condition` callback throws, the item is silently hidden (treated as `false`). Add a breakpoint inside your condition function to verify it doesn't throw.
+
+3. **Items appear but shouldn't** — Check that your `condition` function properly tests the `target` object. Common issue: checking `target.nodePath` when the click target is the ground plane (no node).
+
+4. **Menu doesn't open at all** — The drag guard suppresses context menus after a pointer-move exceeding 8px. If you moved the mouse slightly during right-click, the menu is intentionally suppressed. On touch devices, a 500ms long-press is required.
+
+5. **Debugging UI context visibility** — Check which contexts are active:
+   ```js
+   import { getActiveContexts, isUIElementVisible } from './core/hmi/ui-context-store';
+   console.log('Active contexts:', getActiveContexts());
+   console.log('bottomBar visible:', isUIElementVisible('bottomBar'));
+   ```
+
+6. **Context overrides from settings.json** — If elements appear/disappear unexpectedly, check `settings.json` for `uiVisibility` rules that may override the programmatic defaults:
+   ```json
+   { "uiVisibility": { "bottomBar": { "planner": false } } }
+   ```
+
 ### Enabling Verbose Logging for a Specific Area
 
 To debug transport issues, for example:

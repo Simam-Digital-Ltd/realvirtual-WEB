@@ -1441,7 +1441,210 @@ class MockHost {
 
 ---
 
-## 13. Key Design Decisions
+## 13. Context Menu System
+
+Plugin-extensible right-click context menus on 3D objects. Plugins register menu items via `ContextMenuStore`; items are filtered by `condition` callbacks at open time and sorted by `order`.
+
+### Registering Menu Items
+
+```typescript
+import { contextMenuStore, type ContextMenuRegistration } from './core/hmi/context-menu-store';
+
+// In plugin onModelLoaded or constructor:
+contextMenuStore.register({
+  pluginId: 'my-plugin',
+  items: [
+    {
+      id: 'focus-camera',
+      label: 'Focus Camera',
+      action: (target) => viewer.focusByPath(target.path),
+      order: 10,
+    },
+    {
+      id: 'inspect-drive',
+      label: (target) => `Inspect ${target.path.split('/').pop()}`,  // Dynamic label
+      condition: (target) => target.types.includes('Drive'),         // Only for drives
+      action: (target) => openDrivePanel(target.path),
+      order: 20,
+      dividerBefore: true,       // Visual separator above this item
+    },
+    {
+      id: 'delete-item',
+      label: 'Remove',
+      condition: (target) => target.types.includes('MU'),
+      action: (target) => removeMU(target.path),
+      order: 900,
+      danger: true,              // Renders in red/warning color
+    },
+  ],
+});
+```
+
+### ContextMenuItem Interface
+
+```typescript
+interface ContextMenuItem {
+  id: string;                                                // Unique item ID
+  label: string | ((target: ContextMenuTarget) => string);   // Static or dynamic label
+  icon?: string;                                             // Optional icon name
+  action: (target: ContextMenuTarget) => void;               // Click handler
+  condition?: (target: ContextMenuTarget) => boolean;        // Filter (errors → false)
+  order?: number;                                            // Sort order (default: 100)
+  danger?: boolean;                                          // Red/warning style
+  dividerBefore?: boolean;                                   // Visual separator above
+}
+
+interface ContextMenuTarget {
+  path: string;                        // Full hierarchy path of the right-clicked node
+  node: Object3D;                      // Three.js node reference
+  types: string[];                     // Component types on this node (e.g. ['Drive', 'Sensor'])
+  extras: Record<string, unknown>;     // Raw GLB extras
+}
+```
+
+### Unregistering on Dispose
+
+```typescript
+// In plugin dispose():
+contextMenuStore.unregister('my-plugin');
+```
+
+### React Hook
+
+```typescript
+import { useContextMenu } from './core/hmi/context-menu-store';
+
+function MyComponent() {
+  const menu = useContextMenu();
+  // menu.open, menu.pos, menu.target, menu.items (ResolvedContextMenuItem[])
+}
+```
+
+### Trigger Behavior
+
+- **Desktop**: Right-click on 3D canvas with drag-distance guard (`DRAG_THRESHOLD_PX`)
+- **Touch**: Long-press (500ms) on 3D canvas
+- **Item filtering**: `condition` callbacks are wrapped in try/catch — errors are treated as `false`
+- **Empty menu**: If zero items pass their conditions, the menu does not open
+
+---
+
+## 14. Context-Aware UI Visibility
+
+The `ui-context-store` provides data-driven visibility for HMI elements based on active "contexts" — special modes like FPV navigation, layout planner, maintenance, or XR sessions that should hide irrelevant UI.
+
+### Concepts
+
+- **Context**: A named mode string (e.g. `'fpv'`, `'planner'`, `'maintenance'`, `'xr'`, `'kiosk'`)
+- **Rule**: Per UI element, defines when it should be hidden or shown
+- **Store**: Module-level singleton with `useSyncExternalStore` integration
+
+### Activating Contexts from Plugins
+
+```typescript
+import { activateContext, deactivateContext, setContext } from './core/hmi/ui-context-store';
+
+// In plugin onStart:
+activateContext('fpv');       // Hide elements with hiddenIn: ['fpv']
+
+// In plugin onDestroy:
+deactivateContext('fpv');     // Restore visibility
+```
+
+### Subscribing in React
+
+```typescript
+import { useUIVisible } from './core/hmi/ui-context-store';
+
+function KpiBar() {
+  // Second argument registers a default rule (overridable by settings.json)
+  const visible = useUIVisible('kpi-bar', { hiddenIn: ['fpv', 'xr'] });
+  if (!visible) return null;
+  return <div>...</div>;
+}
+```
+
+### Rule Registration
+
+Rules can be registered programmatically or via `settings.json`:
+
+```typescript
+import { registerUIElement } from './core/hmi/ui-context-store';
+
+// Programmatic (typically in module-level or plugin init)
+registerUIElement('my-panel', { hiddenIn: ['fpv', 'planner'] });
+registerUIElement('kiosk-overlay', { shownOnlyIn: ['kiosk'] });
+```
+
+**From settings.json** — the `uiVisibility` block in settings.json overrides code-declared defaults (see [doc-webviewer.md](doc-webviewer.md) for format).
+
+### Rule Precedence
+
+1. Unknown element (no rule) → **visible**
+2. `shownOnlyIn` defined and not ALL listed contexts active → **hidden**
+3. `hiddenIn` — if ANY listed context is active → **hidden**
+4. Otherwise → **visible**
+
+Rules compose with the existing `H` key HMI toggle via AND logic: `{hmiVisible && useUIVisible('element') && <Element />}`
+
+---
+
+## 15. Internal Managers (CameraManager, VisualSettingsManager)
+
+`rv-viewer.ts` delegates camera and visual settings operations to two internal manager classes, extracted for maintainability. These are **not part of the public plugin API** but are documented here for contributor reference.
+
+### CameraManager (`rv-camera-manager.ts`)
+
+Manages perspective/orthographic camera switching, smooth camera animations, viewport offset computation, and FOV control.
+
+```typescript
+// Accessed internally by RVViewer — not exported to plugins
+class CameraManager {
+  fov: number;                              // Perspective camera FOV
+  projection: 'perspective' | 'orthographic';  // Switch camera type
+  isCameraAnimating: boolean;               // Animation in progress?
+
+  animateCameraTo(pos, target, duration);   // Smooth cubic ease-out animation
+  tickCameraAnimation(dtSec);               // Advance animation (called per frame)
+  cancelCameraAnimation();                  // Stop mid-animation
+
+  getCurrentViewportOffset();               // Panel offsets for centered focus
+  applyViewportOffset(center, dist, offset); // Shift target for panel-aware centering
+  computeNodeBounds(nodes);                 // Bounding box from mesh renderers
+  syncOrthoFrustum();                       // Match ortho frustum to perspective FOV
+}
+```
+
+### VisualSettingsManager (`rv-visual-settings-manager.ts`)
+
+Manages tone mapping, shadows, lighting mode, ground plane, DPR, and environment maps.
+
+```typescript
+class VisualSettingsManager {
+  lightingMode: 'simple' | 'default';       // Simple (ambient) or Default (env map + dir light)
+  toneMapping: ToneMappingType;              // none, linear, reinhard, cineon, aces, agx, neutral
+  toneMappingExposure: number;
+
+  ambientColor: string;                      // Hex color
+  ambientIntensity: number;
+  dirLightEnabled: boolean;
+  dirLightColor: string;
+  dirLightIntensity: number;
+
+  shadowEnabled: boolean;
+  shadowIntensity: number;
+  shadowQuality: 'low' | 'medium' | 'high';  // 512 / 1024 / 2048 shadow map
+
+  maxDpr: number;                            // Device pixel ratio cap
+  lightIntensity: number;                    // Unified intensity (mode-aware)
+}
+```
+
+Both managers receive a shared state interface from `RVViewer` and operate on it directly — no events or callbacks, just property access.
+
+---
+
+## 16. Key Design Decisions
 
 **Why unified plugins with optional UI slots?**
 A single `RVViewerPlugin` interface handles both simulation lifecycle and UI registration. Plugins declare `slots?: UISlotEntry[]` — if present, the HMI renders them; if absent, the plugin is data-only. This avoids the overhead of separate "core" and "UI" plugin classes for what is usually one logical feature. The plugin class itself has no React dependency — only the slot component functions use React.

@@ -173,6 +173,26 @@ export class ProtocolHandler {
       case 'cursor_ray':
         this._handleCursorRay(ws, session, msg);
         break;
+      // ── Annotation messages (stored for late-joiner recovery) ──
+      case 'annotation_add':
+        this._handleAnnotationAdd(ws, session, msg);
+        break;
+      case 'annotation_update':
+        this._handleAnnotationUpdate(ws, session, msg);
+        break;
+      case 'annotation_remove':
+        this._handleAnnotationRemove(ws, session, msg);
+        break;
+      // ── Shared View messages ──
+      case 'shared_view_on':
+        this._handleSharedViewOn(ws, session);
+        break;
+      case 'shared_view_off':
+        this._handleSharedViewOff(ws, session);
+        break;
+      case 'look_at':
+        this._handleLookAt(ws, session, msg);
+        break;
       // Opt 7: Path index mapping — pass-through for protocol negotiation + indexed sync
       case 'path_table':
       case 'path_table_ack':
@@ -403,6 +423,115 @@ export class ProtocolHandler {
         this._sendRaw(client.ws, raw);
       }
     }
+  }
+
+  // ── Annotation handlers (stored for late-joiner recovery) ──────────────────
+
+  private _handleAnnotationAdd(
+    ws: WebSocket,
+    session: SessionContext,
+    msg: Record<string, unknown>,
+  ): void {
+    const room = this._rooms.getRoom(session.joinCode);
+    if (!room) return;
+
+    const annotation = msg['annotation'] as Record<string, unknown> | undefined;
+    if (!annotation || typeof annotation['id'] !== 'string') return;
+
+    room.annotations.set(annotation['id'] as string, annotation);
+
+    this._broadcastExcept(room, ws, {
+      type: 'annotation_add',
+      annotation,
+    });
+  }
+
+  private _handleAnnotationUpdate(
+    ws: WebSocket,
+    session: SessionContext,
+    msg: Record<string, unknown>,
+  ): void {
+    const room = this._rooms.getRoom(session.joinCode);
+    if (!room) return;
+
+    const id = msg['id'] as string | undefined;
+    const changes = msg['changes'] as Record<string, unknown> | undefined;
+    if (!id || !changes) return;
+
+    // Update stored annotation
+    const existing = room.annotations.get(id);
+    if (existing) {
+      Object.assign(existing, changes);
+    }
+
+    this._broadcastExcept(room, ws, {
+      type: 'annotation_update',
+      id,
+      changes,
+    });
+  }
+
+  private _handleAnnotationRemove(
+    ws: WebSocket,
+    session: SessionContext,
+    msg: Record<string, unknown>,
+  ): void {
+    const room = this._rooms.getRoom(session.joinCode);
+    if (!room) return;
+
+    const id = msg['id'] as string | undefined;
+    if (!id) return;
+
+    room.annotations.delete(id);
+
+    this._broadcastExcept(room, ws, {
+      type: 'annotation_remove',
+      id,
+    });
+  }
+
+  // ── Shared View handlers ──────────────────────────────────────────────────
+
+  private _handleSharedViewOn(ws: WebSocket, session: SessionContext): void {
+    const room = this._rooms.getRoom(session.joinCode);
+    if (!room) return;
+
+    room.sharedViewOperatorId = session.client.info.id;
+
+    this._broadcastExcept(room, ws, {
+      type: 'shared_view_on',
+      id: session.client.info.id,
+    });
+  }
+
+  private _handleSharedViewOff(ws: WebSocket, session: SessionContext): void {
+    const room = this._rooms.getRoom(session.joinCode);
+    if (!room) return;
+
+    // Only clear if this client was the active operator
+    if (room.sharedViewOperatorId === session.client.info.id) {
+      room.sharedViewOperatorId = null;
+    }
+
+    this._broadcastExcept(room, ws, {
+      type: 'shared_view_off',
+      id: session.client.info.id,
+    });
+  }
+
+  private _handleLookAt(
+    ws: WebSocket,
+    session: SessionContext,
+    msg: Record<string, unknown>,
+  ): void {
+    const room = this._rooms.getRoom(session.joinCode);
+    if (!room) return;
+
+    this._broadcastExcept(room, ws, {
+      type: 'look_at',
+      id: session.client.info.id,
+      target: msg['target'],
+    });
   }
 
   // ── Broadcast helpers ──────────────────────────────────────────────────────

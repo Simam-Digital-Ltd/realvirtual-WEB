@@ -4,7 +4,7 @@
  * Validates plugin lifecycle: onModelLoaded collects nodes,
  * selectNode/clearSelection state updates, and onModelCleared reset.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { RvExtrasEditorPlugin, type EditableNodeInfo } from '../src/core/hmi/rv-extras-editor';
 import { LeftPanelManager } from '../src/core/hmi/left-panel-manager';
 
@@ -84,6 +84,8 @@ function makeMockViewer(scene: any, registry: any) {
     _registerPlugin: (p: any) => plugins.set(p.id, p),
     on: (_event: string, _handler: (...args: any[]) => void) => () => {},
     leftPanelManager: new LeftPanelManager(),
+    contextMenu: { register: vi.fn() },
+    selectionManager: { selectedPaths: [], count: 0, isSelected: () => false },
   };
 }
 

@@ -43,6 +43,9 @@ const CONSUMED: Record<string, string[]> = {
   Drive_Cylinder: [],     // all fields in RVDriveCylinder.schema
   Drive_ErraticPosition: [], // all fields in RVErraticDriver.schema
 
+  // LayoutObject — layout planner marker component
+  LayoutObject: ['Label', 'CatalogId', 'Locked'],
+
   // MU — no extras parsed yet (template nodes only)
   MU: [],
 

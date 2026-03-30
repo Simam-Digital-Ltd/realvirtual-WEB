@@ -44,25 +44,44 @@
     <div class="hint">Name shown on the Teams tab header.</div>
   </div>
 
+  <div class="section">
+    <label for="relay-url">Relay Server URL (Multiuser)</label>
+    <input type="text" id="relay-url" placeholder="wss://download.realvirtual.io/relay" value="wss://download.realvirtual.io/relay" />
+    <div class="hint">WebSocket relay server for multiuser collaboration. Leave empty to disable auto-join.</div>
+  </div>
+
+  <div class="section">
+    <label for="join-code">Join Code</label>
+    <input type="text" id="join-code" placeholder="e.g. MY-TEAM-ROOM" style="text-transform: uppercase; font-family: monospace;" />
+    <div class="hint">Shared room code — all users with this tab auto-join the same session.</div>
+  </div>
+
   <script>
     (async function () {
       await microsoftTeams.app.initialize();
 
       const modelInput = document.getElementById('model-url');
       const nameInput = document.getElementById('tab-name');
+      const relayInput = document.getElementById('relay-url');
+      const joinCodeInput = document.getElementById('join-code');
 
       // Enable save button when inputs are valid
       function validate() {
         const name = nameInput.value.trim();
-        if (name.length > 0) {
-          microsoftTeams.pages.config.setValidityState(true);
-        } else {
+        const relay = relayInput.value.trim();
+        const code = joinCodeInput.value.trim();
+        // Invalid if: no tab name, or join code without relay URL
+        if (!name || (code && !relay)) {
           microsoftTeams.pages.config.setValidityState(false);
+        } else {
+          microsoftTeams.pages.config.setValidityState(true);
         }
       }
 
       modelInput.addEventListener('input', validate);
       nameInput.addEventListener('input', validate);
+      relayInput.addEventListener('input', validate);
+      joinCodeInput.addEventListener('input', validate);
       validate();
 
       // Handle save
@@ -70,12 +89,23 @@
         const modelUrl = modelInput.value.trim();
         const baseUrl = window.location.origin;
 
+        const relayUrlVal = relayInput.value.trim();
+        const joinCodeVal = joinCodeInput.value.trim().toUpperCase();
+
         // Build content URL with optional model parameter
         let contentUrl = baseUrl + '/?teams=1';
         if (modelUrl) {
           contentUrl += '&model=' + encodeURIComponent(modelUrl);
         }
         contentUrl += '&lockSettings=true';
+
+        // Append multiuser params for auto-join
+        if (relayUrlVal) {
+          contentUrl += '&server=' + encodeURIComponent(relayUrlVal);
+        }
+        if (joinCodeVal) {
+          contentUrl += '&joinCode=' + encodeURIComponent(joinCodeVal);
+        }
 
         microsoftTeams.pages.config.setConfig({
           suggestedDisplayName: nameInput.value.trim(),

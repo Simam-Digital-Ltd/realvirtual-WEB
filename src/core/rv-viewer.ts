@@ -556,6 +556,40 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this._cameraManager.cancelCameraAnimation();
   }
 
+  // ─── Shared View Mode ────────────────────────────────────────────
+
+  /** Whether shared view mode is active (camera controlled by remote operator). */
+  private _sharedViewActive = false;
+  get sharedViewActive(): boolean { return this._sharedViewActive; }
+
+  /**
+   * Enable or disable shared view mode — used by multiuser shared view.
+   * When active: controls disabled, raycast disabled, _isOrbiting cleared.
+   * When inactive: controls and raycast re-enabled.
+   *
+   * Rejects toggle if FPV or XR is active (returns false).
+   * ALWAYS use this method instead of writing controls.enabled directly.
+   *
+   * @returns true if the toggle was applied, false if rejected.
+   */
+  setSharedViewMode(active: boolean): boolean {
+    // Check FPV conflict
+    const fpv = this.getPlugin<{ id: string; toggle(): void }>('fpv');
+    if (active && fpv && (this as unknown as { _fpvActive?: boolean })._fpvActive) return false;
+
+    // Check XR conflict
+    const xr = this.getPlugin('webxr') as { isPresenting?: boolean } | undefined;
+    if (active && xr?.isPresenting) return false;
+
+    this._sharedViewActive = active;
+    this.controls.enabled = !active;
+    this._isOrbiting = false;
+    this.raycastManager?.setEnabled(!active);
+    this.controls.update();
+    this._renderDirty = true;
+    return true;
+  }
+
   // ─── Unified Node Filter ──────────────────────────────────────────
 
   private static readonly MAX_HIGHLIGHT_RESULTS = 20;
@@ -1858,6 +1892,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       extras: (node.userData?.realvirtual ?? {}) as Record<string, unknown>,
     };
 
+    if (this.raycastManager) this.raycastManager.holdHover = true;
     this.contextMenu.open({ x: pos.x, y: pos.y }, target);
     navigator.vibrate?.(50);
     this._longPressPos = null;
@@ -1882,6 +1917,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       extras: (node.userData?.realvirtual ?? {}) as Record<string, unknown>,
     };
 
+    // Hold hover highlight while context menu is open
+    if (this.raycastManager) this.raycastManager.holdHover = true;
     this.contextMenu.open({ x: e.clientX, y: e.clientY }, target);
     this.emit('context-menu-request', { pos: { x: e.clientX, y: e.clientY }, path, node });
   }

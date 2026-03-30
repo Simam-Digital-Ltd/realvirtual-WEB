@@ -51,6 +51,9 @@ export interface StateSnapshot {
   signals: SignalSnapshot[];
   drives: DriveSnapshot[];
   players: PlayerInfo[];
+  annotations?: Record<string, unknown>[];
+  sharedViewActive?: boolean;
+  sharedViewOperatorId?: string;
 }
 
 // ── Internal types ────────────────────────────────────────────────────────────
@@ -68,6 +71,10 @@ export interface Room {
   signals: Map<string, boolean | number>;   // latest signal values by signal name
   driveStates: Map<string, DriveState>;     // latest drive states by drive path
   cleanupTimer: ReturnType<typeof setTimeout> | null;
+  /** Stored annotations for late-joiner recovery. */
+  annotations: Map<string, Record<string, unknown>>;
+  /** ID of the operator currently sharing their view, or null. */
+  sharedViewOperatorId: string | null;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -102,6 +109,8 @@ export class RoomManager {
           signals: new Map(),
           driveStates: new Map(),
           cleanupTimer: null,
+          annotations: new Map(),
+          sharedViewOperatorId: null,
         };
         this._rooms.set(code, room);
         return code;
@@ -132,6 +141,8 @@ export class RoomManager {
         signals: new Map(),
         driveStates: new Map(),
         cleanupTimer: null,
+        annotations: new Map(),
+        sharedViewOperatorId: null,
       };
       this._rooms.set(joinCode, room);
     }
@@ -265,7 +276,19 @@ export class RoomManager {
 
     const players: PlayerInfo[] = Array.from(room.clients.values()).map(c => c.info);
 
-    return { signals, drives, players };
+    // Include annotations for late-joiner recovery
+    const annotations = Array.from(room.annotations.values());
+
+    return {
+      signals,
+      drives,
+      players,
+      ...(annotations.length > 0 ? { annotations } : {}),
+      ...(room.sharedViewOperatorId ? {
+        sharedViewActive: true,
+        sharedViewOperatorId: room.sharedViewOperatorId,
+      } : {}),
+    };
   }
 
   // ── Internal helpers ────────────────────────────────────────────────────────
