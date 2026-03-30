@@ -256,11 +256,17 @@ export class AnnotationRenderer {
     this.group.add(this._selectionRing);
   }
 
-  /** Per-frame update: scale labels to maintain constant screen size. */
+  /**
+   * Per-frame update: keep labels at constant screen size and constant
+   * screen-space offset above the pin, regardless of camera distance.
+   */
   updateLOD(): void {
     if (!this._camera) return;
 
     const camPos = this._camera.position;
+    // Screen-size factor: world units per pixel at distance 1.
+    // Adjust SCREEN_SCALE to control how big labels appear on screen.
+    const SCREEN_SCALE = 0.12;
 
     for (const [, res] of this._resources) {
       const dist = camPos.distanceTo(res.pin.position);
@@ -271,11 +277,25 @@ export class AnnotationRenderer {
       } else {
         res.label.visible = true;
         res.line.visible = true;
-        // Scale proportionally to distance → constant screen size
-        // At dist=1m → scale=0.15, at dist=5m → scale=0.75, etc.
-        const scale = Math.max(MIN_SPRITE_SCALE, Math.min(MAX_SPRITE_SCALE, dist * 0.15));
+
+        // Scale label proportionally to distance → constant screen size
+        const scale = dist * SCREEN_SCALE;
         // Canvas is 512x128 → aspect ratio 4:1
         res.label.scale.set(scale, scale * 0.25, 1);
+
+        // Move label position: constant screen-space offset above pin
+        const offsetY = dist * 0.04; // ~4% of distance above pin
+        res.label.position.set(
+          res.pin.position.x,
+          res.pin.position.y + offsetY,
+          res.pin.position.z,
+        );
+
+        // Update connecting line endpoints
+        res.lineGeometry.setFromPoints([
+          res.pin.position.clone(),
+          res.label.position.clone(),
+        ]);
       }
     }
   }
