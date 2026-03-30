@@ -142,7 +142,8 @@ export class AnnotationRenderer {
     const { texture, material: labelMaterial } = this._createLabelSprite(ann.text, ann.color);
     const label = new Sprite(labelMaterial);
     label.position.set(labelX, labelY, labelZ);
-    label.scale.set(MAX_SPRITE_SCALE, MAX_SPRITE_SCALE * 0.5, 1);
+    // Initial scale — will be overridden by updateLOD to maintain constant screen size
+    label.scale.set(MAX_SPRITE_SCALE, MAX_SPRITE_SCALE * 0.25, 1);
     label.layers.set(ANNOTATION_LAYER);
     label.userData.__annotationId = ann.id;
     this.group.add(label);
@@ -255,14 +256,14 @@ export class AnnotationRenderer {
     this.group.add(this._selectionRing);
   }
 
-  /** Per-frame update: LOD scaling based on camera distance. */
+  /** Per-frame update: scale labels to maintain constant screen size. */
   updateLOD(): void {
     if (!this._camera) return;
 
     const camPos = this._camera.position;
 
     for (const [, res] of this._resources) {
-      const dist = camPos.distanceTo(res.label.position);
+      const dist = camPos.distanceTo(res.pin.position);
 
       if (dist > LABEL_HIDE_DISTANCE) {
         res.label.visible = false;
@@ -270,9 +271,11 @@ export class AnnotationRenderer {
       } else {
         res.label.visible = true;
         res.line.visible = true;
-        // Scale inversely with distance (closer = bigger, capped)
-        const scale = Math.max(MIN_SPRITE_SCALE, Math.min(MAX_SPRITE_SCALE, dist * 0.04));
-        res.label.scale.set(scale, scale * 0.5, 1);
+        // Scale proportionally to distance → constant screen size
+        // At dist=1m → scale=0.15, at dist=5m → scale=0.75, etc.
+        const scale = Math.max(MIN_SPRITE_SCALE, Math.min(MAX_SPRITE_SCALE, dist * 0.15));
+        // Canvas is 512x128 → aspect ratio 4:1
+        res.label.scale.set(scale, scale * 0.25, 1);
       }
     }
   }
@@ -358,39 +361,52 @@ export class AnnotationRenderer {
 
   private _createLabelSprite(text: string, hexColor: string): { texture: CanvasTexture; material: SpriteMaterial } {
     const canvas = document.createElement('canvas');
-    canvas.width = 256;
+    canvas.width = 512;
     canvas.height = 128;
     const ctx = canvas.getContext('2d')!;
 
-    // Background with rounded rect
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-    const radius = 8;
+    const border = 4;
+    const radius = 10;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Colored border (rounded rect)
+    ctx.fillStyle = hexColor;
     ctx.beginPath();
     ctx.moveTo(radius, 0);
-    ctx.lineTo(canvas.width - radius, 0);
-    ctx.quadraticCurveTo(canvas.width, 0, canvas.width, radius);
-    ctx.lineTo(canvas.width, canvas.height - radius);
-    ctx.quadraticCurveTo(canvas.width, canvas.height, canvas.width - radius, canvas.height);
-    ctx.lineTo(radius, canvas.height);
-    ctx.quadraticCurveTo(0, canvas.height, 0, canvas.height - radius);
+    ctx.lineTo(w - radius, 0);
+    ctx.quadraticCurveTo(w, 0, w, radius);
+    ctx.lineTo(w, h - radius);
+    ctx.quadraticCurveTo(w, h, w - radius, h);
+    ctx.lineTo(radius, h);
+    ctx.quadraticCurveTo(0, h, 0, h - radius);
     ctx.lineTo(0, radius);
     ctx.quadraticCurveTo(0, 0, radius, 0);
     ctx.closePath();
     ctx.fill();
 
-    // Color indicator dot
-    ctx.fillStyle = hexColor;
+    // Dark background inside (inset by border width)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
     ctx.beginPath();
-    ctx.arc(20, canvas.height / 2, 8, 0, Math.PI * 2);
+    ctx.moveTo(radius, border);
+    ctx.lineTo(w - radius, border);
+    ctx.quadraticCurveTo(w - border, border, w - border, radius);
+    ctx.lineTo(w - border, h - radius);
+    ctx.quadraticCurveTo(w - border, h - border, w - radius, h - border);
+    ctx.lineTo(radius, h - border);
+    ctx.quadraticCurveTo(border, h - border, border, h - radius);
+    ctx.lineTo(border, radius);
+    ctx.quadraticCurveTo(border, border, radius, border);
+    ctx.closePath();
     ctx.fill();
 
-    // Text
+    // Text (bigger, centered)
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 24px sans-serif';
-    ctx.textAlign = 'left';
+    ctx.font = 'bold 32px sans-serif';
+    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const truncated = text.length > 30 ? text.substring(0, 27) + '...' : text;
-    ctx.fillText(truncated, 36, canvas.height / 2);
+    const truncated = text.length > 25 ? text.substring(0, 22) + '...' : text;
+    ctx.fillText(truncated, w / 2, h / 2);
 
     const texture = new CanvasTexture(canvas);
     const material = new SpriteMaterial({
