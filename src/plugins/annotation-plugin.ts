@@ -337,11 +337,12 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
           order: 50,
           dividerBefore: true,
           action: (target) => {
-            // Place annotation at the target node's world position
-            const pos = target.node.getWorldPosition(new Vector3());
-            const normal: [number, number, number] = [0, 1, 0];
+            // Use exact raycast hit point if available, otherwise node center
+            const pos: [number, number, number] = target.hitPoint
+              ?? (() => { const p = target.node.getWorldPosition(new Vector3()); return [p.x, p.y, p.z] as [number, number, number]; })();
+            const normal: [number, number, number] = target.hitNormal ?? [0, 1, 0];
             const ann = this.addAnnotation(
-              [pos.x, pos.y, pos.z],
+              pos,
               normal,
               '',
               DEFAULT_COLOR,

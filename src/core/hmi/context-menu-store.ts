@@ -21,6 +21,10 @@ export interface ContextMenuTarget {
   node: Object3D;
   types: string[];
   extras: Record<string, unknown>;
+  /** World-space hit point from the raycast (if available). */
+  hitPoint?: [number, number, number];
+  /** Surface normal at the hit point (if available). */
+  hitNormal?: [number, number, number];
 }
 
 export interface ContextMenuItem {

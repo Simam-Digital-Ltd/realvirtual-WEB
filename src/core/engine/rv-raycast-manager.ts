@@ -281,6 +281,19 @@ export class RaycastManager {
    * Respects the current layer mask (exclusive hover mode).
    */
   raycastForRVNode(e: MouseEvent): string | null {
+    const result = this.raycastForRVNodeDetailed(e);
+    return result?.path ?? null;
+  }
+
+  /**
+   * Raycast for RV node with detailed hit info (point, normal).
+   * Used by context menu to pass hit coordinates to actions like Annotate.
+   */
+  raycastForRVNodeDetailed(e: MouseEvent | { clientX: number; clientY: number }): {
+    path: string;
+    hitPoint: [number, number, number];
+    hitNormal: [number, number, number];
+  } | null {
     if (!this.registry) return null;
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -300,7 +313,12 @@ export class RaycastManager {
       if (result) {
         // Enforce exclusive hover mode for clicks too
         if (!this._isTypeEnabled(result.nodeType)) continue;
-        return result.nodePath;
+        const normal = hit.face?.normal?.clone().transformDirection(hit.object.matrixWorld);
+        return {
+          path: result.nodePath,
+          hitPoint: [hit.point.x, hit.point.y, hit.point.z],
+          hitNormal: normal ? [normal.x, normal.y, normal.z] : [0, 1, 0],
+        };
       }
     }
     return null;

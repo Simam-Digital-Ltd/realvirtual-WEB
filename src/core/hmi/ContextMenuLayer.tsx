@@ -76,9 +76,9 @@ export function ContextMenuLayer() {
         },
       }}
     >
-      {/* Header — node name */}
-      <Box sx={{ px: 1.5, py: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-        <Typography sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+      {/* Header — node name (non-interactive, dimmed) */}
+      <Box sx={{ px: 1.5, py: 0.4, borderBottom: '1px solid rgba(255,255,255,0.08)', pointerEvents: 'none' }}>
+        <Typography sx={{ fontSize: 10, fontWeight: 500, color: 'rgba(255,255,255,0.35)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
           {nodeName}
         </Typography>
       </Box>

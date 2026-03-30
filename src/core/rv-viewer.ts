@@ -1878,8 +1878,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     // Create a synthetic mouse event at the stored position for raycast
     const syntheticEvent = { clientX: pos.x, clientY: pos.y } as MouseEvent;
-    const path = this.raycastManager?.raycastForRVNode(syntheticEvent)
-      ?? this._raycastForRVNode(syntheticEvent);
+    const detailed = this.raycastManager?.raycastForRVNodeDetailed(syntheticEvent);
+    const path = detailed?.path ?? this._raycastForRVNode(syntheticEvent);
     if (!path) return;
 
     const node = this.registry?.getNode(path);
@@ -1890,6 +1890,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       node,
       types: this.registry!.getComponentTypes(path),
       extras: (node.userData?.realvirtual ?? {}) as Record<string, unknown>,
+      hitPoint: detailed?.hitPoint,
+      hitNormal: detailed?.hitNormal,
     };
 
     if (this.raycastManager) this.raycastManager.holdHover = true;
@@ -1903,8 +1905,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
    * Shared by the `contextmenu` event handler and long-press handler.
    */
   private _openContextMenuFromEvent(e: MouseEvent): void {
-    const path = this.raycastManager?.raycastForRVNode(e)
-      ?? this._raycastForRVNode(e);
+    const detailed = this.raycastManager?.raycastForRVNodeDetailed(e);
+    const path = detailed?.path ?? this._raycastForRVNode(e);
     if (!path) return;
 
     const node = this.registry?.getNode(path);
@@ -1915,6 +1917,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       node,
       types: this.registry!.getComponentTypes(path),
       extras: (node.userData?.realvirtual ?? {}) as Record<string, unknown>,
+      hitPoint: detailed?.hitPoint,
+      hitNormal: detailed?.hitNormal,
     };
 
     // Hold hover highlight while context menu is open
