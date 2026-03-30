@@ -43,13 +43,13 @@ const MIN_SPRITE_SCALE = 0.3;
 const MAX_SPRITE_SCALE = 1.2;
 
 /** Pin height in scene units. */
-const PIN_HEIGHT = 0.08;
+const PIN_HEIGHT = 0.15;
 
 /** Pin radius. */
-const PIN_RADIUS = 0.03;
+const PIN_RADIUS = 0.05;
 
 /** Label offset above the pin. */
-const LABEL_OFFSET_Y = 0.15;
+const LABEL_OFFSET_Y = 0.25;
 
 // ── Per-annotation resource tracking ──────────────────────────────────
 
@@ -116,10 +116,21 @@ export class AnnotationRenderer {
 
     const color = new Color(ann.color);
 
+    // Offset the pin slightly along the surface normal so it doesn't clip into geometry
+    const nx = ann.normal[0], ny = ann.normal[1], nz = ann.normal[2];
+    const pinX = ann.position[0] + nx * 0.01;
+    const pinY = ann.position[1] + ny * 0.01;
+    const pinZ = ann.position[2] + nz * 0.01;
+
+    // Label floats above the pin position (always Y-up for readability)
+    const labelX = pinX;
+    const labelY = pinY + LABEL_OFFSET_Y;
+    const labelZ = pinZ;
+
     // Pin mesh
     const pinMaterial = new MeshBasicMaterial({ color });
     const pin = new Mesh(getSharedPinGeometry(), pinMaterial);
-    pin.position.set(ann.position[0], ann.position[1], ann.position[2]);
+    pin.position.set(pinX, pinY, pinZ);
     pin.layers.set(ANNOTATION_LAYER);
     pin.userData.__annotationId = ann.id;
     this.group.add(pin);
@@ -127,20 +138,16 @@ export class AnnotationRenderer {
     // Label sprite
     const { texture, material: labelMaterial } = this._createLabelSprite(ann.text, ann.color);
     const label = new Sprite(labelMaterial);
-    label.position.set(
-      ann.position[0],
-      ann.position[1] + LABEL_OFFSET_Y,
-      ann.position[2],
-    );
+    label.position.set(labelX, labelY, labelZ);
     label.scale.set(MAX_SPRITE_SCALE, MAX_SPRITE_SCALE * 0.5, 1);
     label.layers.set(ANNOTATION_LAYER);
     label.userData.__annotationId = ann.id;
     this.group.add(label);
 
-    // Connecting line
+    // Connecting line from pin to label
     const lineGeometry = new BufferGeometry().setFromPoints([
-      new Vector3(ann.position[0], ann.position[1], ann.position[2]),
-      new Vector3(ann.position[0], ann.position[1] + LABEL_OFFSET_Y, ann.position[2]),
+      new Vector3(pinX, pinY, pinZ),
+      new Vector3(labelX, labelY, labelZ),
     ]);
     const lineMaterial = new LineBasicMaterial({ color, opacity: 0.5, transparent: true });
     const line = new Line(lineGeometry, lineMaterial);

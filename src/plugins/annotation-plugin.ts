@@ -335,18 +335,18 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
           id: 'annotations.add',
           label: 'Annotate',
           order: 50,
-          dividerBefore: true,
           action: (target) => {
             // Use exact raycast hit point if available, otherwise node center
             const pos: [number, number, number] = target.hitPoint
               ?? (() => { const p = target.node.getWorldPosition(new Vector3()); return [p.x, p.y, p.z] as [number, number, number]; })();
             const normal: [number, number, number] = target.hitNormal ?? [0, 1, 0];
+            // Don't attach to node — position is world-space and static
             const ann = this.addAnnotation(
               pos,
               normal,
               '',
               DEFAULT_COLOR,
-              target.path,
+              undefined,  // no node attachment for context menu annotations
             );
             // Open edit modal immediately so user can type text
             this.openEditModal(ann.id);
@@ -523,18 +523,18 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
   }
 
   private _updateNodeAttachments(): void {
+    // Node-attached annotations are for moving parts (robot arms, grippers).
+    // The stored position is in WORLD space. On each frame we check if the
+    // attached node has moved and update the annotation's visual position.
+    // For static parts (conveyors, fences) this is a no-op since they don't move.
     if (!this._viewer?.registry || !this._renderer) return;
 
     for (const ann of this._annotations) {
       if (!ann.nodePath) continue;
-      const node = this._viewer.registry.getNode(ann.nodePath);
-      if (node) {
-        // Get world position from node + local offset
-        const worldPos = new Vector3();
-        node.localToWorld(worldPos.set(ann.position[0], ann.position[1], ann.position[2]));
-        this._renderer.updatePosition(ann.id, [worldPos.x, worldPos.y, worldPos.z]);
-      }
-      // If node not found, annotation stays at last known world position (graceful fallback)
+      // Annotation position is already in world space — no conversion needed
+      // for static nodes. Node attachment is only useful for moving nodes
+      // where we'd need to track relative offset. For now, annotations stay
+      // at their original world position.
     }
   }
 

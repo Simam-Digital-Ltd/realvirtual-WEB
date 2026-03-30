@@ -66,11 +66,15 @@ export function ContextMenuLayer() {
             backdropFilter: 'blur(12px)',
             border: '1px solid rgba(255,255,255,0.1)',
             boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-            minWidth: 160,
+            minWidth: 140,
+            '& .MuiList-root': {
+              py: 0.5,
+            },
             '& .MuiMenuItem-root': {
               fontSize: 12,
               py: 0.5,
               px: 1.5,
+              minHeight: 'auto',
             },
           },
         },
