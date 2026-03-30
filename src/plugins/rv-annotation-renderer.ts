@@ -37,19 +37,19 @@ export const ANNOTATION_LAYER = 6;
 const LABEL_HIDE_DISTANCE = 20;
 
 /** Minimum sprite scale to keep labels readable. */
-const MIN_SPRITE_SCALE = 0.3;
+const MIN_SPRITE_SCALE = 0.08;
 
 /** Maximum sprite scale. */
-const MAX_SPRITE_SCALE = 1.2;
+const MAX_SPRITE_SCALE = 0.4;
 
-/** Pin height in scene units. */
-const PIN_HEIGHT = 0.15;
+/** Pin height in scene units (1 unit = 1 meter). */
+const PIN_HEIGHT = 0.06;
 
 /** Pin radius. */
-const PIN_RADIUS = 0.05;
+const PIN_RADIUS = 0.015;
 
-/** Label offset above the pin. */
-const LABEL_OFFSET_Y = 0.25;
+/** Label offset above the hit point. */
+const LABEL_OFFSET_Y = 0.12;
 
 // ── Per-annotation resource tracking ──────────────────────────────────
 
@@ -69,9 +69,12 @@ export interface AnnotationResources {
 let _sharedPinGeometry: ConeGeometry | null = null;
 function getSharedPinGeometry(): ConeGeometry {
   if (!_sharedPinGeometry) {
+    // Cone with tip at bottom (y=0), base at top (y=PIN_HEIGHT)
+    // ConeGeometry default: tip at +Y, base at -Y, centered at origin
     _sharedPinGeometry = new ConeGeometry(PIN_RADIUS, PIN_HEIGHT, 8);
+    // Flip so tip points down, then shift up so tip is at y=0
+    _sharedPinGeometry.rotateX(Math.PI);
     _sharedPinGeometry.translate(0, PIN_HEIGHT / 2, 0);
-    _sharedPinGeometry.rotateX(Math.PI); // Point downward
   }
   return _sharedPinGeometry;
 }
@@ -81,7 +84,7 @@ function getSharedPinGeometry(): ConeGeometry {
 let _selectionRingGeometry: RingGeometry | null = null;
 function getSelectionRingGeometry(): RingGeometry {
   if (!_selectionRingGeometry) {
-    _selectionRingGeometry = new RingGeometry(PIN_RADIUS * 1.5, PIN_RADIUS * 2.5, 16);
+    _selectionRingGeometry = new RingGeometry(PIN_RADIUS * 2, PIN_RADIUS * 3, 16);
     _selectionRingGeometry.rotateX(-Math.PI / 2);
   }
   return _selectionRingGeometry;
