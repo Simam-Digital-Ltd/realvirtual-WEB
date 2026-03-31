@@ -7,7 +7,7 @@ import { rvDarkTheme } from '../core/hmi/theme';
 import { HMIShell, SlotRenderer } from '../core/hmi/HMIShell';
 import { TopBar } from '../core/hmi/TopBar';
 import { KpiBar } from '../core/hmi/KpiBar';
-import { ButtonPanel } from '../core/hmi/ButtonPanel';
+import { LogoBadge, ButtonPanel } from '../core/hmi/ButtonPanel';
 import { MessagePanel } from '../core/hmi/MessagePanel';
 import { BottomBar } from '../core/hmi/BottomBar';
 
@@ -89,6 +89,7 @@ export function App() {
         <SetPositionDialog />
         {hmiVisible && showKpiBar && <KpiBar />}
         {hmiVisible && showTopBar && <TopBar />}
+        {hmiVisible && <LogoBadge />}
         {hmiVisible && showButtonPanel && <ButtonPanel />}
         {hmiVisible && showMessagePanel && <MessagePanel />}
         <BottomBar />

@@ -12,34 +12,16 @@ import { WelcomeModal } from './WelcomeModal';
 /* Logo URL: use BASE_URL so it resolves correctly under sub-folder deploys (e.g. Bunny CDN /demo/) */
 const logoUrl = `${import.meta.env.BASE_URL}logo.png`;
 
-/** Core layout for the left sidebar: logo + status header, slot-driven button group. */
-export function ButtonPanel() {
-  const viewer = useViewer();
-  const entries = useSlot('button-group');
+// ── Logo Badge (always visible, independent of ButtonPanel) ─────────────
+
+/** Logo + connection status badge — always visible at top-left. */
+export function LogoBadge() {
   const [aboutOpen, setAboutOpen] = useState(false);
-
-  // Check if hierarchy panel is open (and its width) to shift the button group right
-  const { state: editorState } = useEditorPlugin();
-
   const isMobile = useMobileLayout();
   const mcp = useMcpBridge();
 
-  // Read leftPanelManager for panels managed outside of the extras-editor plugin
-  const lpm = viewer.leftPanelManager;
-  const panelSnapshot = useSyncExternalStore(lpm.subscribe, lpm.getSnapshot);
-
-  // Shift right for hierarchy panel, property inspector, or settings panel
-  const inspectorExtra = editorState.panelOpen && editorState.showInspector && editorState.selectedNodePath ? INSPECTOR_PANEL_WIDTH + 8 : 0;
-  const settingsWidth = editorState.settingsOpen ? SETTINGS_PANEL_WIDTH + 8 + 8 : 0; // panel + 8px left + 8px gap
-  const hierarchyWidth = editorState.panelOpen && !editorState.settingsOpen ? 8 + editorState.panelWidth + 8 + inspectorExtra : 0;
-  // Also account for panels managed by leftPanelManager (e.g. machine-control)
-  const lpmWidth = (panelSnapshot.activePanel && panelSnapshot.activePanel !== 'settings' && panelSnapshot.activePanel !== 'hierarchy')
-    ? 8 + panelSnapshot.activePanelWidth + 8 : 0;
-  const buttonLeftOffset = Math.max(settingsWidth, hierarchyWidth, lpmWidth) || 8;
-
   return (
     <>
-      {/* Logo + Status — always fixed at top-left */}
       <Paper
         elevation={4}
         data-ui-panel
@@ -86,53 +68,79 @@ export function ButtonPanel() {
         )}
       </Paper>
 
-      {/* Button group — vertical sidebar on desktop, horizontal bottom bar on mobile */}
-      {entries.length > 0 && (
-        <Box
-          sx={isMobile ? {
-            position: 'fixed',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 1200,
-            display: 'flex',
-            justifyContent: 'center',
-            pointerEvents: 'none',
-            pb: 'env(safe-area-inset-bottom, 0px)',
-          } : {
-            position: 'fixed',
-            left: buttonLeftOffset,
-            top: 44,
-            bottom: 8,
-            zIndex: 1200,
-            display: 'flex',
-            alignItems: 'center',
-            pointerEvents: 'none',
-            transition: 'left 0.2s ease',
-          }}
-        >
-          <Paper
-            elevation={4}
-            data-ui-panel
-            sx={{
-              display: 'flex',
-              flexDirection: isMobile ? 'row' : 'column',
-              gap: 0.25,
-              p: 0.5,
-              borderRadius: isMobile ? '12px 12px 0 0' : 2,
-              pointerEvents: 'auto',
-            }}
-          >
-            {entries.map((entry, i) => {
-              const Comp = entry.component;
-              return <Comp key={`btn-${i}`} viewer={viewer} />;
-            })}
-          </Paper>
-        </Box>
-      )}
-
-      {/* About dialog — opened by clicking the logo */}
       <WelcomeModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </>
+  );
+}
+
+// ── Button Panel (slot-driven button group) ─────────────────────────────
+
+/** Slot-driven button group sidebar. */
+export function ButtonPanel() {
+  const viewer = useViewer();
+  const entries = useSlot('button-group');
+
+  // Check if hierarchy panel is open (and its width) to shift the button group right
+  const { state: editorState } = useEditorPlugin();
+
+  const isMobile = useMobileLayout();
+
+  // Read leftPanelManager for panels managed outside of the extras-editor plugin
+  const lpm = viewer.leftPanelManager;
+  const panelSnapshot = useSyncExternalStore(lpm.subscribe, lpm.getSnapshot);
+
+  // Shift right for hierarchy panel, property inspector, or settings panel
+  const inspectorExtra = editorState.panelOpen && editorState.showInspector && editorState.selectedNodePath ? INSPECTOR_PANEL_WIDTH + 8 : 0;
+  const settingsWidth = editorState.settingsOpen ? SETTINGS_PANEL_WIDTH + 8 + 8 : 0; // panel + 8px left + 8px gap
+  const hierarchyWidth = editorState.panelOpen && !editorState.settingsOpen ? 8 + editorState.panelWidth + 8 + inspectorExtra : 0;
+  // Also account for panels managed by leftPanelManager (e.g. machine-control)
+  const lpmWidth = (panelSnapshot.activePanel && panelSnapshot.activePanel !== 'settings' && panelSnapshot.activePanel !== 'hierarchy')
+    ? 8 + panelSnapshot.activePanelWidth + 8 : 0;
+  const buttonLeftOffset = Math.max(settingsWidth, hierarchyWidth, lpmWidth) || 8;
+
+  if (entries.length === 0) return null;
+
+  return (
+    <Box
+      sx={isMobile ? {
+        position: 'fixed',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 1200,
+        display: 'flex',
+        justifyContent: 'center',
+        pointerEvents: 'none',
+        pb: 'env(safe-area-inset-bottom, 0px)',
+      } : {
+        position: 'fixed',
+        left: buttonLeftOffset,
+        top: 44,
+        bottom: 8,
+        zIndex: 1200,
+        display: 'flex',
+        alignItems: 'center',
+        pointerEvents: 'none',
+        transition: 'left 0.2s ease',
+      }}
+    >
+      <Paper
+        elevation={4}
+        data-ui-panel
+        sx={{
+          display: 'flex',
+          flexDirection: isMobile ? 'row' : 'column',
+          gap: 0.25,
+          p: 0.5,
+          borderRadius: isMobile ? '12px 12px 0 0' : 2,
+          pointerEvents: 'auto',
+        }}
+      >
+        {entries.map((entry, i) => {
+          const Comp = entry.component;
+          return <Comp key={`btn-${i}`} viewer={viewer} />;
+        })}
+      </Paper>
+    </Box>
   );
 }
