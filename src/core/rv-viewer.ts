@@ -29,6 +29,7 @@ import {
   PlaneGeometry,
   Mesh,
   MeshStandardMaterial,
+  DoubleSide,
   NoToneMapping,
   CanvasTexture,
   RepeatWrapping,
@@ -37,9 +38,17 @@ import {
   Raycaster,
   Spherical,
   BufferGeometry,
+  Texture,
+  Matrix4,
+  Frustum,
 } from 'three';
 import type { Renderer } from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import type { ToneMappingType, ShadowQuality, ProjectionType } from './hmi/visual-settings-store';
 import { CameraManager, type ViewportOffset } from './rv-camera-manager';
 import { VisualSettingsManager } from './rv-visual-settings-manager';
@@ -67,6 +76,9 @@ import type { RVDrivesPlayback } from './engine/rv-drives-playback';
 import type { RVReplayRecording } from './engine/rv-replay-recording';
 import type { RVLogicEngine } from './engine/rv-logic-engine';
 import type { NodeRegistry, NodeSearchResult } from './engine/rv-node-registry';
+import { TankFillManager } from './engine/rv-tank-fill';
+import { PipeFlowManager } from './engine/rv-pipe-flow';
+import { PipelineSimulation } from './engine/rv-pipeline-sim';
 import type { GroupRegistry } from './engine/rv-group-registry';
 import { registerFilterSubscriber, loadSearchSettings, isTypeEnabled } from './hmi/search-settings-store';
 import type { RVViewerPlugin } from './rv-plugin';
@@ -223,8 +235,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     const previous = this._connectionState;
     this._connectionState = state;
 
-    // Notify plugins
+    // Notify plugins (skip disabled)
     for (const p of this._plugins) {
+      if (this._disabledIds.has(p.id)) continue;
       callPlugin(p, 'onConnectionStateChanged', state, this);
     }
 
@@ -239,6 +252,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   raycastManager: RaycastManager | null = null;
   transportManager: RVTransportManager | null = null;
   logicEngine: RVLogicEngine | null = null;
+  tankFillManager: TankFillManager | null = null;
+  pipeFlowManager: PipeFlowManager | null = null;
+  pipelineSimulation: PipelineSimulation | null = null;
   playback: RVDrivesPlayback | null = null;
   groups: GroupRegistry | null = null;
 
@@ -295,6 +311,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _renderPlugins: RVViewerPlugin[] = [];
   /** Flag: a plugin handles transport (kinematic transportManager.update is skipped). */
   private _physicsPluginActive = false;
+  /** IDs of plugins that have been disabled via disablePlugin(). */
+  private _disabledIds = new Set<string>();
   /** Last successful load result (for retroactive onModelLoaded). */
   private _lastLoadResult: LoadResult | null = null;
   /** Lazy plugin factories: ID → async import factory (code-split by Vite). */
@@ -355,8 +373,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.uiRegistry.register(plugin);
     }
 
-    // Retroactive: if model already loaded, call onModelLoaded immediately
-    if (this.drives.length > 0 && this._lastLoadResult && plugin.onModelLoaded) {
+    // Retroactive: if model already loaded, call onModelLoaded immediately (skip disabled)
+    if (this.drives.length > 0 && this._lastLoadResult && plugin.onModelLoaded && !this._disabledIds.has(plugin.id)) {
       try {
         plugin.onModelLoaded(this._lastLoadResult, this);
       } catch (e) {
@@ -369,6 +387,24 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   /** Type-safe plugin lookup by ID. */
   getPlugin<T extends RVViewerPlugin>(id: string): T | undefined {
     return this._plugins.find((p) => p.id === id) as T | undefined;
+  }
+
+  /**
+   * Disable a plugin by ID. The plugin is removed from the cached pre/post/render
+   * arrays and skipped in onModelLoaded, onModelCleared, and onConnectionStateChanged.
+   * The plugin remains in _plugins so dispose() still runs (prevents memory leaks).
+   * Core plugins (core: true) cannot be disabled.
+   */
+  disablePlugin(id: string): void {
+    const plugin = this._plugins.find(p => p.id === id);
+    if (plugin?.core) {
+      console.warn(`[RVViewer] Cannot disable core plugin '${id}'`);
+      return;
+    }
+    this._prePlugins = this._prePlugins.filter(p => p.id !== id);
+    this._postPlugins = this._postPlugins.filter(p => p.id !== id);
+    this._renderPlugins = this._renderPlugins.filter(p => p.id !== id);
+    this._disabledIds.add(id);
   }
 
   /**
@@ -548,6 +584,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     return this._groundMesh;
   }
 
+
   /**
    * Cancel any in-progress camera animation immediately.
    * Used by FPV to prevent the animation overwriting the camera position.
@@ -694,6 +731,13 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private ambientLight!: AmbientLight;
   private dirLight!: DirectionalLight;
 
+  // --- Post-processing (WebGL only) ---
+  private _composer: EffectComposer | null = null;
+  private _gtaoPass: GTAOPass | null = null;
+  private _bloomPass: UnrealBloomPass | null = null;
+  private _ssaoEnabled = false;
+  private _bloomEnabled = false;
+
   private constructor(
     container: HTMLElement,
     renderer: Renderer,
@@ -737,7 +781,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.sceneFixtures.add(this.ambientLight);
 
     this.dirLight = new DirectionalLight(0xffffff, 1.5);
-    this.dirLight.position.set(-3, 10, 5);
+    // Match Unity realvirtual Sun prefab: euler (72.82, -150.577, -106.188)
+    // Light FROM direction in Three.js: (0.145, 0.955, -0.257)
+    this.dirLight.position.set(1.45, 9.55, -2.57);
     this.dirLight.castShadow = false;
     this.dirLight.shadow.mapSize.set(1024, 1024);
     this.dirLight.shadow.camera.near = 0.1;
@@ -769,7 +815,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     // --- Ground ---
     if (showGround) {
-      const ground = this.createGround();
+      const ground = this.createGroundFade();
+      ground.visible = true;
       this.scene.add(ground);
       this.sceneFixtures.add(ground);
       this._groundMesh = ground;
@@ -807,9 +854,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       // Keep rendering for 60 frames (1s) after last user input for damping decay
       this._dampingFramesRemaining = 60;
     });
-    // Mark render dirty on any controls change (orbit, pan, zoom)
+    // Mark render + shadow dirty on any controls change (orbit, pan, zoom)
+    // Shadow fitting adapts to the view frustum, so camera moves need re-fit.
     this.controls.addEventListener('change', () => {
       this._renderDirty = true;
+      this._shadowsDirty = true;
     });
 
     // CameraManager — uses proxy state to read/write shared fields on the facade.
@@ -859,6 +908,10 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         this.orthoCamera.bottom = -halfH;
         this.orthoCamera.updateProjectionMatrix();
         this.renderer.setSize(w, h);
+        if (this._composer) {
+          this._composer.setSize(w, h);
+          this._applyHalfResPostProcessing();
+        }
         this._renderDirty = true;
       };
       this.resizeObserver = new ResizeObserver(() => {
@@ -871,6 +924,71 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     }
 
     logInfo(`realvirtual WEB — Ready (${this.isWebGPU ? 'WebGPU' : 'WebGL'})`);
+  }
+
+  // ─── Post-Processing Pipeline (WebGL only) ─────────────────────────
+
+  /** Whether any post-processing effect is active (determines composer vs direct render). */
+  private get _useComposer(): boolean {
+    return !this.isWebGPU && !!this._composer && (this._ssaoEnabled || this._bloomEnabled);
+  }
+
+  /** Internal buffers for GTAO and Bloom run at half resolution for performance. */
+  private static readonly PP_SCALE = 0.5;
+
+  /** Lazily create the EffectComposer with all post-processing passes. */
+  private _ensureComposer(): void {
+    if (this._composer || this.isWebGPU) return;
+    const w = this.renderer.domElement.width;
+    const h = this.renderer.domElement.height;
+    const hw = Math.max(1, Math.floor(w * RVViewer.PP_SCALE));
+    const hh = Math.max(1, Math.floor(h * RVViewer.PP_SCALE));
+    const composer = new EffectComposer(this.renderer as unknown as WebGLRenderer);
+
+    // Enable MSAA on composer render targets to match renderer antialias setting
+    if (this._antialiasActive) {
+      composer.renderTarget1.samples = 4;
+      composer.renderTarget2.samples = 4;
+    }
+
+    // Pass 1: Scene render (full resolution)
+    composer.addPass(new RenderPass(this.scene, this.camera));
+
+    // Pass 2: GTAO (ambient occlusion) — half-res internal buffers
+    const gtaoPass = new GTAOPass(this.scene, this.camera, hw, hh);
+    gtaoPass.output = GTAOPass.OUTPUT.Default;
+    gtaoPass.blendIntensity = 1.0;
+    gtaoPass.updateGtaoMaterial({ radius: 0.15, scale: 1.0, thickness: 0.5 });
+    gtaoPass.enabled = this._ssaoEnabled;
+    composer.addPass(gtaoPass);
+
+    // Pass 3: Bloom (glow on bright areas) — half-res internal buffers
+    const bloomPass = new UnrealBloomPass(new Vector2(hw, hh), 0.5, 0.4, 0.85);
+    bloomPass.enabled = this._bloomEnabled;
+    composer.addPass(bloomPass);
+
+    // Pass 4: Output (tone mapping + color space)
+    composer.addPass(new OutputPass());
+
+    this._composer = composer;
+    this._gtaoPass = gtaoPass;
+    this._bloomPass = bloomPass;
+
+    // composer.addPass() sets all passes to full-res — override to half-res
+    this._applyHalfResPostProcessing();
+  }
+
+  /** Re-apply half-res to GTAO/Bloom internal buffers. */
+  private _applyHalfResPostProcessing(): void {
+    if (!this._composer) return;
+    // EffectComposer stores CSS dims in _width/_height and scales by pixelRatio
+    const c = this._composer as unknown as { _width: number; _height: number; _pixelRatio: number };
+    const pw = c._width * c._pixelRatio;
+    const ph = c._height * c._pixelRatio;
+    const hw = Math.max(1, Math.floor(pw * RVViewer.PP_SCALE));
+    const hh = Math.max(1, Math.floor(ph * RVViewer.PP_SCALE));
+    if (this._gtaoPass) this._gtaoPass.setSize(hw, hh);
+    if (this._bloomPass) this._bloomPass.setSize(hw, hh);
   }
 
   // ─── Static Factory ──────────────────────────────────────────────────
@@ -898,7 +1016,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     if (useWebGPU) {
       // Real WebGPU: use WebGPURenderer with async init
       const { WebGPURenderer } = await import('three/webgpu');
-      const gpuRenderer = new WebGPURenderer({ antialias: options?.antialias ?? false, alpha: true });
+      const gpuRenderer = new WebGPURenderer({ antialias: options?.antialias ?? false, alpha: true, stencil: true } as any);
       try {
         await gpuRenderer.init();
       } catch (err) {
@@ -912,7 +1030,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     if (!useWebGPU) {
       // Standard WebGL: use the proven WebGLRenderer (no init needed)
-      renderer = new WebGLRenderer({ antialias: options?.antialias ?? false, alpha: true, powerPreference: 'high-performance' }) as unknown as Renderer;
+      renderer = new WebGLRenderer({ antialias: options?.antialias ?? false, alpha: true, stencil: true, powerPreference: 'high-performance' }) as unknown as Renderer;
     }
 
     return RVViewer._configureAndCreate(renderer!, container, isTouchDevice, useWebGPU, options);
@@ -998,6 +1116,51 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.raycastManager.registerTargets('SENSOR', sensorNodes);
     }
 
+    // Pipeline hover targets
+    const pl = result.pipelineNodes;
+    if (pl.pipes.length > 0) {
+      this.raycastManager.registerTargets('PIPE', pl.pipes);
+      this.raycastManager.enableHoverType('PIPE', true);
+    }
+    if (pl.tanks.length > 0) {
+      this.raycastManager.registerTargets('TANK', pl.tanks);
+      this.raycastManager.enableHoverType('TANK', true);
+    }
+    if (pl.pumps.length > 0) {
+      this.raycastManager.registerTargets('PUMP', pl.pumps);
+      this.raycastManager.enableHoverType('PUMP', true);
+    }
+    if (pl.processingUnits.length > 0) {
+      this.raycastManager.registerTargets('PROCESSING_UNIT', pl.processingUnits);
+      this.raycastManager.enableHoverType('PROCESSING_UNIT', true);
+    }
+
+    // Metadata hover targets
+    if (result.metadataNodes.length > 0) {
+      this.raycastManager.registerTargets('METADATA', result.metadataNodes);
+      this.raycastManager.enableHoverType('METADATA', true);
+    }
+
+    // Tank fill visualization (3D liquid level)
+    if (pl.tanks.length > 0) {
+      this.tankFillManager = new TankFillManager(pl.tanks, this.renderer as unknown as { localClippingEnabled?: boolean });
+      if (this.tankFillManager.update()) {
+        this._renderDirty = true;
+      }
+    }
+
+    // Pipe flow visualization (animated rings)
+    if (pl.pipes.length > 0) {
+      this.pipeFlowManager = new PipeFlowManager(pl.pipes);
+    }
+
+    // Pipeline simulation (fluid transfer between tanks via pipes)
+    if (pl.pipes.length > 0 && pl.tanks.length > 0) {
+      this.pipelineSimulation = new PipelineSimulation(
+        pl.pipes, pl.tanks, pl.pumps, pl.processingUnits, result.registry,
+      );
+    }
+
     // LogicEngine
     if (this.logicEngine) {
       this.logicEngine.start();
@@ -1011,11 +1174,21 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       }
     }
 
-    // Fit camera to model
+    // Resize ground plane to fit model bounds + margin
     const center = new Vector3();
     const size = new Vector3();
     result.boundingBox.getCenter(center);
     result.boundingBox.getSize(size);
+
+    if (this._groundMesh) {
+      // Ground is a 200×200 fade plane; scale to 2× model bounds (with 10% margin)
+      const groundSizeX = size.x * 1.1 * 2;
+      const groundSizeZ = size.z * 1.1 * 2;
+      this._groundMesh.scale.set(groundSizeX / 200, groundSizeZ / 200, 1);
+      this._groundMesh.position.set(center.x, 0, center.z);
+    }
+
+    // Fit camera to model
 
     const maxDim = Math.max(size.x, size.y, size.z);
     const fov = this.perspCamera.fov * (Math.PI / 180);
@@ -1026,14 +1199,21 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.controls.update();
 
     // Fit directional light shadow camera to model
-    if (this.dirLight.parent) {
-      const shadowPad = Math.max(maxDim * 1.2, 5);
-      this.dirLight.position.set(center.x - 3, center.y + maxDim * 3, center.z + 5);
+    // Light direction matches Unity realvirtual Sun prefab: euler (72.82, -150.577, -106.188)
+    // Light FROM direction in Three.js: (0.145, 0.955, -0.257)
+    {
+      this._shadowPadMax = Math.max(maxDim * 1.2, 5);
+      const sunDist = maxDim * 2;
+      this.dirLight.position.set(
+        center.x + 0.145 * sunDist,
+        center.y + 0.955 * sunDist,
+        center.z + -0.257 * sunDist,
+      );
       this.dirLight.target.position.copy(center);
-      this.dirLight.shadow.camera.left = -shadowPad;
-      this.dirLight.shadow.camera.right = shadowPad;
-      this.dirLight.shadow.camera.top = shadowPad;
-      this.dirLight.shadow.camera.bottom = -shadowPad;
+      this.dirLight.shadow.camera.left = -this._shadowPadMax;
+      this.dirLight.shadow.camera.right = this._shadowPadMax;
+      this.dirLight.shadow.camera.top = this._shadowPadMax;
+      this.dirLight.shadow.camera.bottom = -this._shadowPadMax;
       this.dirLight.shadow.camera.near = 0.1;
       this.dirLight.shadow.camera.far = Math.max(maxDim * 4, 50);
       this.dirLight.shadow.camera.updateProjectionMatrix();
@@ -1051,6 +1231,24 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     result.modelConfig = mergeModelConfig(modelJsonConfig, glbConfig, settingsConfig);
 
+    // --- Project/model plugin loading (for private deployments) ---
+    // Try loading project-plugin.js (placed alongside index.html by private publish)
+    try {
+      const projectPluginUrl = './project-plugin.js';
+      const projMod = await import(/* @vite-ignore */ projectPluginUrl);
+      if (typeof projMod.default === 'function') projMod.default(this);
+    } catch { /* 404 or load error — no project plugin, skip silently */ }
+
+    // Try loading model-specific plugin: ./models/{modelBaseName}/model-plugin.js
+    try {
+      const lastSlash = url.lastIndexOf('/');
+      const fileName = lastSlash >= 0 ? url.substring(lastSlash + 1) : url;
+      const modelBaseName = fileName.replace(/\.glb$/i, '');
+      const modelPluginUrl = `./models/${modelBaseName}/model-plugin.js`;
+      const modelMod = await import(/* @vite-ignore */ modelPluginUrl);
+      if (typeof modelMod.default === 'function') modelMod.default(this);
+    } catch { /* 404 or load error — no model plugin, skip silently */ }
+
     // Plugin lifecycle: onModelLoaded (before event, with error isolation)
     // Activation mode depends on whether rv_plugins is declared anywhere.
     this._lastLoadResult = result;
@@ -1059,11 +1257,13 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     if (declared === undefined) {
       // ALL-MODE: no rv_plugins declared — activate ALL registered plugins (backward compatible)
       for (const p of this._plugins) {
+        if (this._disabledIds.has(p.id)) continue;
         callPlugin(p, 'onModelLoaded', result, this);
       }
     } else {
       // SELECTIVE-MODE: only declared plugins + core plugins activate
       for (const p of this._plugins) {
+        if (this._disabledIds.has(p.id)) continue;
         if (p.core || declared.includes(p.id)) {
           callPlugin(p, 'onModelLoaded', result, this);
         }
@@ -1092,8 +1292,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
   /** Remove the current model and reset all simulation state. */
   clearModel(): void {
-    // Plugin lifecycle: onModelCleared (before state reset)
+    // Plugin lifecycle: onModelCleared (before state reset, skip disabled)
     for (const p of this._plugins) {
+      if (this._disabledIds.has(p.id)) continue;
       callPlugin(p, 'onModelCleared', this);
     }
 
@@ -1124,6 +1325,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
     if (this.currentModel) {
       this.scene.remove(this.currentModel);
+      // After material deduplication, multiple meshes share the same material
+      // instance. Use a Set to avoid disposing the same material/texture twice.
+      const disposedMaterials = new Set<MeshStandardMaterial>();
       this.currentModel.traverse((node) => {
         const mesh = node as {
           geometry?: { dispose(): void };
@@ -1132,6 +1336,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         if (mesh.geometry) mesh.geometry.dispose();
         if (mesh.material) {
           const disposeMat = (m: MeshStandardMaterial & { dispose(): void }) => {
+            if (disposedMaterials.has(m)) return;
+            disposedMaterials.add(m);
             m.map?.dispose();
             m.normalMap?.dispose();
             m.roughnessMap?.dispose();
@@ -1158,6 +1364,15 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.logicEngine.reset();
       this.logicEngine = null;
     }
+    if (this.tankFillManager) {
+      this.tankFillManager.dispose();
+      this.tankFillManager = null;
+    }
+    if (this.pipeFlowManager) {
+      this.pipeFlowManager.dispose();
+      this.pipeFlowManager = null;
+    }
+    this.pipelineSimulation = null;
     this.signalStore = null;
     this.registry = null;
     if (this.groups) {
@@ -1341,6 +1556,65 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
   // ─── Visual Settings (delegated to VisualSettingsManager) ────────────
 
+  /**
+   * Fit the directional light shadow camera to the current view frustum.
+   * Instead of covering the entire model, the shadow camera clips to the
+   * visible area, improving shadow map resolution and reducing shadow pass cost.
+   */
+  private _fitShadowToView(): void {
+    if (!this.dirLight.parent || !this.renderer.shadowMap.enabled) return;
+
+    const cam = this._activeCamera;
+    const target = this.controls.target;
+    const dist = cam.position.distanceTo(target);
+
+    // Compute visible radius at the orbit target distance
+    let visibleRadius: number;
+    if ((cam as PerspectiveCamera).isPerspectiveCamera) {
+      const fov = (cam as PerspectiveCamera).fov * Math.PI / 180;
+      const halfH = dist * Math.tan(fov / 2);
+      const aspect = (cam as PerspectiveCamera).aspect;
+      visibleRadius = Math.sqrt(halfH * halfH + (halfH * aspect) * (halfH * aspect));
+    } else {
+      const oc = cam as OrthographicCamera;
+      visibleRadius = Math.sqrt(
+        Math.max(Math.abs(oc.left), Math.abs(oc.right)) ** 2 +
+        Math.max(Math.abs(oc.top), Math.abs(oc.bottom)) ** 2,
+      );
+    }
+
+    // Clamp to model bounds: never exceed the full scene shadow pad,
+    // but also add padding (1.3x) for shadow casters just outside the view
+    const pad = Math.min(visibleRadius * 1.3, this._shadowPadMax);
+
+    const sc = this.dirLight.shadow.camera;
+    sc.left = -pad;
+    sc.right = pad;
+    sc.top = pad;
+    sc.bottom = -pad;
+
+    // Re-center shadow camera target on orbit target
+    this.dirLight.target.position.copy(target);
+    this.dirLight.target.updateMatrixWorld();
+    sc.updateProjectionMatrix();
+
+    // Force shadow map re-render
+    (this.renderer.shadowMap as unknown as { needsUpdate: boolean }).needsUpdate = true;
+  }
+
+  private syncOrthoFrustum(): void {
+    const dist = this.orthoCamera.position.distanceTo(this.controls.target);
+    const halfH = dist * Math.tan((this.perspCamera.fov * Math.PI / 180) / 2);
+    const aspect = this.perspCamera.aspect;
+    this.orthoCamera.left = -halfH * aspect;
+    this.orthoCamera.right = halfH * aspect;
+    this.orthoCamera.top = halfH;
+    this.orthoCamera.bottom = -halfH;
+    this.orthoCamera.updateProjectionMatrix();
+  }
+
+  // ─── Visual Settings ─────────────────────────────────────────────────
+
   /** Active lighting mode. */
   get lightingMode() { return this._visualSettings.lightingMode; }
   set lightingMode(mode: import('./hmi/visual-settings-store').LightingMode) { this._visualSettings.lightingMode = mode; }
@@ -1385,11 +1659,61 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   get shadowQuality(): ShadowQuality { return this._visualSettings.shadowQuality; }
   set shadowQuality(v: ShadowQuality) { this._visualSettings.shadowQuality = v; }
 
-  /** Environment intensity (default mode) or ambient scale (simple mode). */
+  /** Environment intensity (default mode) or ambient intensity (simple mode). */
   get lightIntensity(): number { return this._visualSettings.lightIntensity; }
   set lightIntensity(v: number) { this._visualSettings.lightIntensity = v; }
 
   // ─── Individual Rendering Settings (delegated to VisualSettingsManager) ──
+
+  /**
+   * Apply a full set of visual settings in one batch.
+   * Delegates to individual setters on VisualSettingsManager.
+   */
+  applyVisualSettings(settings: import('./hmi/visual-settings-store').VisualSettings): void {
+    const ms = settings.modeSettings[settings.lightingMode];
+
+    // 1. Direct properties
+    this.toneMappingExposure = ms.toneMappingExposure;
+    this.ambientColor = ms.ambientColor;
+    this.dirLightColor = ms.dirLightColor;
+    this.dirLightIntensity = ms.dirLightIntensity;
+    this.shadowIntensity = ms.shadowIntensity;
+    this.shadowRadius = settings.shadowRadius ?? 2;
+
+    // 2. Shadow map size (before enabling shadows)
+    this.shadowMapSize = settings.shadowMapSize ?? 1024;
+
+    // 3. DirLight on/off (before shadows, since shadowEnabled checks dirLight.parent)
+    this.dirLightEnabled = ms.dirLightEnabled;
+
+    // 4. Shadows
+    this.shadowEnabled = ms.shadowEnabled;
+
+    // 5. Tone mapping + lighting mode
+    this.toneMapping = ms.toneMapping;
+    this.lightingMode = settings.lightingMode;
+
+    // 6. Light intensity (depends on lightingMode being set)
+    this.lightIntensity = ms.lightIntensity;
+
+    // 7. Camera
+    this.fov = settings.fov;
+    this.projection = settings.projection;
+
+    // 8. SSAO (WebGL only)
+    this.ssaoEnabled = settings.ssaoEnabled ?? false;
+    this.ssaoIntensity = settings.ssaoIntensity ?? 1.0;
+    this.ssaoRadius = settings.ssaoRadius ?? 0.15;
+
+    // 9. Bloom (WebGL only)
+    this.bloomEnabled = settings.bloomEnabled ?? false;
+    this.bloomIntensity = settings.bloomIntensity ?? 0.5;
+    this.bloomThreshold = settings.bloomThreshold ?? 0.85;
+    this.bloomRadius = settings.bloomRadius ?? 0.4;
+
+  }
+
+  // ─── Individual Rendering Settings ──────────────────────────────────
 
   /** Get current effective DPR. */
   get effectiveDpr(): number { return this._visualSettings.effectiveDpr; }
@@ -1400,8 +1724,63 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   /** Set shadow map resolution (e.g. 512, 1024, 2048). Disposes old map. */
   set shadowMapSize(size: number) { this._visualSettings.shadowMapSize = size; }
 
-  /** Set shadow softness radius (1-5). */
+  /** Set shadow softness radius (1-5). Also switches shadow map type. */
   set shadowRadius(radius: number) { this._visualSettings.shadowRadius = radius; }
+
+  /** Whether Screen Space Ambient Occlusion (GTAO) is enabled. WebGL only — no-op on WebGPU. */
+  get ssaoEnabled(): boolean { return this._ssaoEnabled; }
+  set ssaoEnabled(v: boolean) {
+    if (v === this._ssaoEnabled) return;
+    this._ssaoEnabled = v;
+    if (v && !this.isWebGPU) this._ensureComposer();
+    if (this._gtaoPass) this._gtaoPass.enabled = v;
+    this._renderDirty = true;
+  }
+
+  /** SSAO blend intensity (0 = invisible, 1 = full). */
+  get ssaoIntensity(): number { return this._gtaoPass?.blendIntensity ?? 1.0; }
+  set ssaoIntensity(v: number) {
+    if (this._gtaoPass) this._gtaoPass.blendIntensity = v;
+    this._renderDirty = true;
+  }
+
+  /** SSAO sampling radius in world units. */
+  get ssaoRadius(): number { return this._gtaoPass?.gtaoMaterial?.uniforms?.radius?.value ?? 0.15; }
+  set ssaoRadius(v: number) {
+    if (this._gtaoPass) this._gtaoPass.updateGtaoMaterial({ radius: v });
+    this._renderDirty = true;
+  }
+
+  /** Whether bloom (glow on bright areas) is enabled. WebGL only. */
+  get bloomEnabled(): boolean { return this._bloomEnabled; }
+  set bloomEnabled(v: boolean) {
+    if (v === this._bloomEnabled) return;
+    this._bloomEnabled = v;
+    if (v && !this.isWebGPU) this._ensureComposer();
+    if (this._bloomPass) this._bloomPass.enabled = v;
+    this._renderDirty = true;
+  }
+
+  /** Bloom glow intensity (0–2). */
+  get bloomIntensity(): number { return this._bloomPass?.strength ?? 0.5; }
+  set bloomIntensity(v: number) {
+    if (this._bloomPass) this._bloomPass.strength = v;
+    this._renderDirty = true;
+  }
+
+  /** Brightness threshold for bloom (0–1). */
+  get bloomThreshold(): number { return this._bloomPass?.threshold ?? 0.85; }
+  set bloomThreshold(v: number) {
+    if (this._bloomPass) this._bloomPass.threshold = v;
+    this._renderDirty = true;
+  }
+
+  /** Bloom spread radius (0–1). */
+  get bloomRadius(): number { return this._bloomPass?.radius ?? 0.4; }
+  set bloomRadius(v: number) {
+    if (this._bloomPass) this._bloomPass.radius = v;
+    this._renderDirty = true;
+  }
 
   // ─── Profiler Overlay ────────────────────────────────────────────────
 
@@ -1421,14 +1800,28 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     geometries: number;
     textures: number;
     programs: number;
+    /** Materials before dedup (from GLB) */
+    materialsOriginal: number;
+    /** Materials after dedup (unique) */
+    materialsUnique: number;
+    /** Static meshes before merge */
+    staticMeshesOriginal: number;
+    /** Merged meshes created */
+    staticMeshesMerged: number;
   } {
     const info = this.renderer.info;
+    const dedup = this._lastLoadResult?.dedupResult;
+    const merge = this._lastLoadResult?.mergeResult;
     return {
       triangles: info.render?.triangles ?? 0,
       drawCalls: info.render?.calls ?? 0,
       geometries: (info as unknown as { memory?: { geometries?: number } }).memory?.geometries ?? 0,
       textures: (info as unknown as { memory?: { textures?: number } }).memory?.textures ?? 0,
       programs: (info as unknown as { programs?: unknown[] }).programs?.length ?? 0,
+      materialsOriginal: dedup?.originalCount ?? 0,
+      materialsUnique: dedup?.uniqueCount ?? 0,
+      staticMeshesOriginal: merge?.originalCount ?? 0,
+      staticMeshesMerged: merge?.mergedCount ?? 0,
     };
   }
 
@@ -1490,6 +1883,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private lastRenderTime = 0;
   /** Shadow map dirty flag — when false, shadow pass is skipped entirely. */
   private _shadowsDirty = true;
+  /** Max shadow padding from model load (scene-wide coverage). */
+  private _shadowPadMax = 100;
   /** Render dirty flag — when false, renderer.render() is skipped (Phase 4: render-on-demand). */
   private _renderDirty = true;
   /** Frames remaining for damping after last user input (Phase 4). */
@@ -1565,6 +1960,21 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       }
     }
 
+    // ── Pipeline simulation (fluid transfer) ──
+    if (this.pipelineSimulation) {
+      this.pipelineSimulation.fixedUpdate(dt);
+    }
+
+    // ── Tank fill visualization (clip plane updates) ──
+    if (this.tankFillManager && this.tankFillManager.update()) {
+      this._renderDirty = true;
+    }
+
+    // ── Pipe flow visualization (animated rings) ──
+    if (this.pipeFlowManager && this.pipeFlowManager.update(dt)) {
+      this._renderDirty = true;
+    }
+
     // ── Plugins Post (recorder, sensor monitor, interface readback) ──
     for (const p of this._postPlugins) {
       callPlugin(p, 'onFixedUpdatePost', dt);
@@ -1602,12 +2012,23 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.highlighter.update();
 
     // Shadow dirty flag: only re-render shadow map when something has changed
+    if (this._shadowsDirty) {
+      this._fitShadowToView();
+    }
     (this.renderer.shadowMap as unknown as { needsUpdate: boolean }).needsUpdate = this._shadowsDirty;
     this._shadowsDirty = false;
 
     // Render-on-demand: skip expensive GPU render when scene is static
     if (this._renderDirty) {
-      this.renderer.render(this.scene, this.camera);
+      if (this._useComposer) {
+        // Update camera references (may have switched persp/ortho)
+        if (this._gtaoPass) this._gtaoPass.camera = this.camera;
+        const renderPass = this._composer!.passes[0] as RenderPass;
+        if (renderPass) renderPass.camera = this.camera;
+        this._composer!.render();
+      } else {
+        this.renderer.render(this.scene, this.camera);
+      }
       this._renderDirty = false;
     }
 
@@ -1668,9 +2089,13 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         const mem = info.memory;
         const rnd = info.render;
         if (!mem || !rnd) return;
+        const dedup = this._lastLoadResult?.dedupResult;
+        const merge = this._lastLoadResult?.mergeResult;
         debug('render',
-          `Draw calls: ${rnd.calls ?? 0} | Tris: ${rnd.triangles ?? 0} | ` +
-          `Geo: ${mem.geometries ?? 0} | Tex: ${mem.textures ?? 0}`
+          `DC: ${rnd.calls ?? 0} | Tris: ${rnd.triangles ?? 0} | ` +
+          `Geo: ${mem.geometries ?? 0} | Tex: ${mem.textures ?? 0}` +
+          (dedup ? ` | Mat: ${dedup.uniqueCount}/${dedup.originalCount}` : '') +
+          (merge && merge.mergedCount > 0 ? ` | Merge: ${merge.originalCount}→${merge.mergedCount}` : '')
         );
         if (this._lastGeoCount > 0 && (mem.geometries ?? 0) > this._lastGeoCount + 10) {
           console.warn(`[Perf] Geometry count growing: ${this._lastGeoCount} → ${mem.geometries}`);
@@ -1986,7 +2411,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     }
   }
 
-  private createGround(): Mesh {
+  /**
+   * Create ground plane with checker pattern that fades to transparent at edges.
+   * Inner 50% is opaque, outer 50% fades to transparent via alphaMap.
+   */
+  private createGroundFade(): Mesh {
     const checkerSize = 512;
     const tileCount = 8;
     const canvas = document.createElement('canvas');
@@ -2005,25 +2434,58 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     const checkerTex = new CanvasTexture(canvas);
     checkerTex.wrapS = RepeatWrapping;
     checkerTex.wrapT = RepeatWrapping;
-    checkerTex.repeat.set(25, 25);
+    checkerTex.repeat.set(50, 50);
     checkerTex.colorSpace = SRGBColorSpace;
     checkerTex.magFilter = NearestFilter;
 
-    let groundGeo: PlaneGeometry | BufferGeometry = new PlaneGeometry(100, 100);
-    // WebGPU r171: setIndex(Uint32) doesn't fix GPU buffer allocation — use toNonIndexed()
-    if (this.isWebGPU && groundGeo.index) {
-      const nonIndexed = groundGeo.toNonIndexed();
-      groundGeo.dispose();
-      groundGeo = nonIndexed;
+    // Create alpha map: rectangular fade from center (opaque) to edges (transparent)
+    const alphaSize = 256;
+    const alphaCanvas = document.createElement('canvas');
+    alphaCanvas.width = alphaSize;
+    alphaCanvas.height = alphaSize;
+    const alphaCtx = alphaCanvas.getContext('2d')!;
+    const imageData = alphaCtx.createImageData(alphaSize, alphaSize);
+    for (let py = 0; py < alphaSize; py++) {
+      for (let px = 0; px < alphaSize; px++) {
+        const dx = Math.abs(px / alphaSize - 0.5) * 2; // 0..1
+        const dy = Math.abs(py / alphaSize - 0.5) * 2; // 0..1
+        // Inner half = opaque, outer half fades out
+        const fadeX = dx > 0.5 ? (dx - 0.5) / 0.5 : 0;
+        const fadeY = dy > 0.5 ? (dy - 0.5) / 0.5 : 0;
+        const alpha = 1 - Math.max(fadeX, fadeY);
+        const idx = (py * alphaSize + px) * 4;
+        const v = Math.max(0, Math.round(alpha * 255));
+        imageData.data[idx] = v;
+        imageData.data[idx + 1] = v;
+        imageData.data[idx + 2] = v;
+        imageData.data[idx + 3] = 255;
+      }
     }
-    const groundMat = new MeshStandardMaterial({
+    alphaCtx.putImageData(imageData, 0, 0);
+    const alphaTex = new CanvasTexture(alphaCanvas);
+
+    let geo: PlaneGeometry | BufferGeometry = new PlaneGeometry(200, 200);
+    if (this.isWebGPU && geo.index) {
+      const nonIndexed = geo.toNonIndexed();
+      geo.dispose();
+      geo = nonIndexed;
+    }
+
+    const mat = new MeshStandardMaterial({
       map: checkerTex,
-      roughness: 0.9,
+      alphaMap: alphaTex,
+      transparent: true,
+      side: DoubleSide,
+      depthWrite: false,
+      roughness: 1.0,
       metalness: 0.0,
     });
-    const ground = new Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    return ground;
+
+    const mesh = new Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.renderOrder = -1;
+    mesh.receiveShadow = true;
+    mesh.visible = false;
+    return mesh;
   }
 }
