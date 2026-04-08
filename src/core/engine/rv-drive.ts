@@ -281,6 +281,16 @@ export class RVDrive implements RVComponent {
     }
   }
 
+  /**
+   * Re-cache base transform from the current node position/quaternion.
+   * Must be called after re-parenting (e.g., kinematic group attach) since
+   * attach() modifies local transforms to preserve world position.
+   */
+  refreshBaseTransform(): void {
+    this.basePosition.copy(this.node.position);
+    this.baseQuaternion.copy(this.node.quaternion);
+  }
+
   /** Apply current position to Three.js node transform */
   applyToNode() {
     const pos = this.currentPosition + this.Offset;

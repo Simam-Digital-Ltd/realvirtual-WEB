@@ -103,6 +103,40 @@ describe('GroupRegistry', () => {
     expect(registry.getAll()).toHaveLength(0);
   });
 
+  // ── Kinematic group tracking ──
+
+  it('markAsKinematic + isKinematic round-trip', () => {
+    const node = new Object3D();
+    registry.register('RobotArm', node);
+    expect(registry.isKinematic('RobotArm')).toBe(false);
+    registry.markAsKinematic('RobotArm');
+    expect(registry.isKinematic('RobotArm')).toBe(true);
+  });
+
+  it('isKinematic returns false for unknown group', () => {
+    expect(registry.isKinematic('NonExistent')).toBe(false);
+  });
+
+  it('markAsKinematic on unregistered group is no-op', () => {
+    registry.markAsKinematic('Ghost');
+    expect(registry.isKinematic('Ghost')).toBe(false);
+  });
+
+  it('getKinematicGroupNames returns only marked groups', () => {
+    registry.register('A', new Object3D());
+    registry.register('B', new Object3D());
+    registry.markAsKinematic('A');
+    expect(registry.getKinematicGroupNames()).toEqual(['A']);
+  });
+
+  it('clear removes kinematic group tracking', () => {
+    registry.register('A', new Object3D());
+    registry.markAsKinematic('A');
+    registry.clear();
+    expect(registry.isKinematic('A')).toBe(false);
+    expect(registry.getKinematicGroupNames()).toEqual([]);
+  });
+
   it('showAll respects defaultHiddenGroups', () => {
     const nodeA = new Object3D(); nodeA.name = 'A';
     const nodeB = new Object3D(); nodeB.name = 'B';

@@ -16,6 +16,7 @@ import { useViewer } from '../../hooks/use-viewer';
 import { useGroupsOverlayOpen } from '../../hooks/use-groups-overlay';
 import { ChartPanel } from './ChartPanel';
 import { BOTTOM_BAR_HEIGHT } from './layout-constants';
+import { RV_SCROLL_CLASS } from './shared-sx';
 import {
   loadGroupVisibilitySettings,
   saveGroupVisibilitySettings,
@@ -26,22 +27,6 @@ import type { GroupInfo } from '../engine/rv-group-registry';
 const DEFAULT_W = 280;
 const DEFAULT_H = 260;
 const BOTTOM_MARGIN = BOTTOM_BAR_HEIGHT + 12;
-
-/** Dark-gray scrollbar style class — reuse the pattern from BottomBar. */
-const SCROLL_CLASS = 'rv-groups-scroll';
-const scrollStyleId = 'rv-groups-scroll-style';
-if (typeof document !== 'undefined' && !document.getElementById(scrollStyleId)) {
-  const style = document.createElement('style');
-  style.id = scrollStyleId;
-  style.textContent = `
-    .${SCROLL_CLASS} { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.25) transparent; }
-    .${SCROLL_CLASS}::-webkit-scrollbar { width: 6px; }
-    .${SCROLL_CLASS}::-webkit-scrollbar-track { background: transparent; }
-    .${SCROLL_CLASS}::-webkit-scrollbar-thumb { background: #666; border-radius: 3px; }
-    .${SCROLL_CLASS}::-webkit-scrollbar-thumb:hover { background: #888; }
-  `;
-  document.head.appendChild(style);
-}
 
 export function GroupsOverlay() {
   const viewer = useViewer();
@@ -92,11 +77,20 @@ export function GroupsOverlay() {
 
   // Also refresh groups list when model loads
   useEffect(() => {
-    const off = viewer.on('model-loaded', () => {
+    const off = viewer.on('model-loaded', ({ result }) => {
       if (viewer.groups) {
         setGroups(viewer.groups.getAll());
         // Apply persisted state on new model load
         const saved = loadGroupVisibilitySettings();
+
+        // Auto-exclude kinematic groups from overlay (merge with existing exclusions)
+        const kinNames = result.kinematicGroupNames ?? [];
+        if (kinNames.length > 0) {
+          const existingExcluded = saved.excludedFromOverlay ?? [];
+          const merged = [...new Set([...existingExcluded, ...kinNames])];
+          saved.excludedFromOverlay = merged;
+          saveGroupVisibilitySettings(saved);
+        }
 
         // Set defaultHiddenGroups on registry so showAll() respects them
         const defaultHidden = saved.defaultHiddenGroups ?? [];
@@ -305,7 +299,7 @@ export function GroupsOverlay() {
           <List
             dense
             disablePadding
-            className={SCROLL_CLASS}
+            className={RV_SCROLL_CLASS}
             sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}
           >
             {filteredGroups.map((group) => {

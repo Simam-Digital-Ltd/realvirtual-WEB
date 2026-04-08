@@ -38,6 +38,8 @@ export class GroupRegistry {
   private _hiddenUngrouped: Object3D[] = [];
   /** Group names that should remain hidden after showAll(). */
   private _defaultHidden: string[] = [];
+  /** Group names that are structural kinematic groups (not user-facing). */
+  private _kinematicGroups = new Set<string>();
 
   /** Set the model root so isolate can hide ungrouped nodes. */
   setModelRoot(root: Object3D | null): void {
@@ -154,8 +156,26 @@ export class GroupRegistry {
     return this._groups.size;
   }
 
+  /** Mark a group as kinematic (structural, not user-facing visibility). */
+  markAsKinematic(name: string): void {
+    if (this._groups.has(name)) {
+      this._kinematicGroups.add(name);
+    }
+  }
+
+  /** Check if a group is marked as kinematic. */
+  isKinematic(name: string): boolean {
+    return this._kinematicGroups.has(name);
+  }
+
+  /** Get all group names marked as kinematic. */
+  getKinematicGroupNames(): string[] {
+    return [...this._kinematicGroups];
+  }
+
   /** Clear all groups. */
   clear(): void {
     this._groups.clear();
+    this._kinematicGroups.clear();
   }
 }

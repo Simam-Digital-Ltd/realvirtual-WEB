@@ -78,6 +78,12 @@ describe('loadGLB phase functions', () => {
     expect(typeof mod.computeBVH).toBe('function');
   });
 
+  it('exports applyKinematicParenting as a function', async () => {
+    const mod = await import('../src/core/engine/rv-scene-loader');
+    expect(mod.applyKinematicParenting).toBeDefined();
+    expect(typeof mod.applyKinematicParenting).toBe('function');
+  });
+
   it('still exports loadGLB as the main orchestrator', async () => {
     const mod = await import('../src/core/engine/rv-scene-loader');
     expect(mod.loadGLB).toBeDefined();

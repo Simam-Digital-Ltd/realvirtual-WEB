@@ -25,6 +25,8 @@ import { GroupRegistry } from './rv-group-registry';
 import { validateExtras, printParitySummary, resetParityValidator } from './rv-extras-validator';
 import { parseActiveOnly, type ActiveOnly } from './rv-active-only';
 import { debug, logInfo } from './rv-debug';
+import { deduplicateMaterials, type DedupResult } from './rv-material-dedup';
+import { mergeStaticGeometries, type StaticMergeResult } from './rv-static-merge';
 
 // Singleton loader instances
 const dracoLoader = new DRACOLoader();
@@ -57,6 +59,12 @@ export interface LoadResult {
   groups: GroupRegistry | null;
   /** Merged model-specific plugin configuration (modelname.json > GLB extras > settings.json). */
   modelConfig: ModelConfig;
+  dedupResult: DedupResult | null;
+  mergeResult: StaticMergeResult | null;
+  pipelineNodes: { pipes: Object3D[]; tanks: Object3D[]; pumps: Object3D[]; processingUnits: Object3D[] };
+  metadataNodes: Object3D[];
+  /** Group names that were re-parented under Kinematic nodes (for auto-exclude from overlay). */
+  kinematicGroupNames: string[];
 }
 
 /**
@@ -167,6 +175,17 @@ export function processMeshes(root: Object3D): MeshProcessResult {
   let triangleCount = 0;
 
   // Pre-scan: Drive/TransportSurface node sets for shadow classification
+  // Collect drive node set for static/dynamic classification (Phase 1.3)
+  // We need a two-step approach: first find all drives, then classify meshes
+
+  // Pipeline nodes for tooltip hover
+  const pipeNodes: Object3D[] = [];
+  const tankNodes: Object3D[] = [];
+  const pumpNodes: Object3D[] = [];
+  const processingUnitNodes: Object3D[] = [];
+
+  // Collect drive node set for static/dynamic classification (Phase 1.3)
+  // We need a two-step approach: first find all drives, then classify meshes
   const driveNodeSet = new Set<Object3D>();
   const transportSurfaceNodeSet = new Set<Object3D>();
 
@@ -214,8 +233,8 @@ export function processMeshes(root: Object3D): MeshProcessResult {
         const underTS = isUnderTransportSurface(node);
         const isStatic = !underDrive || underTS;
         if (isStatic) {
-          mesh.castShadow = false;
-          mesh.matrixAutoUpdate = false;
+          mesh.castShadow = false;       // static: receive shadows only
+          mesh.matrixAutoUpdate = false; // static: never moves
         } else {
           mesh.castShadow = true;
         }
@@ -264,15 +283,24 @@ export function detectRenamedNodes(gltfParser: PreparedGLTF['gltfParser']): Map<
   return renamedNodes;
 }
 
+/** Kinematic node data collected during traversal. */
+export interface KinematicNodeEntry {
+  node: Object3D;
+  data: Record<string, unknown>;
+}
+
 /** Collected data from the main traversal step. */
 interface TraverseResult {
   drives: RVDrive[];
   pending: PendingComponent[];
   muTemplateNodes: Object3D[];
   groupNodes: { node: Object3D; key: string; data: Record<string, unknown> }[];
+  kinematicNodes: KinematicNodeEntry[];
   recordingData: CompactRecording | null;
   recorderSettings: RecorderSettings | null;
   replayRecordingConfigs: { sequence: string; startOnSignal: ComponentRef | null; isReplayingSignal: ComponentRef | null; activeOnly: ActiveOnly }[];
+  pipelineNodes: { pipes: Object3D[]; tanks: Object3D[]; pumps: Object3D[]; processingUnits: Object3D[] };
+  metadataNodes: Object3D[];
 }
 
 /**
@@ -289,9 +317,19 @@ export function traverseAndRegister(
   const pending: PendingComponent[] = [];
   const muTemplateNodes: Object3D[] = [];
   const groupNodes: { node: Object3D; key: string; data: Record<string, unknown> }[] = [];
+  const kinematicNodes: KinematicNodeEntry[] = [];
   let recordingData: CompactRecording | null = null;
   let recorderSettings: RecorderSettings | null = null;
   const replayRecordingConfigs: TraverseResult['replayRecordingConfigs'] = [];
+
+  // Pipeline nodes for tooltip hover
+  const pipeNodes: Object3D[] = [];
+  const tankNodes: Object3D[] = [];
+  const pumpNodes: Object3D[] = [];
+  const processingUnitNodes: Object3D[] = [];
+
+  // Metadata nodes for tooltip hover
+  const metadataNodes: Object3D[] = [];
 
   root.traverse((node: Object3D) => {
     // Register ALL nodes in registry (Phase 1)
@@ -397,7 +435,87 @@ export function traverseAndRegister(
       }
     }
 
+    // Kinematic components — collect for post-group re-parenting
+    if (rv['Kinematic']) {
+      const kinData = rv['Kinematic'] as Record<string, unknown>;
+      const integrateGroup = kinData['IntegrateGroupEnable'] === true;
+      const kinParent = kinData['KinematicParentEnable'] === true;
+      if (integrateGroup || kinParent) {
+        const groupName = kinData['GroupName'] as string | undefined;
+        // Guard: skip if IntegrateGroupEnable but GroupName is falsy
+        if (kinParent || (integrateGroup && groupName)) {
+          kinematicNodes.push({ node, data: kinData });
+        }
+      }
+    }
+
     // DrivesRecording / DrivesRecorder / ReplayRecording (special cases)
+    // Collect Pipeline nodes (Pipe, ResourceTank, Pump, ProcessingUnit)
+    if (rv['Pipe']) {
+      validateExtras('Pipe', rv['Pipe'] as Record<string, unknown>);
+      node.userData._rvType = 'Pipe';
+      const pd = rv['Pipe'] as Record<string, unknown>;
+      const sourceRef = pd['source'] as { path?: string } | undefined;
+      const destRef = pd['destination'] as { path?: string } | undefined;
+      node.userData._rvPipe = {
+        resourceName: pd['resourceName'] as string ?? '',
+        flowRate: pd['flowRate'] as number ?? 0,
+        sourcePath: sourceRef?.path ?? null,
+        destinationPath: destRef?.path ?? null,
+        uvDirection: pd['uvDirection'] as number ?? 1,
+      };
+      pipeNodes.push(node);
+      registry.register('Pipe', path, node);
+    }
+    if (rv['ResourceTank']) {
+      validateExtras('ResourceTank', rv['ResourceTank'] as Record<string, unknown>);
+      const td = rv['ResourceTank'] as Record<string, unknown>;
+      node.userData._rvType = 'Tank';
+      node.userData._rvTank = {
+        resourceName: td['resourceName'] as string ?? '',
+        capacity: td['capacity'] as number ?? 0,
+        amount: td['amount'] as number ?? 0,
+        pressure: td['pressure'] as number ?? 0,
+        temperature: td['temperature'] as number ?? 0,
+      };
+      tankNodes.push(node);
+      registry.register('Tank', path, node);
+    }
+    if (rv['Pump']) {
+      validateExtras('Pump', rv['Pump'] as Record<string, unknown>);
+      node.userData._rvType = 'Pump';
+      const pumpData = rv['Pump'] as Record<string, unknown>;
+      const pipeRef = pumpData['pipe'] as { path?: string } | undefined;
+      node.userData._rvPump = {
+        flowRate: pumpData['flowRate'] as number ?? 0,
+        pipePath: pipeRef?.path ?? null,
+      };
+      pumpNodes.push(node);
+      registry.register('Pump', path, node);
+    }
+    if (rv['ProcessingUnit']) {
+      validateExtras('ProcessingUnit', rv['ProcessingUnit'] as Record<string, unknown>);
+      node.userData._rvType = 'ProcessingUnit';
+      const puData = rv['ProcessingUnit'] as Record<string, unknown>;
+      const connRefs = puData['connections'] as Array<{ path?: string }> | undefined;
+      node.userData._rvProcessingUnit = {
+        connectionPaths: connRefs?.map(r => r?.path ?? null).filter(Boolean) ?? [],
+      };
+      processingUnitNodes.push(node);
+      registry.register('ProcessingUnit', path, node);
+    }
+
+    // RuntimeMetadata — tooltip content for interactive objects
+    if (rv['RuntimeMetadata']) {
+      const md = rv['RuntimeMetadata'] as Record<string, unknown>;
+      validateExtras('RuntimeMetadata', md);
+      node.userData._rvType = 'Metadata';
+      node.userData._rvMetadata = { content: (md['content'] as string) ?? '' };
+      metadataNodes.push(node);
+      registry.register('Metadata', path, node);
+    }
+
+    // Check for DrivesRecording (compact format or ScriptableObject inline)
     if (rv['DrivesRecording_compact'] && !recordingData) {
       recordingData = parseCompactRecording(rv['DrivesRecording_compact'] as Record<string, unknown>);
     }
@@ -439,7 +557,18 @@ export function traverseAndRegister(
     debug('loader', `MU template: ${muNode.name} (hidden)`);
   }
 
-  return { drives, pending, muTemplateNodes, groupNodes, recordingData, recorderSettings, replayRecordingConfigs };
+  return {
+    drives,
+    pending,
+    muTemplateNodes,
+    groupNodes,
+    kinematicNodes,
+    recordingData,
+    recorderSettings,
+    replayRecordingConfigs,
+    pipelineNodes: { pipes: pipeNodes, tanks: tankNodes, pumps: pumpNodes, processingUnits: processingUnitNodes },
+    metadataNodes,
+  };
 }
 
 /**
@@ -528,6 +657,118 @@ export function buildGroups(
 }
 
 /**
+ * Apply Kinematic re-parenting after groups are built (Phase 8b).
+ *
+ * Mirrors C# Kinematic.Awake() behavior:
+ * - IntegrateGroupEnable: re-parent group nodes under the Kinematic node
+ * - KinematicParentEnable: re-parent the Kinematic node under a specified parent
+ *
+ * Uses attach() (not add()) to preserve world transforms.
+ * After re-parenting, fixes Drive base transforms and matrixAutoUpdate on affected subtrees.
+ *
+ * Returns the list of kinematic group names for UI exclusion.
+ */
+export function applyKinematicParenting(
+  kinematicNodes: KinematicNodeEntry[],
+  groups: GroupRegistry | null,
+  registry: NodeRegistry,
+  root: Object3D,
+): string[] {
+  if (kinematicNodes.length === 0) return [];
+
+  const kinematicGroupNames: string[] = [];
+  const affectedSubtrees: Object3D[] = [];
+
+  // Pass 1: IntegrateGroupEnable — re-parent group nodes under kinematic nodes
+  for (const { node: kinNode, data } of kinematicNodes) {
+    if (data['IntegrateGroupEnable'] !== true) continue;
+
+    const groupName = data['GroupName'] as string ?? '';
+    if (!groupName) continue;
+
+    // Resolve GroupNamePrefix
+    const prefixRef = data['GroupNamePrefix'] as { path?: string } | string | undefined;
+    let resolvedName = groupName;
+    if (prefixRef) {
+      const prefixPath = typeof prefixRef === 'string' ? prefixRef : prefixRef.path;
+      if (prefixPath) {
+        const prefixNode = registry.getNode(prefixPath);
+        if (prefixNode) {
+          resolvedName = prefixNode.name + groupName;
+        }
+      }
+    }
+
+    // Get group from registry
+    const groupInfo = groups?.get(resolvedName);
+    if (!groupInfo) {
+      debug('loader', `[Kinematic] ${kinNode.name}: group "${resolvedName}" not found, skipping`);
+      continue;
+    }
+
+    const simplify = data['SimplifyHierarchy'] === true;
+    const nodesToReparent = simplify
+      ? groupInfo.nodes.filter(n => (n as Mesh).isMesh === true)
+      : [...groupInfo.nodes];
+
+    for (const groupNode of nodesToReparent) {
+      kinNode.attach(groupNode);
+    }
+
+    kinematicGroupNames.push(resolvedName);
+    affectedSubtrees.push(kinNode);
+    debug('loader',
+      `[Kinematic] ${kinNode.name}: attached ${nodesToReparent.length} node(s) from group "${resolvedName}"` +
+      (simplify ? ' (mesh-only)' : '')
+    );
+  }
+
+  // Pass 2: KinematicParentEnable — re-parent kinematic node under specified parent
+  for (const { node: kinNode, data } of kinematicNodes) {
+    if (data['KinematicParentEnable'] !== true) continue;
+
+    const parentRef = data['Parent'] as { path?: string } | string | undefined;
+    const parentPath = typeof parentRef === 'string' ? parentRef : parentRef?.path;
+    if (!parentPath) continue;
+
+    const parentNode = registry.getNode(parentPath);
+    if (!parentNode) {
+      debug('loader', `[Kinematic] ${kinNode.name}: parent "${parentPath}" not found, skipping`);
+      continue;
+    }
+
+    parentNode.attach(kinNode);
+    affectedSubtrees.push(kinNode);
+    debug('loader', `[Kinematic] ${kinNode.name}: re-parented under "${parentNode.name}"`);
+  }
+
+  // Pass 3: Fix matrixAutoUpdate and Drive base transforms on affected subtrees
+  if (affectedSubtrees.length > 0) {
+    for (const subtreeRoot of affectedSubtrees) {
+      subtreeRoot.traverse((child: Object3D) => {
+        // Re-enable matrixAutoUpdate (Phase 2 may have set it to false on static meshes)
+        child.matrixAutoUpdate = true;
+        // Refresh Drive base transforms
+        const childPath = registry.getPathForNode(child);
+        if (childPath) {
+          const components = registry.getComponentsAt(childPath);
+          for (const [type, instance] of components) {
+            if (type === 'Drive') {
+              (instance as RVDrive).refreshBaseTransform();
+            }
+          }
+        }
+      });
+    }
+    // Propagate world matrices after all re-parenting
+    root.updateMatrixWorld(true);
+    debug('loader', `[Kinematic] Fixed matrixAutoUpdate + drive base transforms on ${affectedSubtrees.length} subtree(s)`);
+  }
+
+  return kinematicGroupNames;
+}
+
+/**
  * Apply WebGPU compatibility fixes (missing UVs, indexed geometry conversion).
  */
 export function applyWebGPUFixes(root: Object3D, isWebGPU: boolean): void {
@@ -560,6 +801,7 @@ export function applyWebGPUFixes(root: Object3D, isWebGPU: boolean): void {
  * Compute BVH for fast raycasting on all meshes.
  */
 export async function computeBVH(root: Object3D): Promise<void> {
+  // Compute BVH (Bounding Volume Hierarchy) for fast raycasting
   try {
     const { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } = await import('three-mesh-bvh');
     BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -660,7 +902,7 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
   const { root, gltfParser } = await loadAndPrepareGLTF(url, scene);
 
   // Phase 2: Process meshes (shadow classification, triangle counting, drive/transport node sets)
-  const { triangleCount, driveNodeSet: _driveNodeSet, transportSurfaceNodeSet: _transportSurfaceNodeSet } = processMeshes(root);
+  const { triangleCount, driveNodeSet, transportSurfaceNodeSet } = processMeshes(root);
 
   // Phase 3: Detect renamed nodes (Three.js dedup)
   const renamedNodes = detectRenamedNodes(gltfParser);
@@ -683,29 +925,55 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
   // Phase 8: Build groups
   const groups = buildGroups(traverseResult.groupNodes, registry);
 
+  // Phase 8b: Apply Kinematic re-parenting (after groups, before bounding box)
+  const kinematicGroupNames = applyKinematicParenting(
+    traverseResult.kinematicNodes, groups, registry, root,
+  );
+  // Mark kinematic groups in registry and auto-exclude from overlay
+  if (groups && kinematicGroupNames.length > 0) {
+    for (const name of kinematicGroupNames) {
+      groups.markAsKinematic(name);
+    }
+  }
+
   // Phase 9: WebGPU compatibility fixes
   applyWebGPUFixes(root, options?.isWebGPU ?? false);
 
-  // Phase 10: Bounding box
+  // Phase 10: Material deduplication (must run before static merge)
+  const dedupResult = deduplicateMaterials(root);
+
+  // Phase 11: Static geometry merge — DISABLED (causes missing meshes, needs investigation)
+  const mergeResult = { originalCount: 0, mergedCount: 0 };
+
+  // Phase 12: Bounding box (after merge — merged geometry changes bounds)
   const boundingBox = new Box3().setFromObject(root);
 
-  // Phase 11: BVH for fast raycasting
+  // Phase 13: BVH for fast raycasting
   await computeBVH(root);
 
-  // Phase 12: Build playback
+  // Phase 14: Build playback
   const playback = buildPlayback(traverseResult.recordingData, traverseResult.recorderSettings, registry);
 
-  // Phase 13: Build replay recordings
+  // Phase 15: Build replay recordings
   const replayRecordings = buildReplayRecordings(
     traverseResult.replayRecordingConfigs, playback, registry, signalStore,
   );
 
-  // Phase 14: Build logic engine
+  // Phase 16: Build logic engine
   const logicEngine = buildLogicEngine(root, registry, signalStore);
 
-  // Phase 15: Finalize
+  // Phase 17: Finalize
   printParitySummary();
   signalStore.buildIndex();
+
+  const pipelineNodes = traverseResult.pipelineNodes;
+  const { pipes: pipeNodes, tanks: tankNodes, pumps: pumpNodes, processingUnits: processingUnitNodes } = pipelineNodes;
+  if (pipeNodes.length + tankNodes.length + pumpNodes.length + processingUnitNodes.length > 0) {
+    debug('loader',
+      `Pipeline: ${pipeNodes.length} pipes, ${tankNodes.length} tanks, ` +
+      `${pumpNodes.length} pumps, ${processingUnitNodes.length} processing units`
+    );
+  }
 
   const regSize = registry.size;
   const stats = manager.stats;
@@ -732,6 +1000,11 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     triangleCount,
     groups,
     modelConfig: {},
+    dedupResult,
+    mergeResult,
+    pipelineNodes,
+    metadataNodes: traverseResult.metadataNodes,
+    kinematicGroupNames,
   };
 }
 
@@ -852,3 +1125,4 @@ export function processExtras(
 
   return { drives, signalsRegistered, componentsCreated: pending.length };
 }
+
