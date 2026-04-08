@@ -102,4 +102,18 @@ describe('GroupRegistry', () => {
     registry.clear();
     expect(registry.getAll()).toHaveLength(0);
   });
+
+  it('showAll respects defaultHiddenGroups', () => {
+    const nodeA = new Object3D(); nodeA.name = 'A';
+    const nodeB = new Object3D(); nodeB.name = 'B';
+    registry.register('GroupA', nodeA);
+    registry.register('GroupB', nodeB);
+    registry.setDefaultHiddenGroups(['GroupB']);
+
+    registry.isolate('GroupA');  // hides GroupB
+    registry.showAll();          // should restore GroupA but keep GroupB hidden
+
+    expect(registry.get('GroupA')!.visible).toBe(true);
+    expect(registry.get('GroupB')!.visible).toBe(false);
+  });
 });

@@ -93,6 +93,12 @@ export class SelectionManager {
     this._apply();
   }
 
+  /** Replace selection with multiple paths at once. */
+  selectPaths(paths: string[]): void {
+    this._selected = [...paths];
+    this._apply();
+  }
+
   /** Remove a single path from selection. */
   deselect(path: string): void {
     const idx = this._selected.indexOf(path);

@@ -13,11 +13,17 @@ export interface GroupVisibilitySettings {
   hiddenGroups: string[];
   /** Name of the isolated group (only this group visible), or null. */
   isolatedGroup: string | null;
+  /** Groups excluded from the Groups overlay panel. */
+  excludedFromOverlay?: string[];
+  /** Groups hidden by default when a model loads. */
+  defaultHiddenGroups?: string[];
 }
 
 const DEFAULTS: GroupVisibilitySettings = {
   hiddenGroups: [],
   isolatedGroup: null,
+  excludedFromOverlay: [],
+  defaultHiddenGroups: [],
 };
 
 /**
@@ -32,6 +38,8 @@ export function loadGroupVisibilitySettings(): GroupVisibilitySettings {
     return {
       hiddenGroups: Array.isArray(parsed.hiddenGroups) ? parsed.hiddenGroups : [],
       isolatedGroup: typeof parsed.isolatedGroup === 'string' ? parsed.isolatedGroup : null,
+      excludedFromOverlay: Array.isArray(parsed.excludedFromOverlay) ? parsed.excludedFromOverlay : [],
+      defaultHiddenGroups: Array.isArray(parsed.defaultHiddenGroups) ? parsed.defaultHiddenGroups : [],
     };
   } catch {
     return { ...DEFAULTS };

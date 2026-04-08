@@ -6,4 +6,5 @@ export { DevToolsTab } from './DevToolsTab';
 export { TestsTab } from './TestsTab';
 export { McpTab } from './McpTab';
 export { MultiuserTab } from './MultiuserTab';
+export { GroupsTab } from './GroupsTab';
 export { StatRow, BudgetRow, budgetPct, tfSx } from './settings-helpers';

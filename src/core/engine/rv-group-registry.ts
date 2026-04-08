@@ -33,6 +33,21 @@ export interface GroupInfo {
  */
 export class GroupRegistry {
   private _groups = new Map<string, GroupInfo>();
+  private _modelRoot: Object3D | null = null;
+  /** Nodes hidden by isolate that don't belong to any group */
+  private _hiddenUngrouped: Object3D[] = [];
+  /** Group names that should remain hidden after showAll(). */
+  private _defaultHidden: string[] = [];
+
+  /** Set the model root so isolate can hide ungrouped nodes. */
+  setModelRoot(root: Object3D | null): void {
+    this._modelRoot = root;
+  }
+
+  /** Set group names that should remain hidden after showAll(). */
+  setDefaultHiddenGroups(names: string[]): void {
+    this._defaultHidden = names;
+  }
 
   /**
    * Register a node under a group name.
@@ -73,22 +88,60 @@ export class GroupRegistry {
   }
 
   /**
-   * Isolate: show only the target group, hide all others.
+   * Isolate: show only the target group, hide all others AND ungrouped nodes.
    */
   isolate(name: string): void {
+    // Collect all nodes belonging to the TARGET group
+    const targetGroup = this._groups.get(name);
+    if (!targetGroup) return;
+    const targetNodes = new Set<Object3D>(targetGroup.nodes);
+
+    // Build set of all ancestors of target group nodes up to model root
+    const ancestorsOfTarget = new Set<Object3D>();
+    for (const node of targetNodes) {
+      let cur = node.parent;
+      while (cur && cur !== this._modelRoot?.parent) {
+        ancestorsOfTarget.add(cur);
+        cur = cur.parent;
+      }
+    }
+
+    // Hide/show groups
     for (const [groupName] of this._groups) {
-      const show = groupName === name;
-      this.setVisible(groupName, show);
+      this.setVisible(groupName, groupName === name);
+    }
+
+    // Hide ungrouped top-level children of the model root that are NOT
+    // ancestors of the target group's nodes
+    this._restoreUngrouped();
+    if (this._modelRoot) {
+      for (const child of this._modelRoot.children) {
+        if (!targetNodes.has(child) && !ancestorsOfTarget.has(child) && child.visible) {
+          child.visible = false;
+          this._hiddenUngrouped.push(child);
+        }
+      }
     }
   }
 
   /**
-   * Show all: restore visibility for all groups.
+   * Show all: restore visibility for all groups and ungrouped nodes.
+   * Re-applies defaultHiddenGroups after restoring visibility.
    */
   showAll(): void {
     for (const group of this._groups.values()) {
-      this.setVisible(group.name, true);
+      const shouldHide = this._defaultHidden.includes(group.name);
+      this.setVisible(group.name, !shouldHide);
     }
+    this._restoreUngrouped();
+  }
+
+  /** Restore previously hidden ungrouped nodes. */
+  private _restoreUngrouped(): void {
+    for (const node of this._hiddenUngrouped) {
+      node.visible = true;
+    }
+    this._hiddenUngrouped = [];
   }
 
   /** Get all group names, sorted alphabetically. */

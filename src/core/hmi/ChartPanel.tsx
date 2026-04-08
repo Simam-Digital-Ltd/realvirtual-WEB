@@ -8,7 +8,7 @@
  * expand/collapse toggle, MUI Paper glassmorphism styling.
  */
 
-import { useState, useRef, useEffect, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
 import { Box, IconButton, Typography, Paper } from '@mui/material';
 import { Close, UnfoldMore, UnfoldLess, DragIndicator } from '@mui/icons-material';
 import { BOTTOM_BAR_HEIGHT } from './layout-constants';
@@ -135,6 +135,33 @@ export function useResize(
   }, [ref, setSize, minW, minH, active]);
 }
 
+// ─── Panel layout persistence ──────────────────────────────────────────
+
+interface PanelLayout {
+  x: number; y: number; w: number; h: number;
+}
+
+function loadPanelLayout(id: string): PanelLayout | null {
+  try {
+    const raw = localStorage.getItem(`rv-panel-${id}`);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as PanelLayout;
+    if (typeof p.x !== 'number' || typeof p.y !== 'number' ||
+        typeof p.w !== 'number' || typeof p.h !== 'number') return null;
+    // Clamp to current viewport so panel is never off-screen
+    return {
+      x: Math.max(0, Math.min(p.x, window.innerWidth - 80)),
+      y: Math.max(0, Math.min(p.y, window.innerHeight - 60)),
+      w: p.w, h: p.h,
+    };
+  } catch { return null; }
+}
+
+function savePanelLayout(id: string, layout: PanelLayout): void {
+  try { localStorage.setItem(`rv-panel-${id}`, JSON.stringify(layout)); }
+  catch { /* quota */ }
+}
+
 // ─── ChartPanel Component ───────────────────────────────────────────────
 
 export interface ChartPanelProps {
@@ -147,6 +174,8 @@ export interface ChartPanelProps {
   defaultHeight?: number;
   defaultPosition?: { x: number; y: number };
   zIndex?: number;
+  /** Unique ID to persist panel position/size across sessions. */
+  panelId?: string;
   /** Toolbar content rendered between title and expand/close buttons */
   toolbar?: ReactNode;
   children: ReactNode;
@@ -162,6 +191,7 @@ export function ChartPanel({
   defaultHeight = 340,
   defaultPosition,
   zIndex = 1500,
+  panelId,
   toolbar,
   children,
 }: ChartPanelProps) {
@@ -172,21 +202,45 @@ export function ChartPanel({
   const mobileWidth = Math.min(defaultWidth, window.innerWidth - 16);
 
   const [expanded, setExpanded] = useState(false);
-  const [pos, setPos] = useState(
-    defaultPosition ?? {
-      x: isMobile ? 8 : 64,
-      y: window.innerHeight - defaultHeight - BOTTOM_MARGIN,
-    },
-  );
-  const [size, setSize] = useState({ w: isMobile ? mobileWidth : defaultWidth, h: defaultHeight });
+  const [pos, setPos] = useState(() => {
+    const saved = panelId ? loadPanelLayout(panelId) : null;
+    return saved
+      ? { x: saved.x, y: saved.y }
+      : defaultPosition ?? {
+          x: isMobile ? 8 : 64,
+          y: window.innerHeight - defaultHeight - BOTTOM_MARGIN,
+        };
+  });
+  const [size, setSize] = useState(() => {
+    const saved = panelId ? loadPanelLayout(panelId) : null;
+    return saved
+      ? { w: saved.w, h: saved.h }
+      : { w: isMobile ? mobileWidth : defaultWidth, h: defaultHeight };
+  });
 
   const dragRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<HTMLDivElement>(null);
 
-  useDrag(dragRef, pos, setPos, open);
-  useResize(resizeRef, size, setSize, minW, MIN_H, open);
+  // Wrap setPos/setSize to auto-persist when panelId is set
+  const posRef = useRef(pos);
+  const sizeRef = useRef(size);
+  posRef.current = pos;
+  sizeRef.current = size;
 
-  // Snap to bottom-full-width when expanding
+  const setPosAndSave = useCallback((p: { x: number; y: number }) => {
+    setPos(p);
+    if (panelId) savePanelLayout(panelId, { ...p, ...sizeRef.current });
+  }, [panelId]);
+
+  const setSizeAndSave = useCallback((s: { w: number; h: number }) => {
+    setSize(s);
+    if (panelId) savePanelLayout(panelId, { ...posRef.current, ...s });
+  }, [panelId]);
+
+  useDrag(dragRef, pos, setPosAndSave, open);
+  useResize(resizeRef, size, setSizeAndSave, minW, MIN_H, open);
+
+  // Snap to bottom-full-width when expanding; restore saved layout on collapse
   useEffect(() => {
     if (expanded) {
       const expandX = isMobile ? 0 : 64;
@@ -194,14 +248,20 @@ export function ChartPanel({
       setPos({ x: expandX, y: window.innerHeight - expandedH - BOTTOM_MARGIN });
       setSize({ w: expandW, h: expandedH });
     } else {
-      const resetW = isMobile ? mobileWidth : defaultWidth;
-      setSize({ w: resetW, h: defaultHeight });
-      setPos(
-        defaultPosition ?? {
-          x: isMobile ? 8 : 64,
-          y: window.innerHeight - defaultHeight - BOTTOM_MARGIN,
-        },
-      );
+      const saved = panelId ? loadPanelLayout(panelId) : null;
+      if (saved) {
+        setPos({ x: saved.x, y: saved.y });
+        setSize({ w: saved.w, h: saved.h });
+      } else {
+        const resetW = isMobile ? mobileWidth : defaultWidth;
+        setSize({ w: resetW, h: defaultHeight });
+        setPos(
+          defaultPosition ?? {
+            x: isMobile ? 8 : 64,
+            y: window.innerHeight - defaultHeight - BOTTOM_MARGIN,
+          },
+        );
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded]);

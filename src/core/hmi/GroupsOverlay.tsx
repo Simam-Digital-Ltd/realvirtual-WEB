@@ -6,12 +6,12 @@
  * Responds to groups-overlay-toggle events from RVViewer.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  Box, Switch, IconButton, Typography, Button, Divider, List,
-  ListItem, ListItemText, ListItemSecondaryAction,
+  Box, IconButton, Typography, List,
+  ListItem, ListItemText, InputBase,
 } from '@mui/material';
-import { Visibility, VisibilityOff } from '@mui/icons-material';
+import { Visibility, VisibilityOff, FilterCenterFocus, Search, Close } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useGroupsOverlayOpen } from '../../hooks/use-groups-overlay';
 import { ChartPanel } from './ChartPanel';
@@ -23,8 +23,8 @@ import {
 } from './group-visibility-store';
 import type { GroupInfo } from '../engine/rv-group-registry';
 
-const DEFAULT_W = 320;
-const DEFAULT_H = 360;
+const DEFAULT_W = 280;
+const DEFAULT_H = 260;
 const BOTTOM_MARGIN = BOTTOM_BAR_HEIGHT + 12;
 
 /** Dark-gray scrollbar style class — reuse the pattern from BottomBar. */
@@ -48,8 +48,22 @@ export function GroupsOverlay() {
   const open = useGroupsOverlayOpen();
   const [groups, setGroups] = useState<GroupInfo[]>([]);
   const [isolatedGroup, setIsolatedGroup] = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
+  const filterRef = useRef<HTMLInputElement>(null);
   // Trigger re-render when visibility changes
   const [, setTick] = useState(0);
+
+  const filteredGroups = useMemo(() => {
+    // Filter out groups excluded from overlay via settings
+    const settings = loadGroupVisibilitySettings();
+    const excluded = settings.excludedFromOverlay ?? [];
+    let result = groups.filter(g => !excluded.includes(g.name));
+    if (filter) {
+      const lc = filter.toLowerCase();
+      result = result.filter(g => g.name.toLowerCase().includes(lc));
+    }
+    return result;
+  }, [groups, filter]);
 
   // Load groups when overlay opens or model changes
   useEffect(() => {
@@ -83,12 +97,23 @@ export function GroupsOverlay() {
         setGroups(viewer.groups.getAll());
         // Apply persisted state on new model load
         const saved = loadGroupVisibilitySettings();
+
+        // Set defaultHiddenGroups on registry so showAll() respects them
+        const defaultHidden = saved.defaultHiddenGroups ?? [];
+        viewer.groups.setDefaultHiddenGroups(defaultHidden);
+
         if (saved.isolatedGroup && viewer.groups.get(saved.isolatedGroup)) {
           viewer.groups.isolate(saved.isolatedGroup);
           setIsolatedGroup(saved.isolatedGroup);
           viewer.markShadowsDirty();
         } else if (saved.hiddenGroups.length > 0) {
           for (const name of saved.hiddenGroups) {
+            viewer.groups.setVisible(name, false);
+          }
+          viewer.markShadowsDirty();
+        } else if (defaultHidden.length > 0) {
+          // No user session state — apply default hidden groups
+          for (const name of defaultHidden) {
             viewer.groups.setVisible(name, false);
           }
           viewer.markShadowsDirty();
@@ -103,9 +128,12 @@ export function GroupsOverlay() {
     if (!viewer.groups) return;
     const all = viewer.groups.getAll();
     const hidden = all.filter(g => !g.visible).map(g => g.name);
+    const current = loadGroupVisibilitySettings();
     const settings: GroupVisibilitySettings = {
       hiddenGroups: hidden,
       isolatedGroup: isolatedGroup,
+      excludedFromOverlay: current.excludedFromOverlay,
+      defaultHiddenGroups: current.defaultHiddenGroups,
     };
     saveGroupVisibilitySettings(settings);
   }, [viewer, isolatedGroup]);
@@ -116,20 +144,48 @@ export function GroupsOverlay() {
     setIsolatedGroup(null);
     viewer.markShadowsDirty();
     setTick(t => t + 1);
-    // Persist after state update
+    // Persist after state update — preserve excludedFromOverlay and defaultHiddenGroups
     const all = viewer.groups.getAll();
     const hidden = all.filter(g => !g.visible).map(g => g.name);
-    saveGroupVisibilitySettings({ hiddenGroups: hidden, isolatedGroup: null });
+    const current = loadGroupVisibilitySettings();
+    saveGroupVisibilitySettings({
+      hiddenGroups: hidden,
+      isolatedGroup: null,
+      excludedFromOverlay: current.excludedFromOverlay,
+      defaultHiddenGroups: current.defaultHiddenGroups,
+    });
   }, [viewer]);
 
   const handleIsolate = useCallback((name: string) => {
     if (!viewer.groups) return;
-    viewer.groups.isolate(name);
-    setIsolatedGroup(name);
-    viewer.markShadowsDirty();
-    setTick(t => t + 1);
-    saveGroupVisibilitySettings({ hiddenGroups: [], isolatedGroup: name });
-  }, [viewer]);
+    const current = loadGroupVisibilitySettings();
+    if (isolatedGroup === name) {
+      // Un-isolate: show all (respects defaultHiddenGroups)
+      viewer.groups.showAll();
+      setIsolatedGroup(null);
+      viewer.markShadowsDirty();
+      setTick(t => t + 1);
+      const all = viewer.groups.getAll();
+      const hidden = all.filter(g => !g.visible).map(g => g.name);
+      saveGroupVisibilitySettings({
+        hiddenGroups: hidden,
+        isolatedGroup: null,
+        excludedFromOverlay: current.excludedFromOverlay,
+        defaultHiddenGroups: current.defaultHiddenGroups,
+      });
+    } else {
+      viewer.groups.isolate(name);
+      setIsolatedGroup(name);
+      viewer.markShadowsDirty();
+      setTick(t => t + 1);
+      saveGroupVisibilitySettings({
+        hiddenGroups: [],
+        isolatedGroup: name,
+        excludedFromOverlay: current.excludedFromOverlay,
+        defaultHiddenGroups: current.defaultHiddenGroups,
+      });
+    }
+  }, [viewer, isolatedGroup]);
 
   const handleShowAll = useCallback(() => {
     if (!viewer.groups) return;
@@ -137,7 +193,36 @@ export function GroupsOverlay() {
     setIsolatedGroup(null);
     viewer.markShadowsDirty();
     setTick(t => t + 1);
-    saveGroupVisibilitySettings({ hiddenGroups: [], isolatedGroup: null });
+    // showAll() already respects defaultHiddenGroups — persist correctly
+    const all = viewer.groups.getAll();
+    const hidden = all.filter(g => !g.visible).map(g => g.name);
+    const current = loadGroupVisibilitySettings();
+    saveGroupVisibilitySettings({
+      hiddenGroups: hidden,
+      isolatedGroup: null,
+      excludedFromOverlay: current.excludedFromOverlay,
+      defaultHiddenGroups: current.defaultHiddenGroups,
+    });
+  }, [viewer]);
+
+  const handleHover = useCallback((group: GroupInfo | null) => {
+    if (group && group.nodes.length > 0) {
+      viewer.highlighter.highlightMultiple(group.nodes);
+    } else {
+      viewer.highlighter.clear();
+    }
+  }, [viewer]);
+
+  const handleSelect = useCallback((group: GroupInfo) => {
+    if (!viewer.registry) return;
+    const paths: string[] = [];
+    for (const node of group.nodes) {
+      const p = viewer.registry.getPathForNode(node);
+      if (p) paths.push(p);
+    }
+    if (paths.length > 0) {
+      viewer.selectionManager.selectPaths(paths);
+    }
   }, [viewer]);
 
   const handleDoubleClick = useCallback((group: GroupInfo) => {
@@ -162,10 +247,11 @@ export function GroupsOverlay() {
       open={open}
       onClose={handleClose}
       title="Groups"
-      titleColor="#ab47bc"
+      titleColor="#4fc3f7"
       subtitle={hasGroups ? `${groups.length} group${groups.length !== 1 ? 's' : ''}` : undefined}
       defaultWidth={DEFAULT_W}
       defaultHeight={DEFAULT_H}
+      panelId="groups"
       defaultPosition={{
         x: window.innerWidth - DEFAULT_W - 16,
         y: window.innerHeight - DEFAULT_H - BOTTOM_MARGIN,
@@ -179,23 +265,41 @@ export function GroupsOverlay() {
         </Box>
       ) : (
         <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-          {/* Show All button */}
-          {anyHidden && (
-            <>
-              <Box sx={{ px: 1.5, py: 0.5 }}>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={handleShowAll}
-                  fullWidth
-                  sx={{ textTransform: 'none', fontSize: 12 }}
-                >
-                  Show All
-                </Button>
-              </Box>
-              <Divider />
-            </>
-          )}
+          {/* Filter + Show All row */}
+          <Box sx={{
+            display: 'flex', alignItems: 'center', px: 1, py: 0.25,
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
+          }}>
+            <Search sx={{ fontSize: 16, color: 'rgba(255,255,255,0.3)', mr: 0.5, flexShrink: 0 }} />
+            <InputBase
+              inputRef={filterRef}
+              placeholder="Filter..."
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              sx={{
+                flex: 1, fontSize: 12, color: 'white',
+                '& input': { py: 0.25, px: 0 },
+                '& input::placeholder': { color: 'rgba(255,255,255,0.3)', opacity: 1 },
+              }}
+            />
+            {filter && (
+              <IconButton size="small" onClick={() => setFilter('')} sx={{ p: 0.25, color: 'rgba(255,255,255,0.4)' }}>
+                <Close sx={{ fontSize: 14 }} />
+              </IconButton>
+            )}
+            <IconButton
+              size="small"
+              onClick={handleShowAll}
+              title="Show all groups"
+              sx={{
+                p: 0.3, ml: 0.5, flexShrink: 0,
+                color: anyHidden ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.15)',
+              }}
+              disabled={!anyHidden}
+            >
+              <Visibility sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Box>
 
           {/* Groups list */}
           <List
@@ -204,62 +308,69 @@ export function GroupsOverlay() {
             className={SCROLL_CLASS}
             sx={{ flex: 1, overflow: 'auto', minHeight: 0 }}
           >
-            {groups.map((group) => (
-              <ListItem
-                key={group.name}
-                sx={{
-                  py: 0.25,
-                  px: 1,
-                  opacity: group.visible ? 1 : 0.5,
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
-                }}
-                onDoubleClick={() => handleDoubleClick(group)}
-              >
-                <Switch
-                  size="small"
-                  checked={group.visible}
-                  onChange={(_, checked) => handleToggle(group.name, checked)}
-                  sx={{ mr: 0.5 }}
-                />
-                <ListItemText
-                  primary={group.name}
-                  secondary={`(${group.nodes.length})`}
-                  primaryTypographyProps={{
-                    variant: 'body2',
-                    noWrap: true,
-                    sx: {
-                      cursor: 'default',
-                      userSelect: 'none',
-                      fontWeight: isolatedGroup === group.name ? 700 : 400,
-                    },
+            {filteredGroups.map((group) => {
+              const isIsolated = isolatedGroup === group.name;
+              return (
+                <ListItem
+                  key={group.name}
+                  sx={{
+                    py: 0.25,
+                    px: 1,
+                    opacity: group.visible ? 1 : 0.4,
+                    cursor: 'pointer',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
                   }}
-                  secondaryTypographyProps={{
-                    variant: 'caption',
-                    sx: { color: 'text.disabled', ml: 0.5, display: 'inline' },
-                    component: 'span',
-                  }}
-                  sx={{ minWidth: 0 }}
-                />
-                <ListItemSecondaryAction>
+                  onMouseEnter={() => handleHover(group)}
+                  onMouseLeave={() => handleHover(null)}
+                  onClick={() => handleSelect(group)}
+                  onDoubleClick={() => handleDoubleClick(group)}
+                >
+                  <ListItemText
+                    primary={group.name}
+                    primaryTypographyProps={{
+                      variant: 'body2',
+                      noWrap: true,
+                      sx: {
+                        cursor: 'default',
+                        userSelect: 'none',
+                        fontSize: 13,
+                        fontWeight: isIsolated ? 700 : 400,
+                        color: isIsolated ? '#4fc3f7' : 'inherit',
+                      },
+                    }}
+                    sx={{ minWidth: 0, my: 0 }}
+                  />
                   <IconButton
                     size="small"
                     onClick={() => handleIsolate(group.name)}
-                    title={`Isolate: show only "${group.name}"`}
+                    title={isIsolated ? `Stop isolating "${group.name}"` : `Isolate "${group.name}"`}
                     sx={{
                       p: 0.3,
-                      color: isolatedGroup === group.name
-                        ? '#ab47bc'
-                        : 'rgba(255,255,255,0.3)',
-                      '&:hover': { color: '#ab47bc' },
+                      color: isIsolated ? '#4fc3f7' : 'rgba(255,255,255,0.25)',
+                      '&:hover': { color: '#4fc3f7' },
                     }}
                   >
-                    {isolatedGroup === group.name
+                    <FilterCenterFocus sx={{ fontSize: 16 }} />
+                  </IconButton>
+                  <IconButton
+                    size="small"
+                    onClick={() => handleToggle(group.name, !group.visible)}
+                    title={group.visible ? `Hide "${group.name}"` : `Show "${group.name}"`}
+                    sx={{
+                      p: 0.3,
+                      color: group.visible
+                        ? 'rgba(255,255,255,0.5)'
+                        : 'rgba(255,255,255,0.2)',
+                      '&:hover': { color: group.visible ? 'white' : 'rgba(255,255,255,0.5)' },
+                    }}
+                  >
+                    {group.visible
                       ? <Visibility sx={{ fontSize: 16 }} />
                       : <VisibilityOff sx={{ fontSize: 16 }} />}
                   </IconButton>
-                </ListItemSecondaryAction>
-              </ListItem>
-            ))}
+                </ListItem>
+              );
+            })}
           </List>
         </Box>
       )}

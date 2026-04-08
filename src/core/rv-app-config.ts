@@ -21,7 +21,7 @@ export interface UIContextConfig {
 }
 
 /** Settings tab identifiers used for selective locking. */
-export type SettingsTabId = 'model' | 'visual' | 'physics' | 'interfaces' | 'devtools' | 'tests' | 'mcp' | 'multiuser';
+export type SettingsTabId = 'model' | 'visual' | 'physics' | 'interfaces' | 'devtools' | 'tests' | 'mcp' | 'multiuser' | 'groups';
 
 /** Top-level app configuration loaded from `public/settings.json`. */
 export interface RVAppConfig {
@@ -29,7 +29,7 @@ export interface RVAppConfig {
   lockSettings?: boolean;
   /** Selectively lock individual tabs (settings gear still visible). */
   lockedTabs?: SettingsTabId[];
-/** Default model URL or filename (priority: URL param > defaultModel > localStorage > demo.glb). */
+/** Default model URL or filename (priority: URL param > last opened > defaultModel > first model). */
   defaultModel?: string;
 
   /** Global plugin IDs — lowest priority, overridden by modelname.json and GLB extras. */
@@ -43,8 +43,20 @@ export interface RVAppConfig {
   interface?: Partial<InterfaceSettings>;
   search?: Partial<SearchSettings>;
 
+  /** Groups configuration: overlay exclusions and default-hidden groups. */
+  groups?: {
+    excludedFromOverlay?: string[];
+    defaultHiddenGroups?: string[];
+  };
+
   /** Context-aware UI visibility configuration. */
   ui?: UIContextConfig;
+
+  /** Analytics configuration. GA script is only injected when a measurement ID is provided. */
+  analytics?: {
+    /** Google Analytics 4 Measurement ID (e.g. "G-XXXXXXXXXX"). Omit to disable tracking. */
+    googleAnalyticsId?: string;
+  };
 }
 
 // ─── Singleton State ───────────────────────────────────────────
@@ -97,4 +109,30 @@ export async function fetchAppConfig(): Promise<RVAppConfig> {
     debug('config', 'No settings.json found, using defaults');
     return {};
   }
+}
+
+// ─── Analytics ────────────────────────────────────────────────
+
+/**
+ * Inject Google Analytics 4 if configured in settings.json.
+ * No-op when `analytics.googleAnalyticsId` is absent — AGPL source ships clean.
+ */
+export function initAnalytics(): void {
+  const gaId = _config.analytics?.googleAnalyticsId;
+  if (!gaId) return;
+
+  // Inject gtag.js script
+  const script = document.createElement('script');
+  script.async = true;
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(gaId)}`;
+  document.head.appendChild(script);
+
+  // Initialize dataLayer and config
+  const w = window as unknown as Record<string, unknown>;
+  w.dataLayer = w.dataLayer || [];
+  function gtag(...args: unknown[]) { (w.dataLayer as unknown[]).push(args); }
+  gtag('js', new Date());
+  gtag('config', gaId);
+
+  debug('config', `Google Analytics initialized: ${gaId}`);
 }

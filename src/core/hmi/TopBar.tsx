@@ -4,8 +4,7 @@ import { Typography, Box, IconButton, Paper, Tabs, Tab, Tooltip } from '@mui/mat
 import { Settings, Close, AccountTree, ViewInAr, People, PushPin } from '@mui/icons-material';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { useViewer } from '../../hooks/use-viewer';
-import type { WebXRPluginAPI } from '../types/plugin-types';
-import { isSettingsLocked, isTabLocked } from '../rv-app-config';
+import { isSettingsLocked, isTabLocked } from './rv-app-config';
 import { HierarchyBrowser } from './rv-hierarchy-browser';
 import { PropertyInspector } from './rv-property-inspector';
 import { LeftPanel } from './LeftPanel';
@@ -15,10 +14,10 @@ import { MultiuserPanel } from './MultiuserPanel';
 import { SlotRenderer } from './HMIShell';
 import { useMultiuser } from '../../hooks/use-multiuser';
 import { loadMultiuserSettings } from './multiuser-settings-store';
-import type { MultiuserPluginAPI } from '../types/plugin-types';
+import type { MultiuserPluginAPI, WebXRPluginAPI } from '../types/plugin-types';
 
 // Settings tab components (extracted for maintainability)
-import { ModelTab, VisualTab, PhysicsTab, InterfacesTab, MultiuserTab, McpTab, DevToolsTab, TestsTab } from './settings';
+import { ModelTab, VisualTab, PhysicsTab, InterfacesTab, MultiuserTab, McpTab, DevToolsTab, TestsTab, GroupsTab } from './settings';
 
 export function TopBar() {
   const viewer = useViewer();
@@ -77,7 +76,9 @@ export function TopBar() {
 
   // WebXR plugin for AR button on mobile
   const xrPlugin = viewer.getPlugin<WebXRPluginAPI>('webxr');
-  const showMobileAR = isMobile && xrPlugin?.arSupported;
+  // Show AR button on any touch device that supports WebXR AR (phones + tablets)
+  const hasTouchInput = isMobile || navigator.maxTouchPoints > 0;
+  const showMobileAR = hasTouchInput && xrPlugin?.arSupported;
 
   // Multiuser plugin — only show button when enabled in settings
   const muPlugin = viewer.getPlugin<MultiuserPluginAPI>('multiuser');
@@ -200,7 +201,7 @@ export function TopBar() {
           {/* Tabs - scrollable for 360px width */}
           <Tabs
             value={settingsTab}
-            onChange={(_, v) => setSettingsTab(v)}
+            onChange={(_, v: number) => setSettingsTab(v)}
             variant="scrollable"
             scrollButtons="auto"
             sx={{
@@ -218,6 +219,7 @@ export function TopBar() {
             {!isTabLocked('mcp') && viewer.getPlugin('mcp-bridge') && <Tab label="AI" value={5} />}
             {!isTabLocked('devtools') && <Tab label="Dev Tools" value={6} />}
             {!isTabLocked('tests') && <Tab label="Tests" value={7} />}
+            {!isTabLocked('groups') && <Tab label="Groups" value={8} />}
           </Tabs>
 
           {/* Tab content - minHeight: 0 for correct flexbox scrolling */}
@@ -230,6 +232,7 @@ export function TopBar() {
             {settingsTab === 5 && !isTabLocked('mcp') && viewer.getPlugin('mcp-bridge') && <McpTab />}
             {settingsTab === 6 && !isTabLocked('devtools') && <DevToolsTab />}
             {settingsTab === 7 && !isTabLocked('tests') && <TestsTab />}
+            {settingsTab === 8 && !isTabLocked('groups') && <GroupsTab />}
           </Box>
         </LeftPanel>
       )}
@@ -260,7 +263,7 @@ function VRModal({ onClose }: { onClose: () => void }) {
       <Paper
         elevation={12}
         sx={{ borderRadius: 2, width: 420, maxWidth: '95vw', p: { xs: 2.5, sm: 4 }, display: 'flex', flexDirection: 'column', gap: 2.5, alignItems: 'center', maxHeight: '90dvh', overflow: 'auto' }}
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
         <Typography variant="h6" sx={{ fontWeight: 700, color: '#4fc3f7' }}>
           VR / AR

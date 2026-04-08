@@ -28,5 +28,14 @@
   "search": {
     "highlightEnabled": true,
     "nodesEnabled": true
+  },
+
+  "groups": {
+    "excludedFromOverlay": [],
+    "defaultHiddenGroups": []
+  },
+
+  "analytics": {
+    "googleAnalyticsId": ""
   }
 }

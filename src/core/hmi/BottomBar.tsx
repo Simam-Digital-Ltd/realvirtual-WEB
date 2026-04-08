@@ -53,6 +53,14 @@ export function BottomBar() {
   const listRef = useRef<HTMLUListElement>(null);
   const programmaticScroll = useRef(false);
 
+  // Re-render when model loads (so groups icon appears)
+  const [, setModelTick] = useState(0);
+  useEffect(() => {
+    const handler = () => setModelTick(t => t + 1);
+    viewer.on('model-loaded', handler);
+    return () => { viewer.off('model-loaded', handler); };
+  }, [viewer]);
+
   // Settings popover anchor
   const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(null);
   const settingsOpen = Boolean(settingsAnchor);
@@ -357,7 +365,7 @@ export function BottomBar() {
             title="Toggle Groups panel"
             onClick={() => viewer.toggleGroupsOverlay()}
             sx={{
-              color: viewer.groupsOverlayOpen ? '#ab47bc' : 'inherit',
+              color: viewer.groupsOverlayOpen ? '#4fc3f7' : 'inherit',
             }}
           >
             <Layers fontSize="small" />

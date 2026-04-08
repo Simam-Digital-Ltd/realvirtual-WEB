@@ -56,6 +56,7 @@ import Stats from 'stats-gl';
 
 import { EventEmitter } from './rv-events';
 import { debug, logInfo } from './engine/rv-debug';
+import { loadModelSettingsConfig } from './hmi/rv-settings-bundle';
 import { DRAG_THRESHOLD_PX, DEFAULT_DPR_CAP } from './engine/rv-constants';
 import { loadGLB, type LoadResult } from './engine/rv-scene-loader';
 import {
@@ -712,6 +713,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   /** Info from the last GLB load. */
   lastLoadInfo: { glbSize: string; loadTime: string } | null = null;
 
+  /** Load model with progress overlay (set by main.ts bootstrap). */
+  loadModelWithProgress: ((url: string) => Promise<void>) | null = null;
+
   // --- XR state ---
   private _savedBackground: Color | null = null;
   private _savedShadowState = true;
@@ -1081,6 +1085,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.logicEngine = result.logicEngine;
     this.registry = result.registry;
     this.groups = result.groups;
+    if (this.groups && this.currentModel) {
+      this.groups.setModelRoot(this.currentModel);
+    }
 
     // Selection manager — init after registry is available
     this.selectionManager.init(this);
@@ -1186,6 +1193,15 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       const groundSizeZ = size.z * 1.1 * 2;
       this._groundMesh.scale.set(groundSizeX / 200, groundSizeZ / 200, 1);
       this._groundMesh.position.set(center.x, 0, center.z);
+
+      // Update checker texture repeat so each square is always 0.5m
+      const SQUARE_SIZE = 0.5; // meters per checker square
+      const TILES_PER_REPEAT = 8; // tiles baked into the checker texture
+      const metersPerRepeat = TILES_PER_REPEAT * SQUARE_SIZE; // 4m
+      const checkerMap = ((this._groundMesh as Mesh).material as MeshStandardMaterial).map;
+      if (checkerMap) {
+        checkerMap.repeat.set(groundSizeX / metersPerRepeat, groundSizeZ / metersPerRepeat);
+      }
     }
 
     // Fit camera to model
@@ -1219,10 +1235,12 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       this.dirLight.shadow.camera.updateProjectionMatrix();
     }
 
+    // --- Auto-load model sidecar settings (first visit only) ---
     // --- Load and merge model-specific plugin configuration ---
     const [modelJsonConfig, glbConfig] = await Promise.all([
       loadModelJsonConfig(url).catch(() => ({} as ModelConfig)),
       Promise.resolve(extractGlbPluginConfig(this.scene)),
+      loadModelSettingsConfig(url),
     ]);
     const settingsConfig: ModelConfig = {};
     const appConfig = getAppConfig();
@@ -1232,22 +1250,24 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     result.modelConfig = mergeModelConfig(modelJsonConfig, glbConfig, settingsConfig);
 
     // --- Project/model plugin loading (for private deployments) ---
+    // Use HEAD check before import() to avoid noisy 404 errors in browser console.
+    const tryLoadPlugin = async (pluginUrl: string): Promise<void> => {
+      try {
+        const resp = await fetch(pluginUrl, { method: 'HEAD' });
+        if (!resp.ok) return; // not found — skip silently
+        const mod = await import(/* @vite-ignore */ pluginUrl);
+        if (typeof mod.default === 'function') mod.default(this);
+      } catch { /* network error or load failure — skip silently */ }
+    };
+
     // Try loading project-plugin.js (placed alongside index.html by private publish)
-    try {
-      const projectPluginUrl = './project-plugin.js';
-      const projMod = await import(/* @vite-ignore */ projectPluginUrl);
-      if (typeof projMod.default === 'function') projMod.default(this);
-    } catch { /* 404 or load error — no project plugin, skip silently */ }
+    await tryLoadPlugin('./project-plugin.js');
 
     // Try loading model-specific plugin: ./models/{modelBaseName}/model-plugin.js
-    try {
-      const lastSlash = url.lastIndexOf('/');
-      const fileName = lastSlash >= 0 ? url.substring(lastSlash + 1) : url;
-      const modelBaseName = fileName.replace(/\.glb$/i, '');
-      const modelPluginUrl = `./models/${modelBaseName}/model-plugin.js`;
-      const modelMod = await import(/* @vite-ignore */ modelPluginUrl);
-      if (typeof modelMod.default === 'function') modelMod.default(this);
-    } catch { /* 404 or load error — no model plugin, skip silently */ }
+    const lastSlash = url.lastIndexOf('/');
+    const fileName = lastSlash >= 0 ? url.substring(lastSlash + 1) : url;
+    const modelBaseName = fileName.replace(/\.glb$/i, '');
+    await tryLoadPlugin(`./models/${modelBaseName}/model-plugin.js`);
 
     // Plugin lifecycle: onModelLoaded (before event, with error isolation)
     // Activation mode depends on whether rv_plugins is declared anywhere.
@@ -1388,6 +1408,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   /** URL of the currently loaded model (null if no model loaded). */
   get currentModelUrl(): string | null {
     return this._currentModelUrl;
+  }
+
+  /** Override the stored model URL (e.g. to replace blob: URL with original for display). */
+  set currentModelUrl(url: string | null) {
+    this._currentModelUrl = url;
   }
 
   /**
@@ -1706,8 +1731,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.ssaoRadius = settings.ssaoRadius ?? 0.15;
 
     // 9. Bloom (WebGL only)
-    this.bloomEnabled = settings.bloomEnabled ?? false;
-    this.bloomIntensity = settings.bloomIntensity ?? 0.5;
+    this.bloomEnabled = settings.bloomEnabled ?? true;
+    this.bloomIntensity = settings.bloomIntensity ?? 0.2;
     this.bloomThreshold = settings.bloomThreshold ?? 0.85;
     this.bloomRadius = settings.bloomRadius ?? 0.4;
 
@@ -2168,7 +2193,10 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       const dy = e.clientY - this._pointerDownPos.y;
       this._pointerDownPos = null;
       if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) return;
-      if (this._isOrbiting) return;
+      // Note: _isOrbiting is NOT checked here — OrbitControls dispatches 'start'
+      // on every pointerdown (setting _isOrbiting=true), but its 'end' event only
+      // fires in its own pointerup handler which is registered AFTER ours.  The
+      // drag-threshold check above is sufficient to distinguish taps from orbits.
 
       const hoveredNode = this.raycastManager?.hoveredNode ?? null;
       const hoveredType = this.raycastManager?.hoveredNodeType ?? null;
@@ -2291,7 +2319,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   /** Handle long-press firing: raycast and open context menu. */
   private _handleLongPress(e: PointerEvent): void {
     this._longPressTimer = null;
-    if (this._isOrbiting) return;
+    // _isOrbiting not checked: long-press timer is already cancelled by
+    // pointermove beyond drag threshold (see listener above).
 
     // FPV guard
     const fpvPlugin = this.getPlugin('fpv') as { active?: boolean } | undefined;
@@ -2434,7 +2463,6 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     const checkerTex = new CanvasTexture(canvas);
     checkerTex.wrapS = RepeatWrapping;
     checkerTex.wrapT = RepeatWrapping;
-    checkerTex.repeat.set(50, 50);
     checkerTex.colorSpace = SRGBColorSpace;
     checkerTex.magFilter = NearestFilter;
 

@@ -36,6 +36,8 @@ export const ALL_RV_STORAGE_KEYS = [
 export const RV_DYNAMIC_PREFIXES = [
   'rv-extras-overlay:',
   'rv-extras-originals:',
+  'rv-annotations-',
+  'rv-panel-',
 ] as const;
 
 /**

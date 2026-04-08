@@ -33,4 +33,26 @@ describe('Group Visibility Store', () => {
     expect(state.hiddenGroups).toEqual([]);
     expect(state.isolatedGroup).toBeNull();
   });
+
+  it('loads excludedFromOverlay with backward compat', () => {
+    localStorage.setItem('rv-group-visibility', JSON.stringify({
+      hiddenGroups: ['A'], isolatedGroup: null
+      // no excludedFromOverlay or defaultHiddenGroups
+    }));
+    const settings = loadGroupVisibilitySettings();
+    expect(settings.excludedFromOverlay).toEqual([]);
+    expect(settings.defaultHiddenGroups).toEqual([]);
+  });
+
+  it('saves and loads new group config fields', () => {
+    saveGroupVisibilitySettings({
+      hiddenGroups: [],
+      isolatedGroup: null,
+      excludedFromOverlay: ['Fences'],
+      defaultHiddenGroups: ['CNCDoor'],
+    });
+    const loaded = loadGroupVisibilitySettings();
+    expect(loaded.excludedFromOverlay).toEqual(['Fences']);
+    expect(loaded.defaultHiddenGroups).toEqual(['CNCDoor']);
+  });
 });
