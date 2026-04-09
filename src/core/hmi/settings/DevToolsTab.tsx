@@ -5,26 +5,30 @@ import { useViewer } from '../../../hooks/use-viewer';
 import { StatRow, BudgetRow, budgetPct } from './settings-helpers';
 
 interface DevStats {
+  // Rendering
   fps: number;
   frameTime: number;
-  triangles: number;
   drawCalls: number;
   geometries: number;
   textures: number;
   programs: number;
-  materialsOriginal: number;
-  materialsUnique: number;
-  uberBakedMeshCount: number;
-  uberMergeOriginal: number;
-  uberMergeCreated: number;
-  kinGroupsMerged: number;
-  kinSourceMeshes: number;
-  kinChunksCreated: number;
   heapMB: string;
   renderer: string;
+  // Scene (from GLB)
+  triangles: number;
+  meshesInGlb: number;
+  materialsOriginal: number;
+  materialsDeduped: number;
   drives: number;
   glbSize: string;
   loadTime: string;
+  // Optimization pipeline
+  uberBakedMeshCount: number;
+  staticMergeIn: number;
+  staticMergeOut: number;
+  kinMergeGroups: number;
+  kinMergeIn: number;
+  kinMergeOut: number;
 }
 
 const PERF_BUDGETS = {
@@ -35,6 +39,29 @@ const PERF_BUDGETS = {
   geometries: 500,
   heapMB: 512,
 };
+
+/** Section header. */
+function SectionHeader({ children }: { children: string }) {
+  return (
+    <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+      {children}
+    </Typography>
+  );
+}
+
+/** A "before → after" stat row with dim before and bright after. */
+function PipelineRow({ label, before, after }: { label: string; before: string; after: string }) {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <Typography variant="caption" sx={{ color: 'text.secondary' }}>{label}</Typography>
+      <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+        <span style={{ color: 'rgba(255,255,255,0.35)' }}>{before}</span>
+        <span style={{ color: 'rgba(255,255,255,0.25)', margin: '0 4px' }}>{'\u2192'}</span>
+        <span style={{ color: '#66bb6a' }}>{after}</span>
+      </Typography>
+    </Box>
+  );
+}
 
 export function DevToolsTab() {
   const viewer = useViewer();
@@ -48,7 +75,6 @@ export function DevToolsTab() {
   const runBenchmark = useCallback(async () => {
     setBenchRunning(true);
     setBenchResult(null);
-    // Small delay so the UI updates before the blocking render loop
     await new Promise((r) => setTimeout(r, 50));
     const result = await viewer.runBenchmark(120);
     setBenchResult(result);
@@ -66,24 +92,25 @@ export function DevToolsTab() {
       setStats({
         fps: viewer.currentFps,
         frameTime: viewer.currentFrameTime,
-        triangles: info.triangles,
         drawCalls: info.drawCalls,
         geometries: info.geometries,
         textures: info.textures,
         programs: info.programs,
-        materialsOriginal: info.materialsOriginal,
-        materialsUnique: info.materialsUnique,
-        uberBakedMeshCount: info.uberBakedMeshCount,
-        uberMergeOriginal: info.uberMergeOriginal,
-        uberMergeCreated: info.uberMergeCreated,
-        kinGroupsMerged: info.kinGroupsMerged,
-        kinSourceMeshes: info.kinSourceMeshes,
-        kinChunksCreated: info.kinChunksCreated,
         heapMB,
         renderer: viewer.isWebGPU ? 'WebGPU' : 'WebGL',
+        triangles: info.triangles,
+        meshesInGlb: info.materialsOriginal, // materialsOriginal ≈ meshes in GLB (1 mat per mesh before dedup)
+        materialsOriginal: info.materialsOriginal,
+        materialsDeduped: info.materialsUnique,
         drives: viewer.drives.length,
         glbSize: viewer.lastLoadInfo?.glbSize ?? '--',
         loadTime: viewer.lastLoadInfo?.loadTime ?? '--',
+        uberBakedMeshCount: info.uberBakedMeshCount,
+        staticMergeIn: info.uberMergeOriginal,
+        staticMergeOut: info.uberMergeCreated,
+        kinMergeGroups: info.kinGroupsMerged,
+        kinMergeIn: info.kinSourceMeshes,
+        kinMergeOut: info.kinChunksCreated,
       });
     }, 200);
     return () => clearInterval(interval);
@@ -96,9 +123,7 @@ export function DevToolsTab() {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {/* Profiler toggles */}
       <Box>
-        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-          Profiler
-        </Typography>
+        <SectionHeader>Profiler</SectionHeader>
         <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="body2" sx={{ color: 'text.primary' }}>FPS / GPU Overlay</Typography>
@@ -111,54 +136,62 @@ export function DevToolsTab() {
         </Box>
       </Box>
 
+      {/* ─── Scene (from GLB) ─── */}
       <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-          Stats
-        </Typography>
+        <SectionHeader>Scene (from GLB)</SectionHeader>
         <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-          <StatRow label="FPS" value={s ? String(s.fps) : '--'} />
-          <StatRow label="Frame" value={s ? `${s.frameTime} ms` : '--'} />
           <StatRow label="Triangles" value={s ? s.triangles.toLocaleString() : '--'} />
-          <StatRow label="Draw Calls" value={s ? String(s.drawCalls) : '--'} />
-          <StatRow label="Geometries" value={s ? String(s.geometries) : '--'} />
-          <StatRow label="Textures" value={s ? String(s.textures) : '--'} />
-          <StatRow label="Programs" value={s ? String(s.programs) : '--'} />
-          <StatRow
-            label="Materials"
-            value={s ? `${s.materialsUnique} / ${s.materialsOriginal}` : '--'}
-          />
-          <StatRow
-            label="Uber Baked"
-            value={s ? `${s.uberBakedMeshCount} meshes` : '--'}
-          />
-          <StatRow
-            label="Uber Merged"
-            value={s ? `${s.uberMergeOriginal} → ${s.uberMergeCreated}` : '--'}
-          />
-          <StatRow
-            label="Kin Merged"
-            value={s ? `${s.kinGroupsMerged} groups → ${s.kinChunksCreated} chunks` : '--'}
-          />
-          <StatRow label="JS Heap" value={s ? `${s.heapMB} MB` : '--'} />
-          <StatRow label="Renderer" value={s?.renderer ?? '--'} />
-        </Box>
-      </Box>
-
-      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-          Scene
-        </Typography>
-        <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+          <StatRow label="Meshes" value={s ? s.meshesInGlb.toLocaleString() : '--'} />
           <StatRow label="Drives" value={s ? String(s.drives) : '--'} />
           <StatRow label="GLB Size" value={s?.glbSize ?? '--'} />
           <StatRow label="Load Time" value={s?.loadTime ?? '--'} />
         </Box>
       </Box>
 
+      {/* ─── Optimization Pipeline ─── */}
       <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-          Performance Budget
-        </Typography>
+        <SectionHeader>Optimization</SectionHeader>
+        <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+          <PipelineRow
+            label="Materials"
+            before={s ? s.materialsOriginal.toLocaleString() : '--'}
+            after={s ? String(s.materialsDeduped) : '--'}
+          />
+          <StatRow
+            label="Uber Baked"
+            value={s ? `${s.uberBakedMeshCount.toLocaleString()} meshes` : '--'}
+          />
+          <PipelineRow
+            label="Static Merge"
+            before={s ? s.staticMergeIn.toLocaleString() : '--'}
+            after={s ? `${s.staticMergeOut} chunks` : '--'}
+          />
+          <PipelineRow
+            label="Kinematic Merge"
+            before={s ? `${s.kinMergeIn.toLocaleString()} (${s.kinMergeGroups} groups)` : '--'}
+            after={s ? `${s.kinMergeOut} chunks` : '--'}
+          />
+        </Box>
+      </Box>
+
+      {/* ─── Rendering ─── */}
+      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
+        <SectionHeader>Rendering</SectionHeader>
+        <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+          <StatRow label="FPS" value={s ? String(s.fps) : '--'} />
+          <StatRow label="Frame" value={s ? `${s.frameTime} ms` : '--'} />
+          <StatRow label="Draw Calls" value={s ? String(s.drawCalls) : '--'} />
+          <StatRow label="Geometries" value={s ? String(s.geometries) : '--'} />
+          <StatRow label="Textures" value={s ? String(s.textures) : '--'} />
+          <StatRow label="Programs" value={s ? String(s.programs) : '--'} />
+          <StatRow label="JS Heap" value={s ? `${s.heapMB} MB` : '--'} />
+          <StatRow label="Renderer" value={s?.renderer ?? '--'} />
+        </Box>
+      </Box>
+
+      {/* ─── Performance Budget ─── */}
+      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
+        <SectionHeader>Performance Budget</SectionHeader>
         <Box sx={{ mt: 1, fontSize: 12, color: 'text.secondary' }}>
           {s && <>
             <BudgetRow label="Triangles" {...budgetPct(s.triangles, PERF_BUDGETS.triangles)} />
@@ -171,11 +204,9 @@ export function DevToolsTab() {
         </Box>
       </Box>
 
-      {/* GPU Benchmark */}
+      {/* ─── GPU Benchmark ─── */}
       <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-          GPU Benchmark
-        </Typography>
+        <SectionHeader>GPU Benchmark</SectionHeader>
         <Box sx={{ mt: 1 }}>
           <Button
             variant="outlined"
