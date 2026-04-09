@@ -474,6 +474,8 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
       if (!hit.object.visible) continue;
       // Skip the annotation group itself
       if (this._isAnnotationObject(hit.object)) continue;
+      // Skip kinematic merge chunks — annotations should not attach to merged geometry
+      if (hit.object.userData?._rvKinGroupMerged) continue;
       return {
         point: hit.point,
         normal: hit.face?.normal?.clone().transformDirection(hit.object.matrixWorld) ?? null,

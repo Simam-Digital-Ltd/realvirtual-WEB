@@ -585,6 +585,39 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     return this._groundMesh;
   }
 
+  /** Whether the ground/floor plane is visible. No-op if ground was disabled at construction. */
+  get groundEnabled(): boolean {
+    return this._groundMesh?.visible ?? false;
+  }
+  set groundEnabled(v: boolean) {
+    if (!this._groundMesh) return;
+    if (this._groundMesh.visible === v) return;
+    this._groundMesh.visible = v;
+    this._renderDirty = true;
+  }
+
+  /**
+   * Floor brightness multiplier (0 = black, 1 = default, 2 = double).
+   * Scales the ground material's base color — the checker texture is
+   * multiplied by this color in the fragment shader, so brightness 0.5
+   * gives a half-bright floor and brightness 2 gives a double-bright one.
+   */
+  get groundBrightness(): number {
+    if (!this._groundMesh) return 1.0;
+    const mat = this._groundMesh.material as MeshStandardMaterial;
+    // Color is set uniformly (r==g==b), read back from r
+    return mat.color?.r ?? 1.0;
+  }
+  set groundBrightness(v: number) {
+    if (!this._groundMesh) return;
+    const clamped = Math.max(0, Math.min(2, v));
+    const mat = this._groundMesh.material as MeshStandardMaterial;
+    if (!mat.color) return;
+    if (mat.color.r === clamped && mat.color.g === clamped && mat.color.b === clamped) return;
+    mat.color.setScalar(clamped);
+    this._renderDirty = true;
+  }
+
 
   /**
    * Cancel any in-progress camera animation immediately.
@@ -858,11 +891,21 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       // Keep rendering for 60 frames (1s) after last user input for damping decay
       this._dampingFramesRemaining = 60;
     });
-    // Mark render + shadow dirty on any controls change (orbit, pan, zoom)
-    // Shadow fitting adapts to the view frustum, so camera moves need re-fit.
+    // Mark render dirty on any controls change (orbit, pan, zoom). Shadow
+    // dirty is more nuanced: in the legacy tight-fit mode the shadow camera
+    // adapts to the view frustum so every camera change needs a re-fit, but
+    // once the uber-merge creates a static shadow caster we switch to a
+    // full-scene shadow camera (see `_fitShadowToView`). That camera is
+    // fixed at scene center with `_shadowPadMax` bounds and is completely
+    // independent of where the user is currently looking, so rotation /
+    // pan / zoom produce an identical shadow map — re-rendering it every
+    // frame during interaction would literally double triangle throughput.
     this.controls.addEventListener('change', () => {
       this._renderDirty = true;
-      this._shadowsDirty = true;
+      const hasStaticUberCaster = (this._lastLoadResult?.uberMergeResult?.mergedCount ?? 0) > 0;
+      if (!hasStaticUberCaster) {
+        this._shadowsDirty = true;
+      }
     });
 
     // CameraManager — uses proxy state to read/write shared fields on the facade.
@@ -1056,6 +1099,12 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     renderer.shadowMap.enabled = false;
     (renderer.shadowMap as unknown as { autoUpdate: boolean }).autoUpdate = false;
     renderer.toneMapping = NoToneMapping;
+    // Disable the auto-reset of renderer.info.render so we can accumulate
+    // stats across multiple passes in a single frame (composer passes,
+    // shadow map, etc.). Without this, the stats we read in getRendererInfo()
+    // reflect only the LAST pass — typically a 1-triangle fullscreen
+    // post-processing blit — and look completely wrong.
+    (renderer.info as unknown as { autoReset: boolean }).autoReset = false;
 
     return new RVViewer(container, renderer, options ?? {});
   }
@@ -1305,6 +1354,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this._shadowsDirty = true;
     this._renderDirty = true;
 
+    // Build reverse-reference index for O(1) lookup in PropertyInspector
+    result.registry.buildReverseRefIndex();
+
     logInfo(`Model loaded: ${this.drives.length} drives, ${this.signalStore?.size ?? 0} signals`);
     this.emit('model-loaded', { result });
     return result;
@@ -1358,6 +1410,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
           const disposeMat = (m: MeshStandardMaterial & { dispose(): void }) => {
             if (disposedMaterials.has(m)) return;
             disposedMaterials.add(m);
+            // Shared fixtures (e.g. RVUberMaterial singleton) survive clearModel —
+            // they outlive individual model loads and are reused on the next load.
+            if (m.userData?._rvShared) return;
             m.map?.dispose();
             m.normalMap?.dispose();
             m.roughnessMap?.dispose();
@@ -1582,18 +1637,40 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   // ─── Visual Settings (delegated to VisualSettingsManager) ────────────
 
   /**
-   * Fit the directional light shadow camera to the current view frustum.
-   * Instead of covering the entire model, the shadow camera clips to the
-   * visible area, improving shadow map resolution and reducing shadow pass cost.
+   * Fit the directional light shadow camera.
+   *
+   * Two modes:
+   *   - **Tight-fit** (legacy): clip the shadow camera to the currently
+   *     visible area around the orbit target for the best shadow map
+   *     resolution. Safe only when every shadow caster is a moving drive
+   *     child near the orbit target. Re-runs on every camera change.
+   *   - **Full-scene** (used whenever a static uber-merged caster exists):
+   *     the shadow camera was already set up at load time in `loadModel`
+   *     — centered at the scene bbox center, with `_shadowPadMax` bounds
+   *     big enough to cover the whole scene from any orbit target the
+   *     user can reach. Rotation/pan/zoom do NOT change it, so this
+   *     function is a no-op in full-scene mode. The controls-change
+   *     handler skips `_shadowsDirty = true` for the same reason.
    */
   private _fitShadowToView(): void {
     if (!this.dirLight.parent || !this.renderer.shadowMap.enabled) return;
 
+    const hasStaticUberCaster = (this._lastLoadResult?.uberMergeResult?.mergedCount ?? 0) > 0;
+    if (hasStaticUberCaster) {
+      // Full-scene mode: shadow camera was set up once in loadModel and
+      // never needs to move. Don't touch `dirLight.target` here — doing so
+      // would shift the shadow frustum when the orbit target moves, and
+      // the shadow map would need a rebuild on every pan. Just flag the
+      // map dirty (the caller only invokes us when _shadowsDirty was set,
+      // i.e. on load / drive movement / MU spawn / shadow toggle).
+      (this.renderer.shadowMap as unknown as { needsUpdate: boolean }).needsUpdate = true;
+      return;
+    }
+
+    // Legacy tight-fit path: clip to the visible area at orbit distance
     const cam = this._activeCamera;
     const target = this.controls.target;
     const dist = cam.position.distanceTo(target);
-
-    // Compute visible radius at the orbit target distance
     let visibleRadius: number;
     if ((cam as PerspectiveCamera).isPerspectiveCamera) {
       const fov = (cam as PerspectiveCamera).fov * Math.PI / 180;
@@ -1607,9 +1684,6 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         Math.max(Math.abs(oc.top), Math.abs(oc.bottom)) ** 2,
       );
     }
-
-    // Clamp to model bounds: never exceed the full scene shadow pad,
-    // but also add padding (1.3x) for shadow casters just outside the view
     const pad = Math.min(visibleRadius * 1.3, this._shadowPadMax);
 
     const sc = this.dirLight.shadow.camera;
@@ -1736,6 +1810,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     this.bloomThreshold = settings.bloomThreshold ?? 0.85;
     this.bloomRadius = settings.bloomRadius ?? 0.4;
 
+    // 10. Ground / Floor
+    this.groundEnabled = settings.groundEnabled ?? true;
+    this.groundBrightness = settings.groundBrightness ?? 1.0;
   }
 
   // ─── Individual Rendering Settings ──────────────────────────────────
@@ -1827,8 +1904,20 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     programs: number;
     /** Materials before dedup (from GLB) */
     materialsOriginal: number;
-    /** Materials after dedup (unique) */
+    /** Materials after dedup + uber-material pass (unique references still on meshes) */
     materialsUnique: number;
+    /** Meshes baked onto the RVUberMaterial singleton (0 if uber pass was a no-op) */
+    uberBakedMeshCount: number;
+    /** Number of uber-baked static meshes that fed into the uber static merge */
+    uberMergeOriginal: number;
+    /** Number of merged meshes created by the uber static batching pass (0 or 1) */
+    uberMergeCreated: number;
+    /** Kinematic Drive groups that were merged */
+    kinGroupsMerged: number;
+    /** Total source meshes collapsed by kinematic merge */
+    kinSourceMeshes: number;
+    /** Merged chunks created by kinematic merge */
+    kinChunksCreated: number;
     /** Static meshes before merge */
     staticMeshesOriginal: number;
     /** Merged meshes created */
@@ -1836,15 +1925,28 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   } {
     const info = this.renderer.info;
     const dedup = this._lastLoadResult?.dedupResult;
+    const uber = this._lastLoadResult?.uberResult;
+    const uberMerge = this._lastLoadResult?.uberMergeResult;
+    const kinMerge = this._lastLoadResult?.kinematicMergeResult;
     const merge = this._lastLoadResult?.mergeResult;
     return {
-      triangles: info.render?.triangles ?? 0,
-      drawCalls: info.render?.calls ?? 0,
+      // triangles / drawCalls come from the snapshot taken right after
+      // renderer.render() — see _lastFrameStats. Reading info.render
+      // directly would race with post-processing passes or per-plugin
+      // renders that mutate the counter.
+      triangles: this._lastFrameStats.triangles,
+      drawCalls: this._lastFrameStats.drawCalls,
       geometries: (info as unknown as { memory?: { geometries?: number } }).memory?.geometries ?? 0,
       textures: (info as unknown as { memory?: { textures?: number } }).memory?.textures ?? 0,
       programs: (info as unknown as { programs?: unknown[] }).programs?.length ?? 0,
       materialsOriginal: dedup?.originalCount ?? 0,
       materialsUnique: dedup?.uniqueCount ?? 0,
+      uberBakedMeshCount: uber?.bakedMeshCount ?? 0,
+      uberMergeOriginal: uberMerge?.originalCount ?? 0,
+      uberMergeCreated: uberMerge?.mergedCount ?? 0,
+      kinGroupsMerged: kinMerge?.groupsMerged ?? 0,
+      kinSourceMeshes: kinMerge?.sourceMeshCount ?? 0,
+      kinChunksCreated: kinMerge?.chunksCreated ?? 0,
       staticMeshesOriginal: merge?.originalCount ?? 0,
       staticMeshesMerged: merge?.mergedCount ?? 0,
     };
@@ -1912,6 +2014,14 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _shadowPadMax = 100;
   /** Render dirty flag — when false, renderer.render() is skipped (Phase 4: render-on-demand). */
   private _renderDirty = true;
+  /**
+   * Snapshot of the most recent main-scene render's draw-call and triangle
+   * counts. Captured immediately after `renderer.render()` / `composer.render()`
+   * inside the dirty-flag block, so the 200ms DevTools polling read sees a
+   * stable value rather than racing with post-render plugin passes or the
+   * next frame's reset.
+   */
+  private _lastFrameStats = { drawCalls: 0, triangles: 0 };
   /** Frames remaining for damping after last user input (Phase 4). */
   private _dampingFramesRemaining = 0;
   /** Previous MU count — used to detect spawn/despawn for shadow dirty flag. */
@@ -2036,15 +2146,25 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     if (this.highlighter.isActive || this.highlighter.isSelectionActive) this._renderDirty = true;
     this.highlighter.update();
 
-    // Shadow dirty flag: only re-render shadow map when something has changed
-    if (this._shadowsDirty) {
-      this._fitShadowToView();
-    }
-    (this.renderer.shadowMap as unknown as { needsUpdate: boolean }).needsUpdate = this._shadowsDirty;
-    this._shadowsDirty = false;
+    // A pending shadow-dirty flag MUST trigger a render, otherwise the
+    // flag would be consumed below without the shadow map ever being
+    // regenerated (shadowMap.render only runs inside renderer.render).
+    if (this._shadowsDirty) this._renderDirty = true;
 
     // Render-on-demand: skip expensive GPU render when scene is static
     if (this._renderDirty) {
+      // Shadow dirty flag handling lives INSIDE the render block so a
+      // pending shadow update isn't silently cleared on a skipped frame.
+      if (this._shadowsDirty) {
+        this._fitShadowToView();
+      }
+      (this.renderer.shadowMap as unknown as { needsUpdate: boolean }).needsUpdate = this._shadowsDirty;
+      this._shadowsDirty = false;
+
+      // Manually reset per-frame counters (autoReset was disabled during
+      // renderer setup) so the snapshot below reflects the total cost of
+      // this frame's render path, summed across all passes.
+      (this.renderer.info as unknown as { reset(): void }).reset();
       if (this._useComposer) {
         // Update camera references (may have switched persp/ortho)
         if (this._gtaoPass) this._gtaoPass.camera = this.camera;
@@ -2054,6 +2174,14 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       } else {
         this.renderer.render(this.scene, this.camera);
       }
+      // Snapshot draw-call / triangle counts into a stable field so the
+      // DevTools poller (200ms) sees the last complete frame's totals and
+      // not whatever stale or partial values renderer.info holds later.
+      const r = (this.renderer.info.render ?? { calls: 0, triangles: 0 }) as {
+        calls: number; triangles: number;
+      };
+      this._lastFrameStats.drawCalls = r.calls;
+      this._lastFrameStats.triangles = r.triangles;
       this._renderDirty = false;
     }
 

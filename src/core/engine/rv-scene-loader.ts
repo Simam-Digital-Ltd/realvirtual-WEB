@@ -26,6 +26,9 @@ import { validateExtras, printParitySummary, resetParityValidator } from './rv-e
 import { parseActiveOnly, type ActiveOnly } from './rv-active-only';
 import { debug, logInfo } from './rv-debug';
 import { deduplicateMaterials, type DedupResult } from './rv-material-dedup';
+import { applyUberMaterial, type UberResult } from './rv-uber-material';
+import { mergeStaticUberMeshes, type StaticUberMergeResult } from './rv-static-merge-uber';
+import { mergeKinematicGroupMeshes, type KinematicMergeResult } from './rv-kinematic-merge-uber';
 import { mergeStaticGeometries, type StaticMergeResult } from './rv-static-merge';
 
 // Singleton loader instances
@@ -60,6 +63,9 @@ export interface LoadResult {
   /** Merged model-specific plugin configuration (modelname.json > GLB extras > settings.json). */
   modelConfig: ModelConfig;
   dedupResult: DedupResult | null;
+  uberResult: UberResult | null;
+  uberMergeResult: StaticUberMergeResult | null;
+  kinematicMergeResult: KinematicMergeResult | null;
   mergeResult: StaticMergeResult | null;
   pipelineNodes: { pipes: Object3D[]; tanks: Object3D[]; pumps: Object3D[]; processingUnits: Object3D[] };
   metadataNodes: Object3D[];
@@ -229,14 +235,20 @@ export function processMeshes(root: Object3D): MeshProcessResult {
         debug('loader', `No shadow: ${node.name} (transparent=${mat?.transparent}, alphaTest=${mat?.alphaTest}, opacity=${mat?.opacity})`);
         mesh.castShadow = false;
       } else {
+        // Opaque meshes ALL cast shadows. Plan-094 originally disabled
+        // castShadow on static meshes to skip per-mesh shadow-pass draws,
+        // but that meant users saw no shadows from walls, frames, fixtures,
+        // and factory structure. With the uber merge collapsing bulk
+        // untextured statics into one draw, the remaining per-mesh cost is
+        // only paid by textured static meshes — and only when the shadow
+        // map actually rebuilds (i.e. when a drive moves; `_shadowsDirty`
+        // keeps the map cached while everything is idle).
+        mesh.castShadow = true;
         const underDrive = isUnderDrive(node);
         const underTS = isUnderTransportSurface(node);
         const isStatic = !underDrive || underTS;
         if (isStatic) {
-          mesh.castShadow = false;       // static: receive shadows only
           mesh.matrixAutoUpdate = false; // static: never moves
-        } else {
-          mesh.castShadow = true;
         }
       }
       mesh.receiveShadow = true;
@@ -810,6 +822,9 @@ export async function computeBVH(root: Object3D): Promise<void> {
     let bvhCount = 0;
     root.traverse((node: Object3D) => {
       if ((node as Mesh).isMesh && (node as Mesh).geometry) {
+        // Skip meshes that explicitly opt out (e.g. the static-uber merged
+        // mesh — it has `raycast = () => {}` so the BVH would never be queried).
+        if (node.userData?._rvSkipBVH) return;
         (node as Mesh).geometry.computeBoundsTree();
         bvhCount++;
       }
@@ -942,7 +957,38 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
   // Phase 10: Material deduplication (must run before static merge)
   const dedupResult = deduplicateMaterials(root);
 
-  // Phase 11: Static geometry merge — DISABLED (causes missing meshes, needs investigation)
+  // Phase 10b: Uber-material pass — collapse every untextured
+  // MeshStandardMaterial onto a single shared reference with per-vertex
+  // color + rmPacked attributes. Depends on Phase 10 having already
+  // collapsed identical references. Mutates dedupResult.uniqueMaterials
+  // (removes collapsed materials, adds the shared uber singleton).
+  const uberResult = applyUberMaterial(root, dedupResult.uniqueMaterials);
+  // Keep reported uniqueCount in sync with the post-uber state so the
+  // DevTools panel and getRendererStats() reflect what's actually on the GPU.
+  dedupResult.uniqueCount = dedupResult.uniqueMaterials.size;
+
+  // Phase 10c: Static batching fast path — merge every static uber-baked
+  // mesh into a single draw call. Only runs when the uber pass actually
+  // baked something (otherwise there's nothing to merge).
+  const uberMergeResult: StaticUberMergeResult = uberResult.sharedMaterial
+    ? mergeStaticUberMeshes(root, uberResult.sharedMaterial)
+    : { originalCount: 0, mergedCount: 0, totalVertices: 0 };
+
+  // Phase 10d: Kinematic group merge — merge dynamic uber-baked meshes
+  // per Drive subtree. Runs after static merge (which only handles
+  // matrixAutoUpdate=false meshes). Processes bottom-up so nested Drive
+  // chains are handled correctly.
+  const kinematicMergeResult: KinematicMergeResult | null = uberResult.sharedMaterial
+    ? mergeKinematicGroupMeshes(
+        root,
+        traverseResult.drives,
+        driveNodeSet,
+        uberResult.sharedMaterial,
+      )
+    : null;
+
+  // Phase 11: General-purpose static geometry merge — DISABLED (Phase 4
+  // scope; the uber fast path above already handles the common case).
   const mergeResult = { originalCount: 0, mergedCount: 0 };
 
   // Phase 12: Bounding box (after merge — merged geometry changes bounds)
@@ -1001,6 +1047,9 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     groups,
     modelConfig: {},
     dedupResult,
+    uberResult,
+    uberMergeResult,
+    kinematicMergeResult,
     mergeResult,
     pipelineNodes,
     metadataNodes: traverseResult.metadataNodes,

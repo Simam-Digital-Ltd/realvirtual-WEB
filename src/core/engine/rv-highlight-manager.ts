@@ -25,6 +25,8 @@ import {
   Object3D,
   DoubleSide,
   Matrix4,
+  Box3,
+  Box3Helper,
 } from 'three';
 import type { Scene, BufferGeometry } from 'three';
 import type { InstancedMovingUnit } from './rv-mu';
@@ -42,6 +44,9 @@ const SELECTION_EDGE_COLOR = new Color(0x4fc3f7);
 const SELECTION_EDGE_OPACITY = 0.8;
 
 const EDGE_THRESHOLD_DEG = 30;
+
+/** Max meshes for hover highlight — above this, show bounding-box wireframe instead. */
+const MAX_HOVER_MESHES = 200;
 
 // ─── Shared Materials ─────────────────────────────────────────────────
 
@@ -191,8 +196,13 @@ export class RVHighlightManager {
     const includeSensorViz = options?.includeSensorViz ?? false;
     const includeChildDrives = options?.includeChildDrives ?? false;
     const meshes = this.collectMeshes(root, includeSensorViz, includeChildDrives);
-    const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
 
+    if (meshes.length > MAX_HOVER_MESHES) {
+      this._highlightBoundingBox(root);
+      return;
+    }
+
+    const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
     for (const mesh of meshes) {
       mesh.updateWorldMatrix(true, false);
       this.hoverPairs.push(this._createOverlayPair(
@@ -235,10 +245,23 @@ export class RVHighlightManager {
     this.clear();
     this.hoverTracked = true;
     const includeSensorViz = options?.includeSensorViz ?? false;
-    const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
 
+    // Collect all meshes first to check total count
+    const allMeshes: { root: Object3D; meshes: Mesh[] }[] = [];
+    let totalMeshes = 0;
     for (const root of roots) {
       const meshes = this.collectMeshes(root, includeSensorViz);
+      allMeshes.push({ root, meshes });
+      totalMeshes += meshes.length;
+    }
+
+    if (totalMeshes > MAX_HOVER_MESHES) {
+      for (const { root } of allMeshes) this._highlightBoundingBox(root);
+      return;
+    }
+
+    const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
+    for (const { meshes } of allMeshes) {
       for (const mesh of meshes) {
         mesh.updateWorldMatrix(true, false);
         this.hoverPairs.push(this._createOverlayPair(
@@ -323,6 +346,18 @@ export class RVHighlightManager {
     this.clearAll();
   }
 
+  /** Cheap bounding-box wireframe highlight for components with too many meshes. */
+  private _highlightBoundingBox(root: Object3D): void {
+    const box = new Box3().setFromObject(root);
+    if (box.isEmpty()) return;
+    const helper = new Box3Helper(box, HOVER_EDGE_COLOR);
+    helper.userData._highlightOverlay = true;
+    helper.renderOrder = 1000;
+    helper.raycast = () => {};
+    this.scene.add(helper);
+    this.hoverPairs.push({ source: root as unknown as Mesh, fill: helper as unknown as Mesh, edge: helper as unknown as LineSegments });
+  }
+
   /**
    * Collect all Meshes under root, optionally stopping at child drive boundaries.
    * Skips existing overlay meshes.
@@ -334,6 +369,9 @@ export class RVHighlightManager {
         const rv = node.userData?.realvirtual as Record<string, unknown> | undefined;
         if (rv?.['Drive']) return; // child drive boundary — don't highlight nested drives
       }
+      // Skip kinematic merge artifacts — merged chunks and hidden sources
+      if (node.userData?._rvKinGroupMerged) return;
+      if (node.userData?._rvKinGroupSource) return;
       if (
         (node as Mesh).isMesh &&
         !node.userData?._highlightOverlay &&

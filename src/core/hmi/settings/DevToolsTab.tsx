@@ -12,6 +12,14 @@ interface DevStats {
   geometries: number;
   textures: number;
   programs: number;
+  materialsOriginal: number;
+  materialsUnique: number;
+  uberBakedMeshCount: number;
+  uberMergeOriginal: number;
+  uberMergeCreated: number;
+  kinGroupsMerged: number;
+  kinSourceMeshes: number;
+  kinChunksCreated: number;
   heapMB: string;
   renderer: string;
   drives: number;
@@ -52,7 +60,7 @@ export function DevToolsTab() {
       const info = viewer.getRendererInfo();
       const mem = (performance as unknown as { memory?: { usedJSHeapSize?: number } }).memory;
       const heapMB = mem?.usedJSHeapSize ? (mem.usedJSHeapSize / (1024 * 1024)).toFixed(0) : '--';
-      const hash = `${viewer.currentFps}|${info.triangles}|${info.drawCalls}|${heapMB}|${viewer.drives.length}`;
+      const hash = `${viewer.currentFps}|${info.triangles}|${info.drawCalls}|${info.programs}|${info.materialsUnique}|${heapMB}|${viewer.drives.length}`;
       if (hash === prevStatsHashRef.current) return;
       prevStatsHashRef.current = hash;
       setStats({
@@ -63,6 +71,14 @@ export function DevToolsTab() {
         geometries: info.geometries,
         textures: info.textures,
         programs: info.programs,
+        materialsOriginal: info.materialsOriginal,
+        materialsUnique: info.materialsUnique,
+        uberBakedMeshCount: info.uberBakedMeshCount,
+        uberMergeOriginal: info.uberMergeOriginal,
+        uberMergeCreated: info.uberMergeCreated,
+        kinGroupsMerged: info.kinGroupsMerged,
+        kinSourceMeshes: info.kinSourceMeshes,
+        kinChunksCreated: info.kinChunksCreated,
         heapMB,
         renderer: viewer.isWebGPU ? 'WebGPU' : 'WebGL',
         drives: viewer.drives.length,
@@ -107,6 +123,22 @@ export function DevToolsTab() {
           <StatRow label="Geometries" value={s ? String(s.geometries) : '--'} />
           <StatRow label="Textures" value={s ? String(s.textures) : '--'} />
           <StatRow label="Programs" value={s ? String(s.programs) : '--'} />
+          <StatRow
+            label="Materials"
+            value={s ? `${s.materialsUnique} / ${s.materialsOriginal}` : '--'}
+          />
+          <StatRow
+            label="Uber Baked"
+            value={s ? `${s.uberBakedMeshCount} meshes` : '--'}
+          />
+          <StatRow
+            label="Uber Merged"
+            value={s ? `${s.uberMergeOriginal} → ${s.uberMergeCreated}` : '--'}
+          />
+          <StatRow
+            label="Kin Merged"
+            value={s ? `${s.kinGroupsMerged} groups → ${s.kinChunksCreated} chunks` : '--'}
+          />
           <StatRow label="JS Heap" value={s ? `${s.heapMB} MB` : '--'} />
           <StatRow label="Renderer" value={s?.renderer ?? '--'} />
         </Box>
