@@ -164,12 +164,12 @@ export function DevToolsTab() {
           <PipelineRow
             label="Static Merge"
             before={s ? s.staticMergeIn.toLocaleString() : '--'}
-            after={s ? `${s.staticMergeOut} chunks` : '--'}
+            after={s ? `${s.staticMergeOut} meshes` : '--'}
           />
           <PipelineRow
             label="Kinematic Merge"
             before={s ? `${s.kinMergeIn.toLocaleString()} (${s.kinMergeGroups} groups)` : '--'}
-            after={s ? `${s.kinMergeOut} chunks` : '--'}
+            after={s ? `${s.kinMergeOut} meshes` : '--'}
           />
         </Box>
       </Box>
