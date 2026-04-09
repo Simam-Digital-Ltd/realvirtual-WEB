@@ -36,6 +36,13 @@ import { debug } from './rv-debug';
 /** Attribute names the uber material cares about — everything else is stripped pre-merge. */
 const UBER_ATTRIBUTES = new Set(['position', 'normal', 'color', 'rmPacked']);
 
+/** rv_extras keys that are structural/metadata — NOT simulation components.
+ *  Nodes with ONLY these keys (plus primitives) are safe to merge. */
+const STRUCTURAL_RV_KEYS = new Set([
+  'Group', 'renderer', 'colliders', 'rigidbody', 'BoxCollider',
+  'layer', 'tag', 'activeSelf', 'Kinematic',
+]);
+
 /** Per-chunk vertex budget — same as static merge (500K). */
 const DEFAULT_CHUNK_VERTEX_BUDGET = 500_000;
 
@@ -77,10 +84,22 @@ function isCandidate(mesh: Mesh, sharedUberMaterial: Material): boolean {
   if (mesh.userData?._rvStaticUberSource) return false;
   if (mesh.userData?._rvKinGroupSource) return false;
   if (mesh.userData?._rvKinGroupMerged) return false;
-  // Skip RuntimeMetadata nodes — must remain individually raycatable for hover tooltips
+  // Skip nodes with special rv type markers (Metadata, Sensor, etc.)
   if (mesh.userData?._rvMetadata) return false;
-  // Skip nodes with rv_extras components — must remain individually identifiable
-  if (mesh.userData?.realvirtual && Object.keys(mesh.userData.realvirtual as object).length > 0) return false;
+  if (mesh.userData?._rvType) return false;
+  // Skip sensor visualization meshes
+  if (mesh.name.endsWith('_sensorViz')) return false;
+  // Skip nodes with real simulation component types (Drive, Sensor, Source, etc.)
+  // that are shown in the hierarchy browser and need individual identification.
+  // Nodes with only structural keys (Group, renderer, colliders, layer, tag) are safe to merge.
+  if (mesh.userData?.realvirtual) {
+    const rv = mesh.userData.realvirtual as Record<string, unknown>;
+    for (const [key, value] of Object.entries(rv)) {
+      if (STRUCTURAL_RV_KEYS.has(key)) continue; // skip structural keys
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) continue; // skip primitives
+      return false; // has a real component-type entry (Drive, Sensor, etc.)
+    }
+  }
   // Skip skinned/morphed meshes
   if ((mesh as Mesh & { skeleton?: unknown }).skeleton) return false;
   if (mesh.morphTargetInfluences && mesh.morphTargetInfluences.length > 0) return false;
@@ -100,16 +119,36 @@ function collectCandidates(
   driveNodeSet: Set<Object3D>,
   sharedUberMaterial: Material,
   candidates: Mesh[],
+  rejectCounter?: (reason: string) => void,
 ): void {
   // Stop at child Drive boundaries (but not at the root Drive itself)
   if (node !== root && driveNodeSet.has(node)) return;
 
-  if ((node as Mesh).isMesh && isCandidate(node as Mesh, sharedUberMaterial)) {
-    candidates.push(node as Mesh);
+  if ((node as Mesh).isMesh) {
+    if (isCandidate(node as Mesh, sharedUberMaterial)) {
+      candidates.push(node as Mesh);
+    } else if (rejectCounter) {
+      // Debug: track why this mesh was rejected
+      const mesh = node as Mesh;
+      if (!mesh.userData?._rvUberBaked) rejectCounter('not-uber-baked');
+      else if (mesh.material !== sharedUberMaterial) rejectCounter('wrong-material');
+      else if (mesh.matrixAutoUpdate !== true) rejectCounter('static(matrixAutoUpdate=false)');
+      else if (!mesh.visible) rejectCounter('hidden(visible=false)');
+      else if (!mesh.geometry?.attributes?.position) rejectCounter('no-position');
+      else if (mesh.userData?._rvStaticUberMerged) rejectCounter('static-uber-merged');
+      else if (mesh.userData?._rvStaticUberSource) rejectCounter('static-uber-source');
+      else if (mesh.userData?._rvKinGroupSource) rejectCounter('kin-group-source');
+      else if (mesh.userData?._rvKinGroupMerged) rejectCounter('kin-group-merged');
+      else if (mesh.userData?._rvMetadata) rejectCounter('has-metadata');
+      else if (mesh.userData?._rvType) rejectCounter('has-rvType');
+      else if (mesh.name.endsWith('_sensorViz')) rejectCounter('sensorViz');
+      else if (mesh.userData?.realvirtual) rejectCounter('has-rv-component');
+      else rejectCounter('other');
+    }
   }
 
   for (const child of node.children) {
-    collectCandidates(child, root, driveNodeSet, sharedUberMaterial, candidates);
+    collectCandidates(child, root, driveNodeSet, sharedUberMaterial, candidates, rejectCounter);
   }
 }
 
@@ -160,6 +199,10 @@ export function mergeKinematicGroupMeshes(
   // Ensure all world matrices are fresh after Phases 9-10c
   root.updateWorldMatrix(true, true);
 
+  // Debug: count rejection reasons across all drives
+  const rejectReasons: Record<string, number> = {};
+  const countReject = (reason: string) => { rejectReasons[reason] = (rejectReasons[reason] ?? 0) + 1; };
+
   // Sort Drive nodes by depth (deepest first → process children before parents)
   const sortedDrives = [...drives].sort((a, b) => nodeDepth(b.node) - nodeDepth(a.node));
 
@@ -181,7 +224,7 @@ export function mergeKinematicGroupMeshes(
 
     // Collect candidates for this Drive group
     const candidates: Mesh[] = [];
-    collectCandidates(driveNode, driveNode, driveNodeSet, sharedUberMaterial, candidates);
+    collectCandidates(driveNode, driveNode, driveNodeSet, sharedUberMaterial, candidates, countReject);
 
     // Skip groups below minimum threshold
     if (candidates.length < minMeshes) {
@@ -273,13 +316,14 @@ export function mergeKinematicGroupMeshes(
     }
   }
 
-  if (result.groupsMerged > 0) {
-    debug('loader',
-      `[KinematicMerge] ${result.groupsMerged} Drive groups merged: ` +
-      `${result.sourceMeshCount} meshes → ${result.chunksCreated} chunks ` +
-      `(${result.groupsSkipped} groups skipped)`
-    );
-  }
+  // Always log kinematic merge summary + rejection reasons
+  const rejectStr = Object.entries(rejectReasons).map(([k, v]) => `${k}:${v}`).join(', ');
+  debug('loader',
+    `[KinematicMerge] ${result.groupsMerged} Drive groups merged: ` +
+    `${result.sourceMeshCount} meshes → ${result.chunksCreated} chunks ` +
+    `(${result.groupsSkipped} groups skipped). ` +
+    `Rejected meshes: ${rejectStr || 'none'}`
+  );
 
   return result;
 }
