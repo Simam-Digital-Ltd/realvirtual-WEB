@@ -36,11 +36,17 @@ import { debug } from './rv-debug';
 /** Attribute names the uber material cares about — everything else is stripped pre-merge. */
 const UBER_ATTRIBUTES = new Set(['position', 'normal', 'color', 'rmPacked']);
 
-/** rv_extras keys that are structural/metadata — NOT simulation components.
- *  Nodes with ONLY these keys (plus primitives) are safe to merge. */
-const STRUCTURAL_RV_KEYS = new Set([
-  'Group', 'renderer', 'colliders', 'rigidbody', 'BoxCollider',
-  'layer', 'tag', 'activeSelf', 'Kinematic',
+/** Simulation component types that must remain individually identifiable.
+ *  Nodes with any of these in rv_extras are excluded from merging. */
+const EXCLUDE_COMPONENT_TYPES = new Set([
+  'Drive', 'Drive_Cylinder', 'Drive_Simple',
+  'Sensor',
+  'Source', 'Sink',
+  'Grip',
+  'TransportSurface',
+  'MU',
+  'RuntimeMetadata',
+  'Cam',
 ]);
 
 /** Per-chunk vertex budget — same as static merge (500K). */
@@ -89,15 +95,12 @@ function isCandidate(mesh: Mesh, sharedUberMaterial: Material): boolean {
   if (mesh.userData?._rvType) return false;
   // Skip sensor visualization meshes
   if (mesh.name.endsWith('_sensorViz')) return false;
-  // Skip nodes with real simulation component types (Drive, Sensor, Source, etc.)
-  // that are shown in the hierarchy browser and need individual identification.
-  // Nodes with only structural keys (Group, renderer, colliders, layer, tag) are safe to merge.
+  // Skip nodes with simulation component types that need individual identification.
+  // Everything else (Group, renderer, colliders, etc.) is safe to merge.
   if (mesh.userData?.realvirtual) {
     const rv = mesh.userData.realvirtual as Record<string, unknown>;
-    for (const [key, value] of Object.entries(rv)) {
-      if (STRUCTURAL_RV_KEYS.has(key)) continue; // skip structural keys
-      if (typeof value !== 'object' || value === null || Array.isArray(value)) continue; // skip primitives
-      return false; // has a real component-type entry (Drive, Sensor, etc.)
+    for (const key of Object.keys(rv)) {
+      if (EXCLUDE_COMPONENT_TYPES.has(key)) return false;
     }
   }
   // Skip skinned/morphed meshes
