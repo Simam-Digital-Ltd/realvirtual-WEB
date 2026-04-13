@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * SelectionManager — Central selection state for the WebViewer.
  *
@@ -34,6 +37,9 @@ export class SelectionManager {
   private _snapshot: SelectionSnapshot = EMPTY_SNAPSHOT;
   private _escapeHandler: ((e: KeyboardEvent) => void) | null = null;
 
+  /** Last click hit point in world coordinates (set by select/toggle). */
+  lastHitPoint: [number, number, number] | null = null;
+
   // ─── React External Store API ─────────────────────────────────────
 
   /** Subscribe for React (useSyncExternalStore compatible). Returns unsubscribe. */
@@ -50,14 +56,16 @@ export class SelectionManager {
   // ─── Public API ───────────────────────────────────────────────────
 
   /** Replace selection with a single path. */
-  select(path: string): void {
+  select(path: string, hitPoint?: [number, number, number]): void {
+    this.lastHitPoint = hitPoint ?? null;
     if (this._selected.length === 1 && this._selected[0] === path) return;
     this._selected = [path];
     this._apply();
   }
 
   /** Toggle a path in/out of the selection (for Shift+click). */
-  toggle(path: string): void {
+  toggle(path: string, hitPoint?: [number, number, number]): void {
+    this.lastHitPoint = hitPoint ?? null;
     const idx = this._selected.indexOf(path);
     if (idx >= 0) {
       this._selected.splice(idx, 1);

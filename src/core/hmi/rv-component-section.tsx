@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * rv-component-section.tsx — Collapsible component section for the Property Inspector.
  *
@@ -27,6 +30,7 @@ import {
 } from './rv-inspector-helpers';
 import { flattenObjectFields } from './rv-field-editors';
 import { FieldRow } from './rv-field-row';
+import { fieldRendererRegistry } from './rv-field-renderer-registry';
 
 // ── Expand state persistence (default: expanded) ────────────────────────
 
@@ -181,19 +185,36 @@ export function ComponentSection({ nodePath, componentType, data, overriddenFiel
       </Box>
 
       {/* Consumed (editable) fields */}
-      {consumedEntries.map(([fieldName, value]) => (
-        <FieldRow
-          key={fieldName}
-          fieldName={fieldName}
-          value={value}
-          status="consumed"
-          isOverridden={overriddenFields.has(fieldName)}
-          onEdit={(v) => onFieldEdit(fieldName, v)}
-          onReset={() => onFieldReset(fieldName)}
-          viewer={viewer}
-          signalStore={signalStore}
-        />
-      ))}
+      {consumedEntries.map(([fieldName, value]) => {
+        // Check for a custom field renderer plugin
+        const CustomRenderer = fieldRendererRegistry.getRenderer(componentType, fieldName);
+        if (CustomRenderer) {
+          return (
+            <CustomRenderer
+              key={fieldName}
+              value={value}
+              fieldName={fieldName}
+              componentType={componentType}
+              nodePath={nodePath}
+              viewer={viewer}
+              signalStore={signalStore}
+            />
+          );
+        }
+        return (
+          <FieldRow
+            key={fieldName}
+            fieldName={fieldName}
+            value={value}
+            status="consumed"
+            isOverridden={overriddenFields.has(fieldName)}
+            onEdit={(v) => onFieldEdit(fieldName, v)}
+            onReset={() => onFieldReset(fieldName)}
+            viewer={viewer}
+            signalStore={signalStore}
+          />
+        );
+      })}
 
       {/* Collapsible other (read-only) fields — hidden when consumedOnly is active */}
       {!consumedOnly && otherEntries.length > 0 && (

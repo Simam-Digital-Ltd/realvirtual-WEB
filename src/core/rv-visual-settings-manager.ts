@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * VisualSettingsManager — Manages tone mapping, shadows, lighting mode,
  * ground plane, DPR, and environment maps.
@@ -121,6 +124,10 @@ export class VisualSettingsManager {
     if (effective) this.state.renderer.shadowMap.type = PCFShadowMap;
     this.state.dirLight.castShadow = effective;
     if (effective) this.state._shadowsDirty = true;
+    // Toggling shadows must force a re-render so the user sees the change
+    // immediately — render-on-demand would otherwise skip the frame and
+    // the shadow pass would never run.
+    this.state._renderDirty = true;
     this.recompileMaterials();
   }
 
@@ -184,6 +191,7 @@ export class VisualSettingsManager {
     } else {
       this.state.ambientLight.intensity = 1.8 * v;
     }
+    this.state._renderDirty = true;
   }
 
   // ─── Internal ─────────────────────────────────────────────────────
@@ -216,7 +224,7 @@ export class VisualSettingsManager {
   async loadEnvMap(): Promise<void> {
     if (this._envMapTexture) return;
     const loader = new RGBELoader();
-    const hdrTexture = await loader.loadAsync('./envmaps/empty_warehouse_01_1k.hdr');
+    const hdrTexture = await loader.loadAsync(`${import.meta.env.BASE_URL}envmaps/empty_warehouse_01_1k.hdr`);
     const pmrem = new PMREMGenerator(this.state.renderer as unknown as WebGLRenderer);
     const envMap = pmrem.fromEquirectangular(hdrTexture);
     this._envMapTexture = envMap.texture;

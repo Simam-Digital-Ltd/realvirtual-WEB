@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * rv-extras-validator.ts — Dev-mode GLB extras parity validator.
  *
@@ -90,9 +93,32 @@ const CONSUMED: Record<string, string[]> = {
   LogicStep_SetDriveSpeed: ['drive', 'Speed', 'Active'],
   LogicStep_Enable: ['Target', 'Enable', 'Active'],
   LogicStep_Pause: ['Active'],  // debugging breakpoint, no other fields consumed
+  LogicStep_StartDriveTo: ['drive', 'Destination', 'Relative', 'Direction', 'Active'],
+  LogicStep_StartDriveSpeed: ['drive', 'Speed', 'Active'],
+  LogicStep_WaitForDrivesAtTarget: ['Drives', 'Active'],
+  LogicStep_SetSignalFloat: ['Signal', 'Value', 'Active'],
+  LogicStep_WaitForSignalFloat: ['Signal', 'Comparison', 'Value', 'Tolerance', 'Active'],
+  LogicStep_GripPick: ['Grip', 'Blocking', 'Active'],
+  LogicStep_GripPlace: ['Grip', 'Blocking', 'Active'],
+  LogicStep_JumpOnSignal: ['Signal', 'JumpOn', 'JumpToStep', 'Active'],
+  LogicStep_SetActiveOnly: ['Active'],
+  LogicStep_CinemachineCamera: ['Active'],
+  LogicStep_StatStartCycle: ['Active'],
+  LogicStep_StatEndCycle: ['Active'],
+  LogicStep_StatState: ['Active'],
+  LogicStep_StatOutput: ['Active'],
+
+  // RuntimeMetadata — parsed by scene loader for tooltip content
+  RuntimeMetadata: ['content'],
 
   // Group — parsed by loadGLB group parsing
   Group: ['GroupName', 'GroupNamePrefix'],
+
+  // Pipeline components — parsed by loadGLB pipeline parsing
+  Pipe: ['resourceName', 'flowRate', 'source', 'destination', 'uvDirection'],
+  ResourceTank: ['resourceName', 'capacity', 'amount', 'pressure', 'temperature'],
+  Pump: ['flowRate', 'pipe'],
+  ProcessingUnit: ['connections'],
 };
 
 /**
@@ -226,6 +252,23 @@ const IGNORED: Record<string, string[]> = {
   LogicStep_Enable: ['Name'],
   LogicStep_Pause: ['Name'],
   LogicStep_DriveTo: ['Name'],
+  LogicStep_StartDriveTo: ['Name', 'LiveEdit'],
+  LogicStep_StartDriveSpeed: ['Name'],
+  LogicStep_WaitForDrivesAtTarget: ['Name'],
+  LogicStep_SetSignalFloat: ['Name'],
+  LogicStep_WaitForSignalFloat: ['Name'],
+  LogicStep_GripPick: ['Name'],
+  LogicStep_GripPlace: ['Name'],
+  LogicStep_JumpOnSignal: ['Name'],
+  LogicStep_SetActiveOnly: ['Name', 'Behaviors', 'SetToAlways'],
+  LogicStep_CinemachineCamera: ['Name', 'Camera', 'UseCustomBlend', 'CustomBlendTime', 'CustomBlendStyle'],
+  LogicStep_StatStartCycle: ['Name', 'StatCycleTimeComponent'],
+  LogicStep_StatEndCycle: ['Name', 'StatCycleTimeComponent'],
+  LogicStep_StatState: ['Name', 'StatStatesComponent', 'SetState'],
+  LogicStep_StatOutput: ['Name', 'StatOutputComponent', 'OutputIncrement'],
+
+  // RuntimeMetadata — Unity-only UI references
+  RuntimeMetadata: ['window', 'interactable'],
 
   // ConnectSignal — internal state, Name/Active metadata
   ConnectSignal: ['Name', 'Active'],
@@ -246,6 +289,10 @@ const IGNORED: Record<string, string[]> = {
 
   // Group — component metadata
   Group: ['Name', 'Active', '_fullTypeName', '_version', '_enabled'],
+
+  // Pipeline — Unity-only fields (mesh handling, shader state)
+  Pipe: ['entryPoint', 'exitPoint'],
+  ResourceTank: ['connections'],
 };
 
 /** Summary of unhandled fields per component type (collected during load) */
@@ -330,6 +377,18 @@ export function getConsumedFields(componentType: string): readonly string[] {
  */
 export function getIgnoredFields(componentType: string): readonly string[] {
   return IGNORED[componentType] ?? [];
+}
+
+/**
+ * Returns true if the component type is known to the WebViewer —
+ * i.e. it appears in CONSUMED, IGNORED, or has a registered schema.
+ * Unknown components are completely unused and can be auto-hidden in the inspector.
+ */
+export function isKnownComponentType(componentType: string): boolean {
+  if (componentType in CONSUMED) return true;
+  if (componentType in IGNORED) return true;
+  if (getConsumedFieldsFromSchema(componentType).length > 0) return true;
+  return false;
 }
 
 /**

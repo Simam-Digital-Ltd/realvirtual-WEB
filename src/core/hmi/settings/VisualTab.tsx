@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { useState, useRef } from 'react';
 import { Typography, Box, Button, Select, MenuItem, Switch, Slider } from '@mui/material';
 import { RestartAlt } from '@mui/icons-material';
@@ -31,6 +34,15 @@ export function VisualTab() {
   const [shadowMapSize, setShadowMapSize] = useState<number>(settingsRef.current.shadowMapSize);
   const [shadowRadiusVal, setShadowRadiusVal] = useState<number>(settingsRef.current.shadowRadius);
   const [maxDpr, setMaxDpr] = useState<number>(settingsRef.current.maxDpr);
+  const [ssaoOn, setSsaoOn] = useState<boolean>(settingsRef.current.ssaoEnabled);
+  const [ssaoInt, setSsaoInt] = useState<number>(settingsRef.current.ssaoIntensity);
+  const [ssaoRad, setSsaoRad] = useState<number>(settingsRef.current.ssaoRadius);
+  const [bloomOn, setBloomOn] = useState<boolean>(settingsRef.current.bloomEnabled);
+  const [bloomInt, setBloomInt] = useState<number>(settingsRef.current.bloomIntensity);
+  const [bloomThresh, setBloomThresh] = useState<number>(settingsRef.current.bloomThreshold);
+  const [bloomRad, setBloomRad] = useState<number>(settingsRef.current.bloomRadius);
+  const [groundOn, setGroundOn] = useState<boolean>(settingsRef.current.groundEnabled);
+  const [groundBright, setGroundBright] = useState<number>(settingsRef.current.groundBrightness);
 
   const persist = (patch: Partial<VisualSettings>) => {
     Object.assign(settingsRef.current, patch);
@@ -134,6 +146,43 @@ export function VisualTab() {
     persist({ maxDpr: val });
   };
 
+  const updateSsao = (_: unknown, v: boolean) => {
+    viewer.ssaoEnabled = v; setSsaoOn(v);
+    persist({ ssaoEnabled: v });
+  };
+  const updateSsaoInt = (_: unknown, v: number | number[]) => {
+    const val = v as number; viewer.ssaoIntensity = val; setSsaoInt(val);
+    persist({ ssaoIntensity: val });
+  };
+  const updateSsaoRad = (_: unknown, v: number | number[]) => {
+    const val = v as number; viewer.ssaoRadius = val; setSsaoRad(val);
+    persist({ ssaoRadius: val });
+  };
+  const updateBloom = (_: unknown, v: boolean) => {
+    viewer.bloomEnabled = v; setBloomOn(v);
+    persist({ bloomEnabled: v });
+  };
+  const updateBloomInt = (_: unknown, v: number | number[]) => {
+    const val = v as number; viewer.bloomIntensity = val; setBloomInt(val);
+    persist({ bloomIntensity: val });
+  };
+  const updateBloomThresh = (_: unknown, v: number | number[]) => {
+    const val = v as number; viewer.bloomThreshold = val; setBloomThresh(val);
+    persist({ bloomThreshold: val });
+  };
+  const updateBloomRad = (_: unknown, v: number | number[]) => {
+    const val = v as number; viewer.bloomRadius = val; setBloomRad(val);
+    persist({ bloomRadius: val });
+  };
+  const updateGroundOn = (_: unknown, v: boolean) => {
+    viewer.groundEnabled = v; setGroundOn(v);
+    persist({ groundEnabled: v });
+  };
+  const updateGroundBright = (_: unknown, v: number | number[]) => {
+    const val = v as number; viewer.groundBrightness = val; setGroundBright(val);
+    persist({ groundBrightness: val });
+  };
+
   const updateProj = (v: ProjectionType) => {
     viewer.projection = v; setProj(v); persist({ projection: v });
   };
@@ -169,6 +218,110 @@ export function VisualTab() {
           </Box>
         )}
       </Box>
+
+      {/* Ambient Occlusion (SSAO) */}
+      {!viewer.isWebGPU && (
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body2" sx={{ color: 'text.primary' }}>Ambient Occlusion</Typography>
+            <Switch size="small" checked={ssaoOn} onChange={updateSsao} />
+          </Box>
+          {ssaoOn && (
+            <>
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  AO Intensity
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+                  <Slider size="small" min={0} max={2} step={0.05} value={ssaoInt} onChange={updateSsaoInt} sx={{ flex: 1 }} />
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
+                    {ssaoInt.toFixed(2)}
+                  </Typography>
+                </Box>
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  AO Radius
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+                  <Slider size="small" min={0.01} max={0.5} step={0.01} value={ssaoRad} onChange={updateSsaoRad} sx={{ flex: 1 }} />
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
+                    {ssaoRad.toFixed(2)}
+                  </Typography>
+                </Box>
+              </Box>
+            </>
+          )}
+        </Box>
+      )}
+
+      {/* Floor / Ground Plane */}
+      <Box>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="body2" sx={{ color: 'text.primary' }}>Floor</Typography>
+          <Switch size="small" checked={groundOn} onChange={updateGroundOn} />
+        </Box>
+        {groundOn && (
+          <Box sx={{ mt: 1 }}>
+            <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+              Floor Brightness
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+              <Slider size="small" min={0} max={2} step={0.05} value={groundBright} onChange={updateGroundBright} sx={{ flex: 1 }} />
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
+                {groundBright.toFixed(2)}
+              </Typography>
+            </Box>
+          </Box>
+        )}
+      </Box>
+
+      {/* Bloom */}
+      {!viewer.isWebGPU && (
+        <Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body2" sx={{ color: 'text.primary' }}>Bloom</Typography>
+            <Switch size="small" checked={bloomOn} onChange={updateBloom} />
+          </Box>
+          {bloomOn && (
+            <>
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Intensity
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+                  <Slider size="small" min={0} max={2} step={0.05} value={bloomInt} onChange={updateBloomInt} sx={{ flex: 1 }} />
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
+                    {bloomInt.toFixed(2)}
+                  </Typography>
+                </Box>
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Threshold
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+                  <Slider size="small" min={0} max={1} step={0.05} value={bloomThresh} onChange={updateBloomThresh} sx={{ flex: 1 }} />
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
+                    {bloomThresh.toFixed(2)}
+                  </Typography>
+                </Box>
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Radius
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+                  <Slider size="small" min={0} max={1} step={0.05} value={bloomRad} onChange={updateBloomRad} sx={{ flex: 1 }} />
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', minWidth: 32, textAlign: 'right' }}>
+                    {bloomRad.toFixed(2)}
+                  </Typography>
+                </Box>
+              </Box>
+            </>
+          )}
+        </Box>
+      )}
 
       {/* Shadow Map Size */}
       <Box>
@@ -364,6 +517,28 @@ export function VisualTab() {
           )}
         </>
       )}
+
+      {/* Renderer */}
+      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 2 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+          Renderer
+        </Typography>
+        <Select
+          size="small"
+          fullWidth
+          value={viewer.isWebGPU ? 'webgpu' : 'webgl'}
+          onChange={(e) => { localStorage.setItem('rv-webviewer-renderer', e.target.value); window.location.reload(); }}
+          sx={{ mt: 0.5, fontSize: 13, '& .MuiSelect-select': { py: 0.75 } }}
+        >
+          <MenuItem value="webgl" sx={{ fontSize: 13 }}>WebGL</MenuItem>
+          <MenuItem value="webgpu" disabled={!navigator.gpu} sx={{ fontSize: 13 }}>
+            WebGPU (experimental)
+            {!navigator.gpu && (
+              <Typography component="span" sx={{ ml: 1, fontSize: 10, color: 'text.disabled' }}>not available</Typography>
+            )}
+          </MenuItem>
+        </Select>
+      </Box>
 
       {/* Camera Projection & FOV */}
       <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 2 }}>

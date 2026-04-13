@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * UI Slot types for the HMI layout.
  *
@@ -29,6 +32,8 @@ export interface UISlotProps {
 }
 
 export interface UISlotEntry {
+  /** Owning plugin ID — auto-stamped by UIPluginRegistry.register(). */
+  pluginId?: string;
   /** Which slot this component belongs to. */
   slot: UISlot;
   /** React component rendered into the slot. */

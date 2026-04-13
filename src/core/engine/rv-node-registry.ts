@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import type { Object3D } from 'three';
 import type { RVDrive } from './rv-drive';
 import type { RVSensor } from './rv-sensor';
@@ -48,6 +51,8 @@ export class NodeRegistry {
   private typeIndex = new Map<string, Set<string>>();
   /** last path segment → full paths (for O(1) suffix lookup in getNode fallback) */
   private suffixMap = new Map<string, string[]>();
+  /** targetPath → Set of {sourcePath, fieldName, componentType} (reverse ref index) */
+  private reverseRefs = new Map<string, Array<{ sourcePath: string; fieldName: string; componentType: string }>>();
 
   // ─── Path Computation ───────────────────────────────────────────
 
@@ -361,14 +366,24 @@ export class NodeRegistry {
 
   // ─── Search ────────────────────────────────────────────────────
 
-  /** Search all registered nodes by path substring (case-insensitive). */
+  /** Search all registered nodes by path substring AND metadata content (case-insensitive). */
   search(term: string): NodeSearchResult[] {
     if (!term) return [];
     const lower = term.toLowerCase();
     const results: NodeSearchResult[] = [];
     for (const [path, node] of this.nodes) {
       const name = lastPathSegment(path);
-      if (name.toLowerCase().includes(lower)) {
+      let matched = name.toLowerCase().includes(lower);
+
+      // Also search inside RuntimeMetadata content (XML-like text)
+      if (!matched) {
+        const md = node.userData?._rvMetadata as { content?: string } | undefined;
+        if (md?.content) {
+          matched = md.content.toLowerCase().includes(lower);
+        }
+      }
+
+      if (matched) {
         const compMap = this.components.get(path);
         const types = compMap ? [...compMap.keys()] : [];
         results.push({ path, node, types });
@@ -387,6 +402,44 @@ export class NodeRegistry {
   getComponentsAt(path: string): Array<[string, unknown]> {
     const compMap = this.components.get(path);
     return compMap ? [...compMap.entries()] : [];
+  }
+
+  // ─── Reverse Reference Index ────────────────────────────────────
+
+  /**
+   * Build a reverse-reference index from all rv_extras ComponentReference fields.
+   * Call once after scene load (Phase 2 complete). Replaces the O(n*m) scan
+   * in PropertyInspector's referencedBy useMemo with O(1) lookup.
+   */
+  buildReverseRefIndex(): void {
+    this.reverseRefs.clear();
+    for (const [sourcePath, node] of this.nodes) {
+      const rv = node.userData?.realvirtual as Record<string, Record<string, unknown>> | undefined;
+      if (!rv) continue;
+      for (const [compType, compData] of Object.entries(rv)) {
+        if (typeof compData !== 'object' || compData === null) continue;
+        for (const [fieldName, value] of Object.entries(compData as Record<string, unknown>)) {
+          if (
+            value && typeof value === 'object' && !Array.isArray(value) &&
+            (value as Record<string, unknown>).type === 'ComponentReference' &&
+            typeof (value as Record<string, unknown>).path === 'string'
+          ) {
+            const targetPath = (value as Record<string, unknown>).path as string;
+            let list = this.reverseRefs.get(targetPath);
+            if (!list) { list = []; this.reverseRefs.set(targetPath, list); }
+            list.push({ sourcePath, fieldName, componentType: compType });
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * O(1) lookup of which nodes reference the given path via ComponentReference.
+   * Returns empty array if none. Must call buildReverseRefIndex() first.
+   */
+  getReferencesTo(targetPath: string): ReadonlyArray<{ sourcePath: string; fieldName: string; componentType: string }> {
+    return this.reverseRefs.get(targetPath) ?? [];
   }
 
   // ─── Iteration ─────────────────────────────────────────────────
@@ -442,6 +495,72 @@ export class NodeRegistry {
     });
 
     return removed;
+  }
+
+  /**
+   * Recompute paths for all registered nodes in the given subtrees.
+   * Call after kinematic re-parenting (Phase 8b) to fix stale paths.
+   *
+   * Updates: nodes, nodePaths, components, typeIndex, suffixMap maps.
+   * Does NOT update reverseRefs (built later in Phase 14+).
+   */
+  recomputePathsForSubtrees(subtreeRoots: Object3D[]): { count: number; remap: Map<string, string> } {
+    let updated = 0;
+    const remap = new Map<string, string>(); // oldPath → newPath
+
+    for (const root of subtreeRoots) {
+      root.traverse((node: Object3D) => {
+        const oldPath = this.nodePaths.get(node);
+        if (!oldPath) return; // Not registered — skip
+
+        const newPath = NodeRegistry.computeNodePath(node);
+        if (newPath === oldPath) return; // Path unchanged — skip
+
+        // Update nodes map
+        this.nodes.delete(oldPath);
+        this.nodes.set(newPath, node);
+
+        // Update nodePaths reverse map
+        this.nodePaths.set(node, newPath);
+
+        // Update suffixMap: remove old, add new
+        const oldSuffix = lastPathSegment(oldPath);
+        const oldArr = this.suffixMap.get(oldSuffix);
+        if (oldArr) {
+          const idx = oldArr.indexOf(oldPath);
+          if (idx >= 0) oldArr.splice(idx, 1);
+          if (oldArr.length === 0) this.suffixMap.delete(oldSuffix);
+        }
+        const newSuffix = lastPathSegment(newPath);
+        let newArr = this.suffixMap.get(newSuffix);
+        if (!newArr) {
+          newArr = [];
+          this.suffixMap.set(newSuffix, newArr);
+        }
+        newArr.push(newPath);
+
+        // Update components map
+        const compMap = this.components.get(oldPath);
+        if (compMap) {
+          this.components.delete(oldPath);
+          this.components.set(newPath, compMap);
+
+          // Update typeIndex
+          for (const type of compMap.keys()) {
+            const typeSet = this.typeIndex.get(type);
+            if (typeSet) {
+              typeSet.delete(oldPath);
+              typeSet.add(newPath);
+            }
+          }
+        }
+
+        remap.set(oldPath, newPath);
+        updated++;
+      });
+    }
+
+    return { count: updated, remap };
   }
 
   /** Clear all registrations (for scene reload) */

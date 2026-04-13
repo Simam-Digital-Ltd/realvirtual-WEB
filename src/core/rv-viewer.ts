@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * RVViewer — Public facade for the realvirtual Web Viewer core.
  *
@@ -35,7 +38,6 @@ import {
   RepeatWrapping,
   NearestFilter,
   SRGBColorSpace,
-  Raycaster,
   Spherical,
   BufferGeometry,
   Texture,
@@ -66,10 +68,10 @@ import {
   type ModelConfig,
 } from './engine/rv-model-config';
 import { loadExternalPlugin } from './engine/rv-plugin-loader';
+import type { ModelPluginManager } from './rv-model-plugin-manager';
 import { SimulationLoop } from './engine/rv-simulation-loop';
 import { RVHighlightManager } from './engine/rv-highlight-manager';
-import { RaycastManager, type ObjectHoverData, type ObjectUnhoverData, type ObjectClickData } from './engine/rv-raycast-manager';
-import type { RaycastLayerName } from './engine/rv-raycast-layers';
+import { RaycastManager, type ObjectHoverData, type ObjectUnhoverData, type ObjectClickData, type HoverableType } from './engine/rv-raycast-manager';
 import type { RVDrive } from './engine/rv-drive';
 import type { RVTransportManager } from './engine/rv-transport-manager';
 import type { SignalStore } from './engine/rv-signal-store';
@@ -142,7 +144,7 @@ export interface ViewerEvents {
   'node-filter': { filter: string; filteredNodes: NodeSearchResult[]; tooMany: boolean };
   'sensor-chart-toggle': { open: boolean };
   'groups-overlay-toggle': { open: boolean };
-  'exclusive-hover-mode': { mode: RaycastLayerName | null };
+  'exclusive-hover-mode': { mode: HoverableType | null };
 
   // ── Connection state ──
   'connection-state-changed': { state: 'Connected' | 'Disconnected'; previous: 'Connected' | 'Disconnected' };
@@ -288,8 +290,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       get pointerClientY() { return rm.pointerClientY; },
       get lastRayOrigin() { return rm.lastRayOrigin; },
       get lastRayDirection() { return rm.lastRayDirection; },
-      setDriveTargets(drives: RVDrive[]) {
-        rm.registerTargets('DRIVE', drives.map(d => d.node));
+      setDriveTargets(_drives: RVDrive[]) {
+        // No-op: grouped BVH raycast geometry replaces per-target registration
       },
       updateFromXRController(origin: Vector3, direction: Vector3) {
         rm.updateFromXRController(origin, direction);
@@ -320,6 +322,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   private _lazyFactories = new Map<string, () => Promise<{ default: unknown }>>();
   /** URL of the currently loaded model (for reloadModel). */
   private _currentModelUrl: string | null = null;
+  /** Original model URL set by main.ts before loadModel (survives blob URL override). */
+  pendingModelUrl: string | null = null;
   /** True while OrbitControls is actively rotating/panning/pinching. */
   private _isOrbiting = false;
   /** Pointer position at pointerdown — used for drag-distance threshold. */
@@ -394,19 +398,46 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
    * Disable a plugin by ID. The plugin is removed from the cached pre/post/render
    * arrays and skipped in onModelLoaded, onModelCleared, and onConnectionStateChanged.
    * The plugin remains in _plugins so dispose() still runs (prevents memory leaks).
-   * Core plugins (core: true) cannot be disabled.
    */
   disablePlugin(id: string): void {
-    const plugin = this._plugins.find(p => p.id === id);
-    if (plugin?.core) {
-      console.warn(`[RVViewer] Cannot disable core plugin '${id}'`);
-      return;
-    }
     this._prePlugins = this._prePlugins.filter(p => p.id !== id);
     this._postPlugins = this._postPlugins.filter(p => p.id !== id);
     this._renderPlugins = this._renderPlugins.filter(p => p.id !== id);
     this._disabledIds.add(id);
   }
+
+  /**
+   * Fully remove a non-core plugin: dispose, remove from all arrays,
+   * unregister UI slots and context menu entries.
+   * Core plugins (core: true) cannot be removed — use disablePlugin() instead.
+   */
+  removePlugin(id: string): boolean {
+    const idx = this._plugins.findIndex(p => p.id === id);
+    if (idx < 0) return false;
+    const plugin = this._plugins[idx];
+    if (plugin.core) {
+      console.warn(`[RVViewer] Cannot remove core plugin '${id}' — use disablePlugin() instead`);
+      return false;
+    }
+    if (plugin.dispose) {
+      try { plugin.dispose(); } catch (e) {
+        console.error(`[RVViewer] Plugin '${id}' dispose error:`, e);
+      }
+    }
+    this._plugins.splice(idx, 1);
+    this._prePlugins = this._prePlugins.filter(p => p.id !== id);
+    this._postPlugins = this._postPlugins.filter(p => p.id !== id);
+    this._renderPlugins = this._renderPlugins.filter(p => p.id !== id);
+    this._disabledIds.delete(id);
+    this.uiRegistry.unregister(id);
+    this.contextMenu.unregister(id);
+    // Re-evaluate physics plugin state
+    this._physicsPluginActive = this._plugins.some(p => p.handlesTransport);
+    return true;
+  }
+
+  /** Model plugin manager — handles per-model plugin loading/unloading. */
+  modelPluginManager: ModelPluginManager | null = null;
 
   /**
    * Register a lazy plugin factory. The factory is only called when a model
@@ -467,28 +498,28 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
   // ─── Exclusive Hover Mode ──────────────────────────────────────────
 
   /** The currently active exclusive hover mode (only this type is hoverable). null = all types. */
-  private _exclusiveHoverMode: RaycastLayerName | null = null;
-  get exclusiveHoverMode(): RaycastLayerName | null { return this._exclusiveHoverMode; }
+  private _exclusiveHoverMode: HoverableType | null = null;
+  get exclusiveHoverMode(): HoverableType | null { return this._exclusiveHoverMode; }
 
   /**
    * Set an exclusive hover mode — only the specified type will be hoverable.
    * Pass null to restore default behavior (all registered types hoverable).
    * Any existing exclusive mode is automatically deactivated.
    */
-  setExclusiveHoverMode(mode: RaycastLayerName | null): void {
+  setExclusiveHoverMode(mode: HoverableType | null): void {
     if (mode === this._exclusiveHoverMode) return;
     this._exclusiveHoverMode = mode;
 
     if (!this.raycastManager) return;
     if (mode) {
       // Enable only the requested type
-      this.raycastManager.enableHoverType('DRIVE', mode === 'DRIVE');
-      this.raycastManager.enableHoverType('SENSOR', mode === 'SENSOR');
+      this.raycastManager.enableHoverType('Drive', mode === 'Drive');
+      this.raycastManager.enableHoverType('Sensor', mode === 'Sensor');
       this.raycastManager.enableHoverType('MU', mode === 'MU');
     } else {
       // Default: all registered types hoverable
-      this.raycastManager.enableHoverType('DRIVE', true);
-      this.raycastManager.enableHoverType('SENSOR', true);
+      this.raycastManager.enableHoverType('Drive', true);
+      this.raycastManager.enableHoverType('Sensor', true);
       this.raycastManager.enableHoverType('MU', true);
     }
     this.emit('exclusive-hover-mode', { mode });
@@ -509,7 +540,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         this._sensorChartOpen = false;
         this.emit('sensor-chart-toggle', { open: false });
       }
-      this.setExclusiveHoverMode('DRIVE');
+      this.setExclusiveHoverMode('Drive');
       // Highlight filtered drives (or all if no filter)
       const drivesToHighlight = this._driveFilter ? this._filteredDrives : this.drives;
       const nodes = drivesToHighlight.map((d) => d.node);
@@ -539,7 +570,7 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
         this._driveChartOpen = false;
         this.emit('drive-chart-toggle', { open: false });
       }
-      this.setExclusiveHoverMode('SENSOR');
+      this.setExclusiveHoverMode('Sensor');
       const sensors = this.transportManager?.sensors ?? [];
       const nodes = sensors.map((s) => s.node);
       if (nodes.length > 0) {
@@ -1159,43 +1190,27 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     registerFilterSubscriber({ id: 'Drive', label: 'Drives', componentType: 'Drive' });
     registerFilterSubscriber({ id: 'Sensor', label: 'Sensors', componentType: 'Sensor' });
     registerFilterSubscriber({ id: 'TransportSurface', label: 'Conveyors', componentType: 'TransportSurface' });
+    registerFilterSubscriber({ id: 'Metadata', label: 'Metadata', componentType: 'Metadata' });
 
-    // Unified raycast manager (replaces old driveHover)
+    // Unified raycast manager with grouped BVH
     this.raycastManager = new RaycastManager(
       this.renderer, this.camera, this.scene,
       result.registry, this.highlighter, this,
     );
-    this.raycastManager.registerTargets('DRIVE', this.drives.map(d => d.node));
-    // Pre-register sensor targets so layer bits are set (hover is disabled until sensor mode activates)
-    const sensorNodes = this.transportManager?.sensors?.map(s => s.node) ?? [];
-    if (sensorNodes.length > 0) {
-      this.raycastManager.registerTargets('SENSOR', sensorNodes);
+
+    // Provide grouped raycast geometry (built during scene loading)
+    if (result.raycastGeometrySet) {
+      const muMeshes = this._collectInstancedMeshes();
+      this.raycastManager.setRaycastGeometry(result.raycastGeometrySet, muMeshes);
     }
 
-    // Pipeline hover targets
+    // Enable hover types based on what's in the scene
     const pl = result.pipelineNodes;
-    if (pl.pipes.length > 0) {
-      this.raycastManager.registerTargets('PIPE', pl.pipes);
-      this.raycastManager.enableHoverType('PIPE', true);
-    }
-    if (pl.tanks.length > 0) {
-      this.raycastManager.registerTargets('TANK', pl.tanks);
-      this.raycastManager.enableHoverType('TANK', true);
-    }
-    if (pl.pumps.length > 0) {
-      this.raycastManager.registerTargets('PUMP', pl.pumps);
-      this.raycastManager.enableHoverType('PUMP', true);
-    }
-    if (pl.processingUnits.length > 0) {
-      this.raycastManager.registerTargets('PROCESSING_UNIT', pl.processingUnits);
-      this.raycastManager.enableHoverType('PROCESSING_UNIT', true);
-    }
-
-    // Metadata hover targets
-    if (result.metadataNodes.length > 0) {
-      this.raycastManager.registerTargets('METADATA', result.metadataNodes);
-      this.raycastManager.enableHoverType('METADATA', true);
-    }
+    if (pl.pipes.length > 0) this.raycastManager.enableHoverType('Pipe', true);
+    if (pl.tanks.length > 0) this.raycastManager.enableHoverType('Tank', true);
+    if (pl.pumps.length > 0) this.raycastManager.enableHoverType('Pump', true);
+    if (pl.processingUnits.length > 0) this.raycastManager.enableHoverType('ProcessingUnit', true);
+    if (result.metadataNodes.length > 0) this.raycastManager.enableHoverType('Metadata', true);
 
     // Tank fill visualization (3D liquid level)
     if (pl.tanks.length > 0) {
@@ -1317,6 +1332,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     const fileName = lastSlash >= 0 ? url.substring(lastSlash + 1) : url;
     const modelBaseName = fileName.replace(/\.glb$/i, '');
     await tryLoadPlugin(`./models/${modelBaseName}/model-plugin.js`);
+
+    // --- Per-model plugin loading (dynamic import of model-specific plugins/index.ts) ---
+    if (this.modelPluginManager) {
+      await this.modelPluginManager.onModelLoading(url, this);
+    }
 
     // Plugin lifecycle: onModelLoaded (before event, with error isolation)
     // Activation mode depends on whether rv_plugins is declared anywhere.
@@ -1591,37 +1611,26 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
 
   // ─── Scene Click → Hierarchy Selection ────────────────────────────────
 
-  private readonly _clickRaycaster = new Raycaster();
-  private readonly _clickPointer = new Vector2();
-
   /**
-   * Raycast from a mouse/pointer event and find the nearest ancestor
-   * node that has realvirtual userData. Returns the registry path or null.
+   * Raycast from a mouse/pointer event using the grouped BVH system.
+   * Returns the registry path or null.
    */
   private _raycastForRVNode(e: MouseEvent): string | null {
-    if (!this.registry) return null;
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    this._clickPointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    this._clickPointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    this._clickRaycaster.setFromCamera(this._clickPointer, this.camera);
+    return this.raycastManager?.raycastForRVNode(e) ?? null;
+  }
 
-    const hits = this._clickRaycaster.intersectObjects(this.scene.children, true);
-    for (const hit of hits) {
-      if (hit.object.userData?._highlightOverlay) continue;
-      if (hit.object.userData?._driveHoverOverlay) continue;
-      if (hit.object.name.endsWith('_sensorViz')) continue;
-      // Walk up from hit mesh to find nearest node with realvirtual data
-      let current: Object3D | null = hit.object;
-      while (current) {
-        const rv = current.userData?.realvirtual;
-        if (rv && typeof rv === 'object') {
-          const path = this.registry!.getPathForNode(current);
-          if (path) return path;
-        }
-        current = current.parent;
+  /**
+   * Collect all InstancedMesh objects that serve as MU pools.
+   * These are included in the raycast target list alongside the BVH meshes.
+   */
+  private _collectInstancedMeshes(): import('three').InstancedMesh[] {
+    const result: import('three').InstancedMesh[] = [];
+    this.scene.traverse((node) => {
+      if (node.userData?._muPool && (node as import('three').InstancedMesh).isInstancedMesh) {
+        result.push(node as import('three').InstancedMesh);
       }
-    }
-    return null;
+    });
+    return result;
   }
 
   // ─── Camera Settings (delegated to CameraManager) ───────────────────
@@ -2351,20 +2360,26 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       // Normal selection: route through SelectionManager
       let hitPath: string | null = null;
       let hitNode: Object3D | null = null;
+      let hitPoint: [number, number, number] | undefined;
 
       if (hoveredDrive) {
         hitPath = this.registry?.getPathForNode(hoveredDrive.node) ?? null;
         hitNode = hoveredDrive.node;
+        // Get hit point from detailed raycast
+        const detailed = this.raycastManager?.raycastForRVNodeDetailed(e);
+        hitPoint = detailed?.hitPoint;
       } else {
-        hitPath = this.raycastManager?.raycastForRVNode(e) ?? this._raycastForRVNode(e);
+        const detailed = this.raycastManager?.raycastForRVNodeDetailed(e);
+        hitPath = detailed?.path ?? this._raycastForRVNode(e);
+        hitPoint = detailed?.hitPoint;
         hitNode = hitPath && this.registry ? this.registry.getNode(hitPath) ?? null : null;
       }
 
       if (hitPath && hitNode) {
         if (e.shiftKey) {
-          this.selectionManager.toggle(hitPath);
+          this.selectionManager.toggle(hitPath, hitPoint);
         } else {
-          this.selectionManager.select(hitPath);
+          this.selectionManager.select(hitPath, hitPoint);
         }
         // Backward compat: emit object-clicked for existing listeners
         this.emit('object-clicked', { path: hitPath, node: hitNode });
@@ -2476,7 +2491,11 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       hitNormal: detailed?.hitNormal,
     };
 
-    if (this.raycastManager) this.raycastManager.holdHover = true;
+    if (this.raycastManager) {
+      this.raycastManager.holdHover = true;
+      const isLayout = !!(node.userData?.realvirtual as Record<string, unknown> | undefined)?.LayoutObject;
+      this.highlighter.highlight(node, false, { includeChildDrives: isLayout });
+    }
     this.contextMenu.open({ x: pos.x, y: pos.y }, target);
     navigator.vibrate?.(50);
     this._longPressPos = null;
@@ -2503,8 +2522,15 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
       hitNormal: detailed?.hitNormal,
     };
 
-    // Hold hover highlight while context menu is open
-    if (this.raycastManager) this.raycastManager.holdHover = true;
+    // Hold hover highlight while context menu is open.
+    // OrbitControls fires 'start' on pointerdown (before contextmenu) which
+    // disables the raycast manager and clears hover. Re-apply the highlight
+    // here so the object stays highlighted while the menu is open.
+    if (this.raycastManager) {
+      this.raycastManager.holdHover = true;
+      const isLayout = !!(node.userData?.realvirtual as Record<string, unknown> | undefined)?.LayoutObject;
+      this.highlighter.highlight(node, false, { includeChildDrives: isLayout });
+    }
     this.contextMenu.open({ x: e.clientX, y: e.clientY }, target);
     this.emit('context-menu-request', { pos: { x: e.clientX, y: e.clientY }, path, node });
   }

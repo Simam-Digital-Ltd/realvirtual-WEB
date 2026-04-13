@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 export { ModelTab } from './ModelTab';
 export { VisualTab } from './VisualTab';
 export { PhysicsTab } from './PhysicsTab';

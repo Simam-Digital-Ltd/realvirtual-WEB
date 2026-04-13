@@ -1,8 +1,11 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * React hooks for the generic tooltip system.
  *
  * Usage:
- *   const { active } = useTooltipState();   // current tooltip or null
+ *   const { visible } = useTooltipState();   // array of visible tooltip bubbles
  *   tooltipStore.show({ id: 'drive', ... });  // from plugin code
  *   tooltipStore.hide('drive');               // hide specific tooltip
  */

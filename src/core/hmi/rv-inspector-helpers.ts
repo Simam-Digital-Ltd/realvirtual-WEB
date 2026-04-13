@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * rv-inspector-helpers.ts — Pure helper functions and constants shared by the
  * Property Inspector and Hierarchy Browser.
@@ -6,18 +9,30 @@
  * consolidate duplicated badge color maps / type helpers.
  */
 
-import { getConsumedFields, getIgnoredFields } from '../engine/rv-extras-validator';
+import { getConsumedFields, getIgnoredFields, isKnownComponentType } from '../engine/rv-extras-validator';
 import type { SignalStore } from '../engine/rv-signal-store';
 import type { NodeRegistry } from '../engine/rv-node-registry';
 import type { RVDrive } from '../engine/rv-drive';
 
 // ── Hidden component types (not shown in inspector or hierarchy) ──────────
 
-/** Component types that are internal/structural and not useful to display. */
-const HIDDEN_COMPONENT_TYPES = new Set(['rigidbody', 'renderer', 'colliders', 'BoxCollider']);
+/** Component types that are always hidden (internal/structural). */
+const ALWAYS_HIDDEN = new Set([
+  'rigidbody', 'renderer', 'colliders', 'BoxCollider',
+  'Group', 'Kinematic',
+  'RuntimeUIWindow', 'RuntimeInteractable',
+]);
 
+/**
+ * Returns true if a component type should be hidden in the inspector.
+ * Hides:
+ * - Internal/structural types (rigidbody, renderer, colliders)
+ * - Component types completely unknown to the WebViewer (not in CONSUMED,
+ *   IGNORED, or schema registry) — e.g. RuntimeUIWindow, RuntimeInteractable
+ */
 export function isHiddenComponentType(type: string): boolean {
-  return HIDDEN_COMPONENT_TYPES.has(type);
+  if (ALWAYS_HIDDEN.has(type)) return true;
+  return !isKnownComponentType(type);
 }
 
 // ── Enum options ─────────────────────────────────────────────────────────
@@ -116,6 +131,8 @@ export const BADGE_COLORS: Record<string, string> = {
   MU: '#78909c',
   DrivesRecorder: '#7e57c2',
   ReplayRecording: '#26a69a',
+  Metadata: '#ffb74d',
+  RuntimeMetadata: '#ffb74d',
 };
 
 export function componentColor(type: string): string {
@@ -186,6 +203,25 @@ export function formatSensorStatus(signalStore: SignalStore | null, path: string
   const value = signalStore.getByPath(path);
   if (value === undefined) return '';
   return value === true ? '\u25CF' : '\u25CB';
+}
+
+/** Get color for a signal reference chip — gray when off, component color when on. */
+export function getRefSignalColor(shortType: string, signalStore: SignalStore | null, path: string): string {
+  if (!signalStore) return '#808080';
+  const value = signalStore.getByPath(path);
+  if (value === undefined) return '#808080';
+  const isBool = shortType.includes('Bool');
+  if (isBool) return value === true ? componentColor(shortType) : '#808080';
+  if (typeof value === 'number' && value === 0) return '#808080';
+  return componentColor(shortType);
+}
+
+/** Get color for a sensor reference chip — gray when not occupied, green when occupied. */
+export function getSensorRefColor(signalStore: SignalStore | null, path: string): string {
+  if (!signalStore) return '#808080';
+  const value = signalStore.getByPath(path);
+  if (value === undefined) return '#808080';
+  return value === true ? (BADGE_COLORS['Sensor'] ?? '#66bb6a') : '#808080';
 }
 
 // ── Signal component type detection (the component itself, not a ref) ─────

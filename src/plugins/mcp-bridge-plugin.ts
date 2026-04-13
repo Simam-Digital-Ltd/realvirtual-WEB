@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * McpBridgePlugin — WebSocket bridge connecting the browser to the Python MCP server.
  *
@@ -79,13 +82,13 @@ interface AiBridgeSettings {
 function loadSettings(): AiBridgeSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { enabled: true, port: '18712' };
+    if (!raw) return { enabled: false, port: '18712' };
     const parsed = JSON.parse(raw) as Partial<AiBridgeSettings>;
     return {
-      enabled: parsed.enabled !== false,
+      enabled: parsed.enabled === true,
       port: parsed.port || '18712',
     };
-  } catch { return { enabled: true, port: '18712' }; }
+  } catch { return { enabled: false, port: '18712' }; }
 }
 
 function saveSettings(settings: AiBridgeSettings): void {

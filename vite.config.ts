@@ -1,9 +1,12 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 // PWA disabled – always serve fresh content, no service worker caching
 // import { VitePWA } from 'vite-plugin-pwa';
 import { playwright } from '@vitest/browser-playwright';
-import { readdirSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readdirSync, existsSync, mkdirSync, writeFileSync, createReadStream, statSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 
 // ─── Private content detection ──────────────────────────────────────────
@@ -257,6 +260,81 @@ function thumbnailSavePlugin() {
   };
 }
 
+// ─── Private project directory (contains project subfolders with models/) ────
+const PRIVATE_PROJECTS_DIR = resolve(__dirname, '../realvirtual-WebViewer-Private~/projects');
+
+/**
+ * Vite plugin: Discover and serve GLB models from private project folders.
+ *
+ * Scans `realvirtual-WebViewer-Private~/projects/<name>/models/` for .glb files,
+ * serves them under `/private-models/<project>/<file>.glb`, and exposes a
+ * `/__api/private-models` JSON manifest for runtime discovery.
+ */
+function privateModelsPlugin() {
+  if (!HAS_PRIVATE || !existsSync(PRIVATE_PROJECTS_DIR)) return null;
+
+  // Build manifest: scan all project subdirs for GLB files
+  function buildManifest(): Array<{ project: string; filename: string; url: string }> {
+    const entries: Array<{ project: string; filename: string; url: string }> = [];
+    try {
+      for (const project of readdirSync(PRIVATE_PROJECTS_DIR, { withFileTypes: true })) {
+        if (!project.isDirectory()) continue;
+        const modelsDir = join(PRIVATE_PROJECTS_DIR, project.name, 'models');
+        if (!existsSync(modelsDir)) continue;
+        for (const file of readdirSync(modelsDir)) {
+          if (!file.toLowerCase().endsWith('.glb')) continue;
+          entries.push({
+            project: project.name,
+            filename: file,
+            url: `/private-models/${project.name}/${file}`,
+          });
+        }
+      }
+    } catch { /* ignore scan errors */ }
+    return entries;
+  }
+
+  return {
+    name: 'rv-private-models',
+    apply: 'serve' as const,
+    configureServer(server: { middlewares: { use: Function } }) {
+      server.middlewares.use((req: { url?: string; method?: string }, res: any, next: Function) => {
+        const url = req.url ?? '';
+
+        // Manifest endpoint
+        if (url === '/__api/private-models' && req.method === 'GET') {
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(JSON.stringify(buildManifest()));
+          return;
+        }
+
+        // Serve GLB files under /private-models/<project>/<file>.glb
+        if (url.startsWith('/private-models/') && url.endsWith('.glb')) {
+          const parts = url.replace('/private-models/', '').split('/');
+          if (parts.length === 2) {
+            const [project, file] = parts;
+            const filePath = join(PRIVATE_PROJECTS_DIR, project, 'models', file);
+            if (existsSync(filePath)) {
+              const stat = statSync(filePath);
+              res.setHeader('Content-Type', 'model/gltf-binary');
+              res.setHeader('Content-Length', stat.size);
+              res.setHeader('Cache-Control', 'no-store');
+              createReadStream(filePath).pipe(res);
+              return;
+            }
+          }
+          res.writeHead(404);
+          res.end('Not found');
+          return;
+        }
+
+        next();
+      });
+    },
+  };
+}
+
 /**
  * Vite plugin: Resolve bare imports from private folder files via the main project's node_modules.
  *
@@ -294,6 +372,7 @@ export default defineConfig({
   base: process.env.VITE_BASE || './',
   plugins: [
     privateResolverPlugin(),
+    privateModelsPlugin(),
     react(),
     // VitePWA disabled – no service worker, always fresh content
     testRunnerPlugin(),
@@ -305,6 +384,9 @@ export default defineConfig({
       '@rv-private': HAS_PRIVATE
         ? PRIVATE_DIR
         : resolve(__dirname, 'src/private-stubs'),
+      '@rv-projects': HAS_PRIVATE
+        ? resolve(__dirname, '../realvirtual-WebViewer-Private~/projects')
+        : resolve(__dirname, 'src/private-stubs/projects'),
       // Explicit aliases for React JSX runtime — needed so that files imported from
       // the private folder (outside the project root) resolve the JSX runtime from
       // the main project's node_modules, not from the (non-existent) private node_modules.
@@ -334,6 +416,7 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
+        banner: '/* realvirtual WEB | AGPL-3.0-only | Copyright (C) 2025 realvirtual GmbH | https://realvirtual.io */',
         manualChunks: {
           three: ['three'],
           echarts: ['echarts'],

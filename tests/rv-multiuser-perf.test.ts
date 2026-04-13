@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * rv-multiuser-perf.test.ts — Performance tests for AvatarManager with 15 concurrent avatars.
  *

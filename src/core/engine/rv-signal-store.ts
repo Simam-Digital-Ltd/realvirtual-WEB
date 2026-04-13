@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * SignalStore - Central signal store for PLC signal communication.
  *
@@ -252,6 +255,27 @@ export class SignalStore {
     if (additions.size > 0) {
       debug('signal', `buildIndex: added ${additions.size} suffix entries (${this.pathToName.size} total path mappings)`);
     }
+  }
+
+  /**
+   * Update pathToName entries using an oldPath→newPath remap.
+   * Call after kinematic re-parenting recomputes registry paths.
+   */
+  remapPaths(remap: Map<string, string>): number {
+    let updated = 0;
+    for (const [oldPath, newPath] of remap) {
+      const name = this.pathToName.get(oldPath);
+      if (name !== undefined) {
+        this.pathToName.delete(oldPath);
+        this.pathToName.set(newPath, name);
+        updated++;
+      }
+    }
+    this.resolveCache.clear();
+    if (updated > 0) {
+      debug('signal', `remapPaths: updated ${updated} signal paths`);
+    }
+    return updated;
   }
 
   // ── Utility ──

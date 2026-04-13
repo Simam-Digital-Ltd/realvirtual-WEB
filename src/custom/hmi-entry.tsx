@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { createRoot } from 'react-dom/client';
 import { RVViewerProvider } from '../hooks/use-viewer';
 import { App } from './App';

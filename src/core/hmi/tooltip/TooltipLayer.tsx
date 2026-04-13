@@ -1,113 +1,148 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
- * TooltipLayer — Renders the active tooltip with positioning, clamping, and styling.
+ * TooltipLayer — Renders all visible tooltips with positioning, clamping, and styling.
  *
- * Consumes the TooltipStore via useTooltipState() and renders the appropriate
- * content provider from the TooltipContentRegistry.
+ * Consumes the TooltipStore via useTooltipState() and renders one glassmorphic
+ * bubble per VisibleTooltip. Each bubble may contain multiple vertically stacked
+ * content providers when an object has several applicable tooltip types.
  *
- * Positioning modes:
+ * Positioning modes (per bubble):
  * - cursor: follows mouse pointer (ref-based updates via getCursorPos, polled at 100ms)
  * - world: projects a 3D Object3D to screen coordinates (polled at 100ms)
  * - fixed: uses a fixed screen position directly
- *
- * Renders with glassmorphism styling, pointerEvents: 'none', zIndex: 1100.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Box } from '@mui/material';
+import { useCallback, useEffect, useRef, type FC } from 'react';
+import { Box, Divider } from '@mui/material';
 import { useTooltipState } from '../../../hooks/use-tooltip';
 import { tooltipStore } from './tooltip-store';
 import { tooltipRegistry } from './tooltip-registry';
-import { projectToScreen, clampToViewport } from './tooltip-utils';
+import { projectToScreen, projectPointToScreen, clampToViewport } from './tooltip-utils';
 import { useViewer } from '../../../hooks/use-viewer';
+import type { VisibleTooltip } from './tooltip-store';
+import type { ContextMenuTarget } from '../context-menu-store';
 
 const DEFAULT_OFFSET_X = 16;
 const DEFAULT_OFFSET_Y = -12;
-const REFRESH_MS = 100;
 const TOOLTIP_MIN_WIDTH = 160;
 const TOOLTIP_EST_HEIGHT = 120;
 const VIEWPORT_MARGIN = 10;
 
-export function TooltipLayer() {
+// ─── Single Tooltip Bubble ──────────────────────────────────────────────
+
+interface SingleTooltipBubbleProps {
+  tooltip: VisibleTooltip;
+}
+
+const SingleTooltipBubble: FC<SingleTooltipBubbleProps> = ({ tooltip }) => {
   const viewer = useViewer();
-  const { active } = useTooltipState();
-  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [visible, setVisible] = useState(false);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef(0);
+  const { primary } = tooltip;
+  const isPinned = primary.lifecycle === 'pinned';
 
-  // Memoize position update to avoid recreating in interval
-  const updatePosition = useCallback(() => {
-    if (!active) {
-      setVisible(false);
-      return;
+  // Right-click on pinned tooltip opens context menu for the target node
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (!isPinned) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const path = primary.targetPath;
+    if (!path) return;
+    const node = viewer.registry?.getNode(path);
+    if (!node) return;
+
+    const target: ContextMenuTarget = {
+      path,
+      node,
+      types: viewer.registry!.getComponentTypes(path),
+      extras: (node.userData?.realvirtual ?? {}) as Record<string, unknown>,
+    };
+
+    if (viewer.raycastManager) {
+      viewer.raycastManager.holdHover = true;
+      const isLayout = !!(node.userData?.realvirtual as Record<string, unknown> | undefined)?.LayoutObject;
+      viewer.highlighter.highlight(node, false, { includeChildDrives: isLayout });
     }
+    viewer.contextMenu.open({ x: e.clientX, y: e.clientY }, target);
+  }, [isPinned, primary.targetPath, viewer]);
 
-    const offsetX = active.offset?.x ?? DEFAULT_OFFSET_X;
-    const offsetY = active.offset?.y ?? DEFAULT_OFFSET_Y;
-
-    let rawX = 0;
-    let rawY = 0;
-    let isVisible = true;
-
-    if (active.mode === 'cursor') {
-      const cursorPos = tooltipStore.getCursorPos(active.id);
-      if (!cursorPos) { setVisible(false); return; }
-      rawX = cursorPos.x + offsetX;
-      rawY = cursorPos.y + offsetY;
-    } else if (active.mode === 'world') {
-      if (!active.worldTarget) { setVisible(false); return; }
-      const screen = projectToScreen(active.worldTarget, viewer.camera, viewer.renderer);
-      if (!screen.visible) { setVisible(false); return; }
-      rawX = screen.x + offsetX;
-      rawY = screen.y + offsetY;
-    } else if (active.mode === 'fixed') {
-      if (!active.fixedPos) { setVisible(false); return; }
-      rawX = active.fixedPos.x + offsetX;
-      rawY = active.fixedPos.y + offsetY;
-    }
-
-    // Get actual tooltip dimensions if available
-    const tooltipWidth = tooltipRef.current?.offsetWidth ?? TOOLTIP_MIN_WIDTH;
-    const tooltipHeight = tooltipRef.current?.offsetHeight ?? TOOLTIP_EST_HEIGHT;
-
-    const clamped = clampToViewport(
-      rawX, rawY,
-      tooltipWidth, tooltipHeight,
-      VIEWPORT_MARGIN,
-      window.innerWidth, window.innerHeight,
-    );
-
-    setPos(clamped);
-    setVisible(isVisible);
-  }, [active, viewer]);
-
-  // Periodic position update (covers cursor movement, world projection, etc.)
   useEffect(() => {
-    if (!active) {
-      setVisible(false);
-      return;
-    }
+    let mounted = true;
 
-    // Initial tick
-    updatePosition();
-    const id = setInterval(updatePosition, REFRESH_MS);
-    return () => clearInterval(id);
-  }, [active, updatePosition]);
+    const tick = () => {
+      if (!mounted) return;
+      const el = tooltipRef.current;
 
-  if (!active || !visible) return null;
+      const offsetX = primary.offset?.x ?? DEFAULT_OFFSET_X;
+      const offsetY = primary.offset?.y ?? DEFAULT_OFFSET_Y;
 
-  // Look up content provider from registry
-  const Provider = tooltipRegistry.getProvider(active.data.type);
-  if (!Provider) return null;
+      let rawX = 0;
+      let rawY = 0;
+      let show = true;
+
+      if (primary.mode === 'cursor') {
+        const cursorPos = tooltipStore.getCursorPos(primary.id);
+        if (!cursorPos) { show = false; }
+        else { rawX = cursorPos.x + offsetX; rawY = cursorPos.y + offsetY; }
+      } else if (primary.mode === 'world') {
+        let screen;
+        if (primary.worldAnchor) {
+          screen = projectPointToScreen(primary.worldAnchor, viewer.camera, viewer.renderer, primary.worldTarget);
+        } else if (primary.worldTarget) {
+          screen = projectToScreen(primary.worldTarget, viewer.camera, viewer.renderer);
+        }
+        if (!screen?.visible) { show = false; }
+        else { rawX = screen.x + offsetX; rawY = screen.y + offsetY; }
+      } else if (primary.mode === 'fixed') {
+        if (!primary.fixedPos) { show = false; }
+        else { rawX = primary.fixedPos.x + offsetX; rawY = primary.fixedPos.y + offsetY; }
+      }
+
+      if (show && el) {
+        const tooltipWidth = el.offsetWidth || TOOLTIP_MIN_WIDTH;
+        const tooltipHeight = el.offsetHeight || TOOLTIP_EST_HEIGHT;
+        const clamped = clampToViewport(
+          rawX, rawY, tooltipWidth, tooltipHeight,
+          VIEWPORT_MARGIN, window.innerWidth, window.innerHeight,
+        );
+        el.style.left = clamped.x + 'px';
+        el.style.top = clamped.y + 'px';
+        el.style.visibility = 'visible';
+      } else if (el) {
+        el.style.visibility = 'hidden';
+      }
+
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { mounted = false; cancelAnimationFrame(rafRef.current); };
+  }, [primary, viewer]);
+
+  // Resolve content providers for all entries in this bubble
+  const providers = tooltip.contentEntries
+    .map(entry => {
+      const Provider = tooltipRegistry.getProvider(entry.data.type);
+      return Provider ? { Provider, entry } : null;
+    })
+    .filter((p): p is NonNullable<typeof p> => p !== null);
+
+  if (providers.length === 0) return null;
 
   return (
     <Box
       ref={tooltipRef}
+      onContextMenu={isPinned ? handleContextMenu : undefined}
       sx={{
         position: 'fixed',
-        left: pos.x,
-        top: pos.y,
+        left: 0,
+        top: 0,
+        visibility: 'hidden',
         transform: 'translateY(-100%)',
-        pointerEvents: 'none !important',
+        pointerEvents: isPinned ? 'auto' : 'none !important',
         zIndex: 1100,
         bgcolor: 'rgba(18, 18, 18, 0.88)',
         backdropFilter: 'blur(12px)',
@@ -118,10 +153,33 @@ export function TooltipLayer() {
         maxWidth: 280,
         border: '1px solid rgba(255,255,255,0.1)',
         boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-        willChange: 'transform',
+        willChange: 'left, top',
       }}
     >
-      <Provider data={active.data} viewer={viewer} />
+      {providers.map(({ Provider, entry }, i) => (
+        <Box key={entry.id}>
+          {i > 0 && (
+            <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)', my: 0.5 }} />
+          )}
+          <Provider data={entry.data} viewer={viewer} />
+        </Box>
+      ))}
     </Box>
+  );
+};
+
+// ─── Tooltip Layer ──────────────────────────────────────────────────────
+
+export function TooltipLayer() {
+  const { visible } = useTooltipState();
+
+  if (visible.length === 0) return null;
+
+  return (
+    <>
+      {visible.map(vt => (
+        <SingleTooltipBubble key={vt.key} tooltip={vt} />
+      ))}
+    </>
   );
 }

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { useState, useRef, useCallback } from 'react';
 import { Typography, Box, Button, Select, MenuItem } from '@mui/material';
 import { RestartAlt, FileDownload, FileUpload } from '@mui/icons-material';

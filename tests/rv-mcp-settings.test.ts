@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * rv-mcp-settings.test.ts — Tests for McpBridgePlugin state extension.
  *

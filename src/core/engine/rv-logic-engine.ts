@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import type { Object3D } from 'three';
 import type { SignalStore } from './rv-signal-store';
 import { NodeRegistry, type ComponentRef } from './rv-node-registry';
@@ -13,8 +16,16 @@ import {
   RVDriveTo,
   RVSetDriveSpeed,
   RVEnable,
+  RVStartDriveTo,
+  RVWaitForDrivesAtTarget,
+  RVSetSignalFloat,
+  RVWaitForSignalFloat,
+  RVGripPick,
+  RVGripPlace,
+  RVJumpOnSignal,
   StepState,
 } from './rv-logic-step';
+import type { RVGrip } from './rv-grip';
 import { validateExtras } from './rv-extras-validator';
 import { debug } from './rv-debug';
 
@@ -216,6 +227,7 @@ function buildStep(
   nodeStepMap: Map<Object3D, { rv: Record<string, unknown>; stepType: string }>,
   registry: NodeRegistry,
   signalStore: SignalStore,
+  parentContainer?: RVSerialContainer,
 ): RVLogicStep | null {
   const data = rv[stepType] as Record<string, unknown> | undefined;
   if (data) {
@@ -226,8 +238,10 @@ function buildStep(
 
   switch (stepType) {
     case 'LogicStep_SerialContainer': {
-      const children = buildChildren(node, nodeStepMap, registry, signalStore);
-      step = new RVSerialContainer(children, true); // autoLoop for top-level
+      const container = new RVSerialContainer([], true); // autoLoop for top-level
+      const children = buildChildren(node, nodeStepMap, registry, signalStore, container);
+      container.children = children;
+      step = container;
       break;
     }
 
@@ -270,6 +284,11 @@ function buildStep(
     case 'LogicStep_DriveToPosition':
     case 'LogicStep_DriveTo': {
       const ref = data?.['drive'] as ComponentRef | undefined;
+      if (!ref) {
+        debug('logic', `DriveTo "${node.name}": no 'drive' field in data. Keys: ${data ? Object.keys(data).join(', ') : 'no data'}`);
+      } else {
+        debug('logic', `DriveTo "${node.name}": ref type="${ref.type}" path="${ref.path}" componentType="${ref.componentType}"`);
+      }
       const resolved = registry.resolve(ref);
       const destination = (data?.['Destination'] as number) ?? 0;
       const relative = (data?.['Relative'] as boolean) ?? false;
@@ -304,6 +323,87 @@ function buildStep(
       break;
     }
 
+    case 'LogicStep_StartDriveTo': {
+      const ref = data?.['drive'] as ComponentRef | undefined;
+      const resolved = registry.resolve(ref);
+      const destination = (data?.['Destination'] as number) ?? 0;
+      const relative = (data?.['Relative'] as boolean) ?? false;
+      const direction = (data?.['Direction'] as string) ?? 'Automatic';
+      step = new RVStartDriveTo(resolved.drive ?? null, destination, relative, direction);
+      break;
+    }
+
+    case 'LogicStep_StartDriveSpeed': {
+      const ref = data?.['drive'] as ComponentRef | undefined;
+      const resolved = registry.resolve(ref);
+      const speed = (data?.['Speed'] as number) ?? 100;
+      step = new RVSetDriveSpeed(resolved.drive ?? null, speed);
+      break;
+    }
+
+    case 'LogicStep_WaitForDrivesAtTarget': {
+      const driveRefs = (data?.['Drives'] as ComponentRef[]) ?? [];
+      const drives = driveRefs
+        .map(ref => registry.resolve(ref).drive)
+        .filter((d): d is NonNullable<typeof d> => d != null);
+      step = new RVWaitForDrivesAtTarget(drives);
+      break;
+    }
+
+    case 'LogicStep_SetSignalFloat': {
+      const ref = data?.['Signal'] as ComponentRef | undefined;
+      const resolved = registry.resolve(ref);
+      const value = (data?.['Value'] as number) ?? 0;
+      step = new RVSetSignalFloat(resolved.signalAddress ?? null, value, signalStore);
+      break;
+    }
+
+    case 'LogicStep_WaitForSignalFloat': {
+      const ref = data?.['Signal'] as ComponentRef | undefined;
+      const resolved = registry.resolve(ref);
+      const comparison = (data?.['Comparison'] as string) ?? 'Equals';
+      const value = (data?.['Value'] as number) ?? 0;
+      const tolerance = (data?.['Tolerance'] as number) ?? 0.0001;
+      step = new RVWaitForSignalFloat(resolved.signalAddress ?? null, comparison, value, tolerance, signalStore);
+      break;
+    }
+
+    case 'LogicStep_GripPick': {
+      const ref = data?.['Grip'] as ComponentRef | undefined;
+      const grip = ref?.path ? registry.getByPath<RVGrip>('Grip', ref.path) : null;
+      const blocking = (data?.['Blocking'] as boolean) ?? false;
+      step = new RVGripPick(grip, blocking);
+      break;
+    }
+
+    case 'LogicStep_GripPlace': {
+      const ref = data?.['Grip'] as ComponentRef | undefined;
+      const grip = ref?.path ? registry.getByPath<RVGrip>('Grip', ref.path) : null;
+      const blocking = (data?.['Blocking'] as boolean) ?? false;
+      step = new RVGripPlace(grip, blocking);
+      break;
+    }
+
+    case 'LogicStep_JumpOnSignal': {
+      const ref = data?.['Signal'] as ComponentRef | undefined;
+      const resolved = registry.resolve(ref);
+      const jumpOn = (data?.['JumpOn'] as boolean) ?? true;
+      const jumpToStep = (data?.['JumpToStep'] as string) ?? '';
+      step = new RVJumpOnSignal(resolved.signalAddress ?? null, jumpOn, jumpToStep, signalStore, parentContainer ?? null);
+      break;
+    }
+
+    // No-ops: not applicable in WebViewer
+    case 'LogicStep_SetActiveOnly':
+    case 'LogicStep_CinemachineCamera':
+    case 'LogicStep_StatStartCycle':
+    case 'LogicStep_StatEndCycle':
+    case 'LogicStep_StatState':
+    case 'LogicStep_StatOutput': {
+      step = new RVDelay(0);
+      break;
+    }
+
     default:
       console.warn(`[LogicEngine] Unknown step type: "${stepType}" on "${node.name}"`);
       return null;
@@ -321,6 +421,7 @@ function buildChildren(
   nodeStepMap: Map<Object3D, { rv: Record<string, unknown>; stepType: string }>,
   registry: NodeRegistry,
   signalStore: SignalStore,
+  parentContainer?: RVSerialContainer,
 ): RVLogicStep[] {
   const children: RVLogicStep[] = [];
 
@@ -328,7 +429,7 @@ function buildChildren(
   for (const childNode of parentNode.children) {
     const info = nodeStepMap.get(childNode);
     if (!info) continue;
-    const step = buildStep(childNode, info.stepType, info.rv, nodeStepMap, registry, signalStore);
+    const step = buildStep(childNode, info.stepType, info.rv, nodeStepMap, registry, signalStore, parentContainer);
     if (step) {
       children.push(step);
     }

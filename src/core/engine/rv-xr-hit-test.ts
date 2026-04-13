@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * RVXRHitTester — AR surface detection and model placement.
  * Uses WebXR Hit Test API to show a reticle on detected surfaces.

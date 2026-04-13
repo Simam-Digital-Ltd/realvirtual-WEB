@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * Re-exports from the hooks layer.
  * Kept for backwards compatibility — prefer importing from hooks/ directly.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { describe, test, expect } from 'vitest';
 import { Scene, Object3D } from 'three';
 import { RVXRHitTester } from '../src/core/engine/rv-xr-hit-test';

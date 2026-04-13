@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import type { RVDrivesPlayback } from './rv-drives-playback';
 import type { SignalStore } from './rv-signal-store';
 import type { ActiveOnly } from './rv-active-only';

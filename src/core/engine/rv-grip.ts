@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { Object3D, Vector3, Quaternion } from 'three';
 import type { RVMovingUnit } from './rv-mu';
 import type { RVSensor } from './rv-sensor';

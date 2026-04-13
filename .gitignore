@@ -1,5 +1,8 @@
 node_modules/
 dist/
+dist-private/
+.vite/
 .playwright-profile
-*.local
 test-results/
+*.local
+*.tsbuildinfo

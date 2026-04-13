@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { useState, useRef, useCallback } from 'react';
 import { Vector3 } from 'three';
 import { Button, ButtonGroup, IconButton, Tooltip } from '@mui/material';

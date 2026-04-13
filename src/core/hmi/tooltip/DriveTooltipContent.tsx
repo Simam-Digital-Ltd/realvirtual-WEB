@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * DriveTooltipContent — Renders drive info (name, direction, position, speed, etc.)
  * inside the generic TooltipLayer.

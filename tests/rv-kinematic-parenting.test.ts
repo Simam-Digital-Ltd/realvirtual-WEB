@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * Tests for kinematic group sub-parenting on GLB load.
  * Verifies that applyKinematicParenting correctly re-parents nodes
@@ -50,14 +53,16 @@ describe('applyKinematicParenting', () => {
 
     expect(worldAfter.distanceTo(worldBefore)).toBeLessThan(0.001);
     expect(groupNode.parent).toBe(kinNode);
-    expect(result).toContain('MyGroup');
+    expect(result.groupNames).toContain('MyGroup');
+    expect(result.affectedSubtrees).toContain(kinNode);
   });
 
-  it('returns empty array when no kinematic nodes', () => {
+  it('returns empty when no kinematic nodes', () => {
     const root = new Object3D();
     const registry = buildRegistry(root);
     const result = applyKinematicParenting([], null, registry, root);
-    expect(result).toEqual([]);
+    expect(result.groupNames).toEqual([]);
+    expect(result.affectedSubtrees).toEqual([]);
   });
 
   it('skips when GroupName is empty', () => {
@@ -74,7 +79,7 @@ describe('applyKinematicParenting', () => {
     }];
 
     const result = applyKinematicParenting(kinEntries, groups, registry, root);
-    expect(result).toEqual([]);
+    expect(result.groupNames).toEqual([]);
   });
 
   it('falls back to GroupName when GroupNamePrefix not found', () => {
@@ -100,7 +105,7 @@ describe('applyKinematicParenting', () => {
 
     // Prefix not found => falls back to just "Arm"
     const result = applyKinematicParenting(kinEntries, groups, registry, root);
-    expect(result).toContain('Arm');
+    expect(result.groupNames).toContain('Arm');
     expect(groupNode.parent).toBe(kinNode);
   });
 
@@ -128,7 +133,7 @@ describe('applyKinematicParenting', () => {
     }];
 
     const result = applyKinematicParenting(kinEntries, groups, registry, root);
-    expect(result).toContain('Robot1Arm');
+    expect(result.groupNames).toContain('Robot1Arm');
     expect(groupNode.parent).toBe(kinNode);
   });
 

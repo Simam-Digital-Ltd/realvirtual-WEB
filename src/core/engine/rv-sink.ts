@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { Object3D } from 'three';
 import { AABB } from './rv-aabb';
 import type { RVMovingUnit, InstancedMovingUnit } from './rv-mu';

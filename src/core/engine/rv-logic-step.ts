@@ -1,6 +1,10 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import type { RVDrive } from './rv-drive';
 import type { SignalStore } from './rv-signal-store';
 import type { RVSensor } from './rv-sensor';
+import type { RVGrip } from './rv-grip';
 import { debug } from './rv-debug';
 
 // ─── Step State ──────────────────────────────────────────────────
@@ -481,6 +485,310 @@ export class RVEnable extends RVLogicStep {
   start(): void {
     if (this.target) {
       this.target.visible = this.enable;
+    }
+    this.state = StepState.Finished;
+  }
+
+  fixedUpdate(_dt: number): void {}
+}
+
+/** StartDriveTo - starts a drive move and finishes immediately (non-blocking) */
+export class RVStartDriveTo extends RVLogicStep {
+  drive: RVDrive | null;
+  destination: number;
+  relative: boolean;
+  direction: string;
+
+  constructor(drive: RVDrive | null, destination: number, relative: boolean, direction: string) {
+    super();
+    this.drive = drive;
+    this.destination = destination;
+    this.relative = relative;
+    this.direction = direction;
+  }
+
+  get progress(): number {
+    return this.state === StepState.Finished ? 100 : 0;
+  }
+
+  start(): void {
+    if (!this.drive) {
+      console.warn(`[LogicStep] StartDriveTo "${this.name}": null drive — skipping`);
+      this.state = StepState.Finished;
+      return;
+    }
+
+    let dest = this.relative
+      ? this.drive.currentPosition + this.destination
+      : this.destination;
+
+    if (this.drive.UseLimits) {
+      dest = Math.max(this.drive.LowerLimit, Math.min(this.drive.UpperLimit, dest));
+    }
+
+    this.drive.startMove(dest);
+    debug('logic', `StartDriveTo "${this.name}": drive → ${dest}`);
+    this.state = StepState.Finished;
+  }
+
+  fixedUpdate(_dt: number): void {}
+}
+
+/** WaitForDrivesAtTarget - waits until all drives in the list have reached their targets */
+export class RVWaitForDrivesAtTarget extends RVLogicStep {
+  drives: RVDrive[];
+
+  constructor(drives: RVDrive[]) {
+    super();
+    this.drives = drives;
+  }
+
+  get progress(): number {
+    if (this.state === StepState.Finished) return 100;
+    if (this.drives.length === 0) return 100;
+    const atTarget = this.drives.filter(d => d.isAtTarget).length;
+    return (atTarget / this.drives.length) * 100;
+  }
+
+  start(): void {
+    if (this.drives.length === 0) {
+      this.state = StepState.Finished;
+      return;
+    }
+    this.state = StepState.Waiting;
+    if (this.drives.every(d => d.isAtTarget)) {
+      this.finish();
+    }
+  }
+
+  fixedUpdate(_dt: number): void {
+    if (this.state !== StepState.Waiting) return;
+    if (this.drives.every(d => d.isAtTarget)) {
+      debug('logic', `WaitForDrivesAtTarget "${this.name}": all ${this.drives.length} drives at target`);
+      this.finish();
+    }
+  }
+}
+
+/** SetSignalFloat - sets a float signal value and finishes immediately */
+export class RVSetSignalFloat extends RVLogicStep {
+  signalAddress: string | null;
+  value: number;
+  private signalStore: SignalStore;
+
+  constructor(signalAddress: string | null, value: number, signalStore: SignalStore) {
+    super();
+    this.signalAddress = signalAddress;
+    this.value = value;
+    this.signalStore = signalStore;
+  }
+
+  get progress(): number {
+    return this.state === StepState.Finished ? 100 : 0;
+  }
+
+  start(): void {
+    if (!this.signalAddress) {
+      console.warn(`[LogicStep] SetSignalFloat "${this.name}": null signal address — skipping`);
+      this.state = StepState.Finished;
+      return;
+    }
+    this.signalStore.setByPath(this.signalAddress, this.value);
+    debug('logic', `SetSignalFloat "${this.name}": ${this.signalAddress} = ${this.value}`);
+    this.state = StepState.Finished;
+  }
+
+  fixedUpdate(_dt: number): void {}
+}
+
+/** WaitForSignalFloat - polls until a float signal matches the comparison condition */
+export class RVWaitForSignalFloat extends RVLogicStep {
+  signalAddress: string | null;
+  comparison: string;
+  value: number;
+  tolerance: number;
+  private signalStore: SignalStore;
+
+  constructor(
+    signalAddress: string | null,
+    comparison: string,
+    value: number,
+    tolerance: number,
+    signalStore: SignalStore,
+  ) {
+    super();
+    this.signalAddress = signalAddress;
+    this.comparison = comparison;
+    this.value = value;
+    this.tolerance = Math.max(tolerance, 0.0001);
+    this.signalStore = signalStore;
+  }
+
+  get progress(): number {
+    if (this.state === StepState.Finished) return 100;
+    if (this.state === StepState.Waiting) return 50;
+    return 0;
+  }
+
+  start(): void {
+    if (!this.signalAddress) {
+      console.warn(`[LogicStep] WaitForSignalFloat "${this.name}": null signal address — skipping`);
+      this.state = StepState.Finished;
+      return;
+    }
+    this.state = StepState.Waiting;
+    if (this.checkCondition()) {
+      this.finish();
+    }
+  }
+
+  fixedUpdate(_dt: number): void {
+    if (this.state !== StepState.Waiting || !this.signalAddress) return;
+    if (this.checkCondition()) {
+      debug('logic', `WaitForSignalFloat "${this.name}": ${this.signalAddress} matched (${this.comparison} ${this.value})`);
+      this.finish();
+    }
+  }
+
+  private checkCondition(): boolean {
+    if (!this.signalAddress) return false;
+    const current = this.signalStore.getFloatByPath(this.signalAddress);
+    switch (this.comparison) {
+      case 'GreaterThan':    return current > this.value;
+      case 'LessThan':       return current < this.value;
+      case 'Equals':         return Math.abs(current - this.value) <= this.tolerance;
+      case 'GreaterOrEqual': return current >= this.value;
+      case 'LessOrEqual':    return current <= this.value;
+      default:               return false;
+    }
+  }
+}
+
+/** GripPick - triggers a Grip pick operation, optionally waits for a gripped MU */
+export class RVGripPick extends RVLogicStep {
+  grip: RVGrip | null;
+  blocking: boolean;
+
+  constructor(grip: RVGrip | null, blocking: boolean) {
+    super();
+    this.grip = grip;
+    this.blocking = blocking;
+  }
+
+  get progress(): number {
+    if (this.state === StepState.Finished) return 100;
+    if (this.state === StepState.Waiting) return 50;
+    return 0;
+  }
+
+  start(): void {
+    if (!this.grip) {
+      console.warn(`[LogicStep] GripPick "${this.name}": null grip — skipping`);
+      this.state = StepState.Finished;
+      return;
+    }
+    this.grip.pick();
+    debug('logic', `GripPick "${this.name}": pick() called, blocking=${this.blocking}`);
+    if (!this.blocking || this.grip.grippedMUs.length > 0) {
+      this.state = StepState.Finished;
+    } else {
+      this.state = StepState.Waiting;
+    }
+  }
+
+  fixedUpdate(_dt: number): void {
+    if (this.state !== StepState.Waiting || !this.grip) return;
+    if (this.grip.grippedMUs.length > 0) {
+      debug('logic', `GripPick "${this.name}": MU gripped`);
+      this.finish();
+    }
+  }
+}
+
+/** GripPlace - triggers a Grip place operation, optionally waits for release */
+export class RVGripPlace extends RVLogicStep {
+  grip: RVGrip | null;
+  blocking: boolean;
+
+  constructor(grip: RVGrip | null, blocking: boolean) {
+    super();
+    this.grip = grip;
+    this.blocking = blocking;
+  }
+
+  get progress(): number {
+    if (this.state === StepState.Finished) return 100;
+    if (this.state === StepState.Waiting) return 50;
+    return 0;
+  }
+
+  start(): void {
+    if (!this.grip) {
+      console.warn(`[LogicStep] GripPlace "${this.name}": null grip — skipping`);
+      this.state = StepState.Finished;
+      return;
+    }
+    this.grip.place();
+    debug('logic', `GripPlace "${this.name}": place() called, blocking=${this.blocking}`);
+    if (!this.blocking || this.grip.grippedMUs.length === 0) {
+      this.state = StepState.Finished;
+    } else {
+      this.state = StepState.Waiting;
+    }
+  }
+
+  fixedUpdate(_dt: number): void {
+    if (this.state !== StepState.Waiting || !this.grip) return;
+    if (this.grip.grippedMUs.length === 0) {
+      debug('logic', `GripPlace "${this.name}": all MUs released`);
+      this.finish();
+    }
+  }
+}
+
+/** JumpOnSignal - conditional jump to a named step within the parent container */
+export class RVJumpOnSignal extends RVLogicStep {
+  signalAddress: string | null;
+  jumpOn: boolean;
+  jumpToStep: string;
+  private signalStore: SignalStore;
+  private parentContainer: RVSerialContainer | null;
+
+  constructor(
+    signalAddress: string | null,
+    jumpOn: boolean,
+    jumpToStep: string,
+    signalStore: SignalStore,
+    parentContainer: RVSerialContainer | null,
+  ) {
+    super();
+    this.signalAddress = signalAddress;
+    this.jumpOn = jumpOn;
+    this.jumpToStep = jumpToStep;
+    this.signalStore = signalStore;
+    this.parentContainer = parentContainer;
+  }
+
+  get progress(): number {
+    return this.state === StepState.Finished ? 100 : 0;
+  }
+
+  start(): void {
+    if (!this.signalAddress) {
+      console.warn(`[LogicStep] JumpOnSignal "${this.name}": null signal — skipping`);
+      this.state = StepState.Finished;
+      return;
+    }
+    const value = this.signalStore.getBoolByPath(this.signalAddress);
+    if (value === this.jumpOn && this.parentContainer && this.jumpToStep) {
+      const idx = this.parentContainer.children.findIndex(c => c.name === this.jumpToStep);
+      if (idx >= 0) {
+        debug('logic', `JumpOnSignal "${this.name}": jumping to "${this.jumpToStep}" (index ${idx})`);
+        // Set currentIndex so the container will start this step next
+        this.parentContainer.currentIndex = idx - 1; // container will increment after this step finishes
+      } else {
+        console.warn(`[LogicStep] JumpOnSignal "${this.name}": step "${this.jumpToStep}" not found`);
+      }
     }
     this.state = StepState.Finished;
   }

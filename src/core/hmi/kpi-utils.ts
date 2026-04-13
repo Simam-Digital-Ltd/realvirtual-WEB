@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /** Compute a simple moving average with the given window size. */
 export function movingAverage(data: number[], window: number): number[] {
   if (data.length === 0) return [];

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { describe, it, expect, vi } from 'vitest';
 import { ContextMenuStore } from '../src/core/hmi/context-menu-store';
 import type { ContextMenuTarget } from '../src/core/hmi/context-menu-store';

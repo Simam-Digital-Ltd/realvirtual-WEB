@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * GroupsOverlay — Floating panel listing all scene groups with visibility
  * toggle switches and isolate buttons.

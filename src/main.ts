@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * realvirtual Web Viewer — Entry Point
  *
@@ -12,7 +15,7 @@
 import { RVViewer } from './core/rv-viewer';
 import { debug, logInfo } from './core/engine/rv-debug';
 import { initTestRunner } from './rv-test-runner';
-import { fetchAppConfig, setAppConfig } from './core/rv-app-config';
+import { fetchAppConfig, setAppConfig, initAnalytics } from './core/rv-app-config';
 import { loadVisualSettings } from './core/hmi/visual-settings-store';
 import { isMobileDevice } from './hooks/use-mobile-layout';
 import { activateContext, registerUIElement } from './core/hmi/ui-context-store';
@@ -37,21 +40,8 @@ import { InterfaceManager } from './interfaces/interface-manager';
 import { WebSocketRealtimeInterface } from './interfaces/websocket-realtime-interface';
 import { CtrlXInterface } from './interfaces/ctrlx-interface';
 
-// WebXR plugin (immersive VR on Quest 3 and other headsets)
-import { WebXRPlugin } from './plugins/webxr-plugin';
-
-// Multiuser presence plugin (browser ↔ Unity / relay server collaboration)
-import { MultiuserPlugin } from './plugins/multiuser-plugin';
-
-// First-Person View plugin (desktop WASD + mouse look walkthrough)
-import { FpvPlugin } from './plugins/fpv-plugin';
-
-// Annotation plugin (3D markers, labels, drawing on surfaces)
-import { AnnotationPlugin } from './plugins/annotation-plugin';
-
-// Demo content plugins (KPIs, HMI buttons/messages, test axes)
-// To add/remove demo plugins, edit plugins/demo/index.ts — no changes needed here.
-import { registerDemoPlugins } from './plugins/demo';
+// Per-model plugin manager (loads/unloads plugins on model switch)
+import { ModelPluginManager } from './core/rv-model-plugin-manager';
 
 // Microsoft Teams JS SDK — dynamically imported only when ?teams=1
 
@@ -144,6 +134,9 @@ async function init() {
   // Set singleton — from here all stores have access via getAppConfig()
   setAppConfig(appConfig);
 
+  // --- Analytics (only when configured in settings.json) ---
+  initAnalytics();
+
   // --- Bootstrap context-aware UI visibility (from settings.json `ui` key) ---
   {
     const uiCfg = appConfig.ui;
@@ -192,18 +185,14 @@ async function init() {
   viewer
     .use(ifaceManager)
     .use(rapierPlugin)
-    .use(new WebXRPlugin())
     .use(new DriveOrderPlugin())
     .use(new SensorMonitorPlugin())
     .use(new TransportStatsPlugin())
     .use(new CameraEventsPlugin())
-    .use(new MultiuserPlugin())
-    .use(new FpvPlugin())
-    .use(new AnnotationPlugin())
     .use(new RvExtrasEditorPlugin());
 
-  // --- Demo plugins (KPIs, HMI buttons/messages, test axes) ---
-  registerDemoPlugins(viewer);
+  // --- Per-model plugin manager (loads model-specific plugins on model switch) ---
+  viewer.modelPluginManager = new ModelPluginManager();
 
   // --- Performance test plugin (activated via ?perf URL param) ---
   if (params.has('perf')) {
@@ -220,6 +209,17 @@ async function init() {
     const filename = key.split('/').pop()!;
     return { filename, url: `${import.meta.env.BASE_URL}models/${filename}` };
   });
+
+  // Discover private project models (served by privateModelsPlugin in dev)
+  try {
+    const resp = await fetch('/__api/private-models');
+    if (resp.ok) {
+      const privateModels: Array<{ project: string; filename: string; url: string }> = await resp.json();
+      for (const pm of privateModels) {
+        entries.push({ filename: pm.filename, url: pm.url });
+      }
+    }
+  } catch { /* private models endpoint not available (production build) — ignore */ }
 
   // Expose discovered models to the HMI model selector
   viewer.availableModels = entries.map((e) => ({ url: e.url, label: e.filename.replace(/\.glb$/i, '') }));
@@ -256,7 +256,13 @@ async function init() {
         modelUrl = URL.createObjectURL(blob);
       }
 
+      // Store original URL before loadModel (loadModel will set _currentModelUrl to blob URL)
+      viewer.pendingModelUrl = url;
+
       const result = await viewer.loadModel(modelUrl);
+
+      // Restore original URL (not blob:) so model selector can match it
+      viewer.currentModelUrl = url;
 
       // Clean up blob URL after a delay — GLTFLoader may have pending async
       // operations (DRACO decoder, texture loading) that still reference the
@@ -273,6 +279,9 @@ async function init() {
     }
   }
 
+  // Expose loadModel with progress overlay so Settings > Model can use it
+  viewer.loadModelWithProgress = loadModel;
+
   // --- Firebase demo mode: /demo/webviewer/{demoName} ---
   const pathParts = window.location.pathname.split('/').filter(p => p);
   const webviewerIdx = pathParts.indexOf('webviewer');
@@ -286,7 +295,7 @@ async function init() {
     document.title = `${firebaseDemoName} - realvirtual WEB`;
     loadModel(firebaseGlbUrl);
   } else {
-    // Local dev mode: URL param > settings.json defaultModel > localStorage > demo.glb > first model
+    // Local dev mode: URL param > last opened (localStorage) > settings.json defaultModel > first model
     const urlModel = params.get('model');
     const configModel = appConfig.defaultModel;
     const savedModel = localStorage.getItem(LS_KEY_MODEL);
@@ -296,15 +305,21 @@ async function init() {
       ? entries.find((e) => e.url === configModel || e.filename === configModel)?.url ?? configModel
       : null;
 
+    // Match saved model by URL or by filename (handles base path changes)
+    const savedEntry = savedModel
+      ? entries.find((e) => e.url === savedModel || e.filename === savedModel.split('/').pop())
+      : null;
+
     const modelToLoad = urlModel
-      ?? (resolvedConfigModel && entries.some((e) => e.url === resolvedConfigModel) ? resolvedConfigModel : null)
-      ?? (savedModel && entries.some((e) => e.url === savedModel) ? savedModel : null);
+      ?? savedEntry?.url
+      ?? resolvedConfigModel
+      ?? null;
 
     if (modelToLoad) {
       loadModel(modelToLoad);
     } else {
-      // Default to demo.glb, then first available model
-      const defaultEntry = entries.find((e) => e.filename === 'demo.glb') ?? entries[0];
+      // Default to first available model
+      const defaultEntry = entries[0];
       if (defaultEntry) {
         loadModel(defaultEntry.url);
       } else {

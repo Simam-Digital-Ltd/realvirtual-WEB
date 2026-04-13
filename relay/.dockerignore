@@ -1,9 +1,0 @@
-node_modules
-src
-tests
-*.test.ts
-tsconfig.json
-.npmrc
-.env
-.env.*
-*.md

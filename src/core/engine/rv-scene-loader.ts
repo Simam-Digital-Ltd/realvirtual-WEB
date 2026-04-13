@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { Scene, Object3D, Box3, BufferAttribute, Mesh, BufferGeometry } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
@@ -30,6 +33,7 @@ import { applyUberMaterial, type UberResult } from './rv-uber-material';
 import { mergeStaticUberMeshes, type StaticUberMergeResult } from './rv-static-merge-uber';
 import { mergeKinematicGroupMeshes, type KinematicMergeResult } from './rv-kinematic-merge-uber';
 import { mergeStaticGeometries, type StaticMergeResult } from './rv-static-merge';
+import { buildRaycastGeometries, type RaycastGeometrySet } from './rv-raycast-geometry';
 
 // Singleton loader instances
 const dracoLoader = new DRACOLoader();
@@ -71,6 +75,8 @@ export interface LoadResult {
   metadataNodes: Object3D[];
   /** Group names that were re-parented under Kinematic nodes (for auto-exclude from overlay). */
   kinematicGroupNames: string[];
+  /** Grouped BVH raycast geometries (static + per-Drive kinematic). */
+  raycastGeometrySet: RaycastGeometrySet | null;
 }
 
 /**
@@ -517,13 +523,17 @@ export function traverseAndRegister(
       registry.register('ProcessingUnit', path, node);
     }
 
-    // RuntimeMetadata — tooltip content for interactive objects
+    // RuntimeMetadata — tooltip content for interactive objects.
+    // Can coexist with Drive/Pipe/Tank/etc. — only sets _rvType if no other type is present.
     if (rv['RuntimeMetadata']) {
       const md = rv['RuntimeMetadata'] as Record<string, unknown>;
       validateExtras('RuntimeMetadata', md);
-      node.userData._rvType = 'Metadata';
       node.userData._rvMetadata = { content: (md['content'] as string) ?? '' };
-      metadataNodes.push(node);
+      if (!node.userData._rvType) {
+        // Standalone metadata node — set type and register for raycast
+        node.userData._rvType = 'Metadata';
+        metadataNodes.push(node);
+      }
       registry.register('Metadata', path, node);
     }
 
@@ -685,8 +695,8 @@ export function applyKinematicParenting(
   groups: GroupRegistry | null,
   registry: NodeRegistry,
   root: Object3D,
-): string[] {
-  if (kinematicNodes.length === 0) return [];
+): { groupNames: string[]; affectedSubtrees: Object3D[] } {
+  if (kinematicNodes.length === 0) return { groupNames: [], affectedSubtrees: [] };
 
   const kinematicGroupNames: string[] = [];
   const affectedSubtrees: Object3D[] = [];
@@ -719,9 +729,22 @@ export function applyKinematicParenting(
     }
 
     const simplify = data['SimplifyHierarchy'] === true;
-    const nodesToReparent = simplify
+    const candidates = simplify
       ? groupInfo.nodes.filter(n => (n as Mesh).isMesh === true)
       : [...groupInfo.nodes];
+
+    // Mirror C# GetAllWithGroup: only re-parent top-level group members.
+    // Skip nodes whose ancestor is already in the same group (they'll
+    // move naturally with their parent).
+    const groupNodeSet = new Set(groupInfo.nodes);
+    const nodesToReparent = candidates.filter(node => {
+      let current = node.parent;
+      while (current) {
+        if (groupNodeSet.has(current)) return false;
+        current = current.parent;
+      }
+      return true;
+    });
 
     for (const groupNode of nodesToReparent) {
       kinNode.attach(groupNode);
@@ -777,7 +800,7 @@ export function applyKinematicParenting(
     debug('loader', `[Kinematic] Fixed matrixAutoUpdate + drive base transforms on ${affectedSubtrees.length} subtree(s)`);
   }
 
-  return kinematicGroupNames;
+  return { groupNames: kinematicGroupNames, affectedSubtrees };
 }
 
 /**
@@ -941,14 +964,24 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
   const groups = buildGroups(traverseResult.groupNodes, registry);
 
   // Phase 8b: Apply Kinematic re-parenting (after groups, before bounding box)
-  const kinematicGroupNames = applyKinematicParenting(
+  const kinResult = applyKinematicParenting(
     traverseResult.kinematicNodes, groups, registry, root,
   );
+  const kinematicGroupNames = kinResult.groupNames;
   // Mark kinematic groups in registry and auto-exclude from overlay
   if (groups && kinematicGroupNames.length > 0) {
     for (const name of kinematicGroupNames) {
       groups.markAsKinematic(name);
     }
+  }
+
+  // Phase 8c: Recompute registry paths for re-parented subtrees + signal paths
+  if (kinResult.affectedSubtrees.length > 0) {
+    const { count, remap } = registry.recomputePathsForSubtrees(kinResult.affectedSubtrees);
+    if (remap.size > 0) {
+      signalStore.remapPaths(remap);
+    }
+    debug('loader', `[Kinematic] Recomputed ${count} registry paths, ${remap.size} signal paths after re-parenting`);
   }
 
   // Phase 9: WebGPU compatibility fixes
@@ -994,8 +1027,13 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
   // Phase 12: Bounding box (after merge — merged geometry changes bounds)
   const boundingBox = new Box3().setFromObject(root);
 
-  // Phase 13: BVH for fast raycasting
+  // Phase 13: BVH for fast raycasting (per-mesh, still needed by annotation/FPV plugins)
   await computeBVH(root);
+
+  // Phase 13b: Build grouped raycast geometries (static + per-Drive kinematic)
+  const raycastGeometrySet = buildRaycastGeometries(
+    root, traverseResult.drives, registry, driveNodeSet,
+  );
 
   // Phase 14: Build playback
   const playback = buildPlayback(traverseResult.recordingData, traverseResult.recorderSettings, registry);
@@ -1054,6 +1092,7 @@ export async function loadGLB(url: string, scene: Scene, options?: LoadGLBOption
     pipelineNodes,
     metadataNodes: traverseResult.metadataNodes,
     kinematicGroupNames,
+    raycastGeometrySet,
   };
 }
 

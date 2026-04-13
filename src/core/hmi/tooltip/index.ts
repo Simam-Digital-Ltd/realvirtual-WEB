@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * Generic Tooltip System — Barrel export.
  *
@@ -14,8 +17,10 @@ export {
   tooltipStore,
   type TooltipMode,
   type TooltipContentType,
+  type TooltipLifecycle,
   type TooltipData,
   type TooltipEntry,
+  type VisibleTooltip,
   type TooltipState,
 } from './tooltip-store';
 
@@ -38,3 +43,10 @@ export {
 export { TooltipLayer } from './TooltipLayer';
 export { DriveTooltipController } from './DriveTooltipController';
 export { DriveTooltipContent, type DriveTooltipData } from './DriveTooltipContent';
+export { PipeTooltipContent, type PipeTooltipData } from './PipeTooltipContent';
+export { TankTooltipContent, type TankTooltipData } from './TankTooltipContent';
+export { PumpTooltipContent, type PumpTooltipData } from './PumpTooltipContent';
+export { ProcessingUnitTooltipContent, type ProcessingUnitTooltipData } from './ProcessingUnitTooltipContent';
+export { PipelineTooltipController } from './PipelineTooltipController';
+export { MetadataTooltipController } from './MetadataTooltipController';
+export { MetadataTooltipContent, type MetadataTooltipData } from './MetadataTooltipContent';

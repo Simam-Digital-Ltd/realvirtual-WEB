@@ -1,13 +1,17 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * RaycastManager — Unified raycast system for the realvirtual Web Viewer.
  *
- * Consolidates drive hover, scene click, and XR controller raycasting
- * into a single Three.js Raycaster with layer-based filtering.
+ * Uses grouped BVH raycast geometries:
+ *   - ONE merged BVH for all static meshes
+ *   - ONE merged BVH per kinematic Drive group
+ *   - InstancedMesh targets for MU pools
  *
- * Three.js Layers provide hardware-level bit-mask filtering (zero-cost).
- * Each node type (Drive, Sensor, MU, etc.) occupies its own layer.
- * Plugins register targets via registerTargets(), and the raycaster
- * only tests meshes on enabled layers.
+ * Hit resolution uses face-range binary search (O(log n)) instead of
+ * ancestor chain walk-up. Only objects with a content-providing ancestor
+ * (userData.realvirtual) are included.
  *
  * This class does NOT touch rv-sensor.ts — that remains a separate
  * O(1) physics raycast system.
@@ -20,15 +24,29 @@ import {
   Mesh,
   InstancedMesh,
   Object3D,
-  Layers,
-  Matrix4,
 } from 'three';
 import type { Camera, PerspectiveCamera, Scene } from 'three';
-import { RaycastLayers, type RaycastLayerName } from './rv-raycast-layers';
 import type { NodeRegistry } from './rv-node-registry';
 import type { RVHighlightManager } from './rv-highlight-manager';
-import type { RVDrive } from './rv-drive';
 import type { MUInstancePool, InstancedMovingUnit } from './rv-mu';
+import {
+  resolveHit,
+  type RaycastGeometrySet,
+  type RaycastGroup,
+} from './rv-raycast-geometry';
+
+// ─── Public types ───────────────────────────────────────────────────
+
+/** Hoverable node types (replaces layer-based RaycastLayerName). */
+export type HoverableType =
+  | 'Drive'
+  | 'Sensor'
+  | 'MU'
+  | 'Metadata'
+  | 'Pipe'
+  | 'Tank'
+  | 'Pump'
+  | 'ProcessingUnit';
 
 /** Data emitted with 'object-hover'. */
 export interface ObjectHoverData {
@@ -63,18 +81,24 @@ interface ViewerEmitter {
   emit(event: string, data?: unknown): void;
 }
 
-
-const THROTTLE_MS = 50;
-
 /** Filter function to exclude meshes from raycasting (overlays, etc.). */
 export type ExcludeFilter = (mesh: Object3D) => boolean;
 
 /**
  * Override function for ancestor resolution.
- * Given a candidate node (found by standard walk-up), return a different
- * ancestor node to use as the resolved target, or null to skip.
+ * Given a resolved node (from face-range lookup), return a different
+ * node to use as the resolved target, or null to skip.
  */
 export type AncestorOverrideFn = (node: Object3D) => Object3D | null;
+
+const THROTTLE_MS = 50;
+
+// ─── Known hoverable types for _isTypeEnabled ───────────────────────
+
+const KNOWN_TYPES = new Set<string>([
+  'Drive', 'Sensor', 'MU', 'Metadata',
+  'Pipe', 'Tank', 'Pump', 'ProcessingUnit',
+]);
 
 export class RaycastManager {
   private readonly raycaster = new Raycaster();
@@ -104,14 +128,20 @@ export class RaycastManager {
   /** Last XR controller ray direction (for ray visualization). */
   lastRayDirection: Vector3 | null = null;
 
-  /** Registered targets by type. */
-  private _targetsByType = new Map<RaycastLayerName, Object3D[]>();
+  /** Grouped BVH raycast geometry set (set after scene load). */
+  private _raycastGeo: RaycastGeometrySet | null = null;
+  /** InstancedMesh targets for MU pools. */
+  private _instancedMeshes: InstancedMesh[] = [];
   /** Exclude filters applied to intersections. */
   private _excludeFilters: ExcludeFilter[] = [];
-  /** Which hover types are currently enabled (mapped to raycaster.layers). */
-  private _enabledTypes = new Set<RaycastLayerName>();
+  /** Which hover types are currently enabled. */
+  private _enabledTypes = new Set<HoverableType>();
   /** Ancestor override callbacks — first non-null result wins. */
   private _ancestorOverrides: AncestorOverrideFn[] = [];
+  /** Cached raycast target list (rebuilt when geometry or instanced meshes change). */
+  private _targets: Object3D[] = [];
+  /** Map from raycast BVH mesh → RaycastGroup (for face-range lookup). */
+  private _meshToGroup = new Map<Object3D, RaycastGroup>();
 
   private readonly onPointerMove: (e: PointerEvent) => void;
 
@@ -129,20 +159,23 @@ export class RaycastManager {
   ) {
     // Enable firstHitOnly for BVH-accelerated raycasting (massive speedup)
     this.raycaster.firstHitOnly = true;
+    // Enable all layers on the raycaster — filtering is done via the explicit
+    // target list, not Three.js layer bits.
+    this.raycaster.layers.enableAll();
 
     this.onPointerMove = this._handlePointerMove.bind(this);
     renderer.domElement.addEventListener('pointermove', this.onPointerMove);
 
-    // Default exclude filters (same as the old rv-drive-hover.ts)
+    // Default exclude filters
     this._excludeFilters.push(
       (obj) => !!obj.userData?._highlightOverlay,
       (obj) => !!obj.userData?._driveHoverOverlay,
       (obj) => obj.name.endsWith('_sensorViz'),
+      (obj) => !!obj.userData?._tankFillViz,
     );
 
     // Default: only drives are hoverable
-    this.enableHoverType('DRIVE', true);
-    this._updateRaycasterLayers();
+    this.enableHoverType('Drive', true);
   }
 
   // ─── Public API ──────────────────────────────────────────────────
@@ -170,72 +203,39 @@ export class RaycastManager {
   get holdHover(): boolean { return this._holdHover; }
 
   /**
-   * Register targets for a node type. Sets the corresponding layer
-   * on all child meshes of each target.
+   * Provide the grouped BVH raycast geometry and instanced MU meshes.
+   * Called once after scene load.
    */
-  registerTargets(nodeType: RaycastLayerName, targets: Object3D[]): void {
-    const layer = RaycastLayers[nodeType];
-    this._targetsByType.set(nodeType, targets);
-
-    for (const target of targets) {
-      target.traverse((child) => {
-        if ((child as Mesh).isMesh
-          && !child.userData?._highlightOverlay
-          && !child.userData?._driveHoverOverlay) {
-          child.layers.enable(layer);
-        }
-      });
-    }
+  setRaycastGeometry(geo: RaycastGeometrySet, instancedMeshes: InstancedMesh[]): void {
+    this._raycastGeo = geo;
+    this._instancedMeshes = [...instancedMeshes];
+    this._rebuildTargetList();
   }
 
   /**
-   * Update targets for a type: removes old layer bits, registers new targets.
+   * Notify that an MU pool replaced its InstancedMesh (e.g. during growth).
    */
-  updateTargets(nodeType: RaycastLayerName, targets: Object3D[]): void {
-    // Remove old layers
-    const oldTargets = this._targetsByType.get(nodeType);
-    if (oldTargets) {
-      const layer = RaycastLayers[nodeType];
-      for (const target of oldTargets) {
-        target.traverse((child) => {
-          if ((child as Mesh).isMesh) {
-            child.layers.disable(layer);
-          }
-        });
-      }
+  notifyInstancedMeshChanged(oldMesh: InstancedMesh, newMesh: InstancedMesh): void {
+    const idx = this._instancedMeshes.indexOf(oldMesh);
+    if (idx >= 0) {
+      this._instancedMeshes[idx] = newMesh;
+    } else {
+      this._instancedMeshes.push(newMesh);
     }
-    // Register new
-    this.registerTargets(nodeType, targets);
-  }
-
-  /** Clear all targets: reset layers and internal maps. */
-  clearTargets(): void {
-    for (const [typeName, targets] of this._targetsByType) {
-      const layer = RaycastLayers[typeName];
-      for (const target of targets) {
-        target.traverse((child) => {
-          if ((child as Mesh).isMesh) {
-            child.layers.disable(layer);
-          }
-        });
-      }
-    }
-    this._targetsByType.clear();
-    this._clearHover();
+    this._rebuildTargetList();
   }
 
   /** Enable or disable hover detection for a given node type. */
-  enableHoverType(nodeType: RaycastLayerName, enabled: boolean): void {
+  enableHoverType(nodeType: HoverableType, enabled: boolean): void {
     if (enabled) {
       this._enabledTypes.add(nodeType);
     } else {
       this._enabledTypes.delete(nodeType);
     }
-    this._updateRaycasterLayers();
   }
 
   /** Returns the currently enabled hover types. */
-  getEnabledHoverTypes(): RaycastLayerName[] {
+  getEnabledHoverTypes(): HoverableType[] {
     return [...this._enabledTypes];
   }
 
@@ -246,9 +246,9 @@ export class RaycastManager {
 
   /**
    * Add an ancestor override function.
-   * When resolving a raycast hit, overrides are checked first. If any override
-   * returns a non-null Object3D, that node is used instead of the standard
-   * walk-up-to-realvirtual-ancestor resolution.
+   * When resolving a raycast hit, overrides are checked after face-range
+   * resolution. If any override returns a non-null Object3D, that node
+   * is used instead of the face-range resolved node.
    */
   addAncestorOverride(fn: AncestorOverrideFn): void {
     this._ancestorOverrides.push(fn);
@@ -278,7 +278,6 @@ export class RaycastManager {
    * Perform a click/select raycast from a mouse/pointer event.
    * Returns the hovered node path, or null.
    * Does NOT alter hover state — this is for click handlers only.
-   * Respects the current layer mask (exclusive hover mode).
    */
   raycastForRVNode(e: MouseEvent): string | null {
     const result = this.raycastForRVNodeDetailed(e);
@@ -294,28 +293,24 @@ export class RaycastManager {
     hitPoint: [number, number, number];
     hitNormal: [number, number, number];
   } | null {
-    if (!this.registry) return null;
+    if (!this.registry || this._targets.length === 0) return null;
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-    // Use enableAll for the raycast (layers are shared with rendering, so we
-    // can't use them for filtering). Instead we filter the resolved node type.
-    const savedMask = this.raycaster.layers.mask;
-    this.raycaster.layers.enableAll();
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hits = this.raycaster.intersectObjects(this.scene.children, true);
-    this.raycaster.layers.mask = savedMask;
+    const hits = this.raycaster.intersectObjects(this._targets, false);
 
     for (const hit of hits) {
       if (this._isExcluded(hit.object)) continue;
-      const result = this._findRVAncestor(hit.object);
-      if (result) {
-        // Enforce exclusive hover mode for clicks too
-        if (!this._isTypeEnabled(result.nodeType)) continue;
+
+      const resolved = this._resolveHit(hit);
+      if (!resolved) break; // Structural mesh blocks
+
+      if (this._isTypeEnabled(resolved.nodeType)) {
         const normal = hit.face?.normal?.clone().transformDirection(hit.object.matrixWorld);
         return {
-          path: result.nodePath,
+          path: resolved.nodePath,
           hitPoint: [hit.point.x, hit.point.y, hit.point.z],
           hitNormal: normal ? [normal.x, normal.y, normal.z] : [0, 1, 0],
         };
@@ -331,6 +326,7 @@ export class RaycastManager {
   arTapRaycast(clientX: number, clientY: number, xrCamera?: PerspectiveCamera): {
     node: Object3D; nodeType: string; nodePath: string;
   } | null {
+    if (this._targets.length === 0) return null;
     const cam = xrCamera ?? this.camera;
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -347,33 +343,25 @@ export class RaycastManager {
     let bestPath: string | null = null;
     let bestDist = Infinity;
 
-    // Save and set raycaster layers for all enabled types
-    const savedMask = this.raycaster.layers.mask;
-    // For AR tap, use whatever is currently enabled
-    this._updateRaycasterLayers();
-
     for (const [ox, oy] of offsets) {
       this.pointer.x = ((clientX + ox) / w) * 2 - 1;
       this.pointer.y = -((clientY + oy) / h) * 2 + 1;
       this.raycaster.setFromCamera(this.pointer, cam);
 
-      const hits = this.raycaster.intersectObjects(this.scene.children, true);
+      const hits = this.raycaster.intersectObjects(this._targets, false);
       for (const hit of hits) {
         if (this._isExcluded(hit.object)) continue;
-        if (!(hit.object as Mesh).isMesh) continue;
 
-        const result = this._findRVAncestor(hit.object);
-        if (result && hit.distance < bestDist) {
+        const resolved = this._resolveHit(hit);
+        if (resolved && hit.distance < bestDist) {
           bestDist = hit.distance;
-          bestNode = result.node;
-          bestType = result.nodeType;
-          bestPath = result.nodePath;
+          bestNode = resolved.node;
+          bestType = resolved.nodeType;
+          bestPath = resolved.nodePath;
         }
-        break; // Only check first non-excluded hit per sample
+        break; // First non-excluded hit per sample (structural or interactive)
       }
     }
-
-    this.raycaster.layers.mask = savedMask;
 
     if (bestNode && bestType && bestPath) {
       return { node: bestNode, nodeType: bestType, nodePath: bestPath };
@@ -387,6 +375,30 @@ export class RaycastManager {
   }
 
   // ─── Private ──────────────────────────────────────────────────────
+
+  /** Rebuild the cached target list and mesh→group map from current geometry set. */
+  private _rebuildTargetList(): void {
+    this._targets = [];
+    this._meshToGroup.clear();
+
+    if (this._raycastGeo) {
+      if (this._raycastGeo.staticGroup) {
+        this._targets.push(this._raycastGeo.staticGroup.mesh);
+        this._meshToGroup.set(
+          this._raycastGeo.staticGroup.mesh,
+          this._raycastGeo.staticGroup,
+        );
+      }
+      for (const group of this._raycastGeo.kinematicGroups.values()) {
+        this._targets.push(group.mesh);
+        this._meshToGroup.set(group.mesh, group);
+      }
+    }
+
+    for (const im of this._instancedMeshes) {
+      this._targets.push(im);
+    }
+  }
 
   private _handlePointerMove(e: PointerEvent): void {
     // Always track pointer position (for external tooltip positioning)
@@ -410,138 +422,69 @@ export class RaycastManager {
     this._doRaycast();
   }
 
-  /** Map node type string (e.g. "Drive") to RaycastLayerName (e.g. "DRIVE"). */
-  private _nodeTypeToLayer(nodeType: string): RaycastLayerName | null {
-    const map: Record<string, RaycastLayerName> = { Drive: 'DRIVE', Sensor: 'SENSOR', MU: 'MU' };
-    return map[nodeType] ?? null;
-  }
-
-  /** Check if a node type is allowed by the current enabled hover types. */
-  private _isTypeEnabled(nodeType: string): boolean {
-    // If all standard types are enabled, allow everything (no filtering)
-    if (this._enabledTypes.has('DRIVE') && this._enabledTypes.has('SENSOR') && this._enabledTypes.has('MU')) {
-      return true;
-    }
-    const layer = this._nodeTypeToLayer(nodeType);
-    // Untyped nodes (no matching layer) are allowed when no exclusive mode is active
-    if (!layer) return true;
-    return this._enabledTypes.has(layer);
-  }
-
-  /** Core raycast logic shared between pointer and XR. */
-  private _doRaycast(): void {
-    const hits = this.raycaster.intersectObjects(this.scene.children, true);
-
-    let hitNode: Object3D | null = null;
-    let hitType: string | null = null;
-    let hitPath: string | null = null;
-    let hitInstancedMU: InstancedMovingUnit | null = null;
-
-    for (const hit of hits) {
-      if (!(hit.object as Mesh).isMesh) continue;
-      if (this._isExcluded(hit.object)) continue;
-
-      // Check for InstancedMesh MU pool hit
-      const pool = hit.object.userData?._muPool as MUInstancePool | undefined;
-      if (pool && hit.instanceId !== undefined && hit.instanceId >= 0) {
-        if (!this._enabledTypes.has('MU')) continue;
-        const mu = pool.getMUAtSlot(hit.instanceId);
-        if (mu) {
-          hitNode = hit.object;
-          hitType = 'MU';
-          hitPath = mu.getName();
-          hitInstancedMU = mu;
-          break;
-        }
-        continue;
-      }
-
-      const result = this._findRVAncestor(hit.object);
-      if (result) {
-        // Enforce exclusive hover mode: skip nodes whose type is not enabled
-        if (!this._isTypeEnabled(result.nodeType)) continue;
-        hitNode = result.node;
-        hitType = result.nodeType;
-        hitPath = result.nodePath;
-        break;
-      }
-    }
-
-    if (!hitNode) {
-      this._clearHover();
-      return;
-    }
-
-    if (hitNode === this._hoveredNode && !hitInstancedMU) return;
-    // For instanced MUs, check if same MU is still highlighted
-    if (hitInstancedMU && this._hoveredInstancedMU === hitInstancedMU) return;
-
-    this._clearHover();
-    this._hoveredNode = hitNode;
-    this._hoveredNodeType = hitType;
-    this._hoveredNodePath = hitPath;
-    this._hoveredInstancedMU = hitInstancedMU;
-
-    if (hitInstancedMU) {
-      this.highlighter.highlightInstancedMU(hitInstancedMU);
-    } else {
-      // LayoutObject nodes need includeChildDrives to highlight the full subtree
-      const isLayout = !!(hitNode.userData?.realvirtual as Record<string, unknown> | undefined)?.LayoutObject;
-      this.highlighter.highlight(hitNode, false, { includeChildDrives: isLayout });
-    }
-    this.renderer.domElement.style.cursor = 'pointer';
-  }
-
-  /** Walk up from a mesh to find the nearest ancestor with realvirtual userData.
-   *  Checks ancestor overrides first — if any override returns a node, use that.
-   *  Returns the node, its type, and path. */
-  private _findRVAncestor(mesh: Object3D): {
-    node: Object3D; nodeType: string; nodePath: string;
+  /**
+   * Resolve a raycast intersection to a realvirtual node.
+   * Handles both BVH group hits (face-range lookup) and InstancedMesh MU hits.
+   */
+  private _resolveHit(hit: { object: Object3D; faceIndex?: number | null; instanceId?: number }): {
+    node: Object3D;
+    nodeType: string;
+    nodePath: string;
+    instancedMU?: InstancedMovingUnit;
   } | null {
-    // Check ancestor overrides first (e.g. layout planner full-object selection)
+    // Check for InstancedMesh MU pool hit
+    const pool = hit.object.userData?._muPool as MUInstancePool | undefined;
+    if (pool && hit.instanceId !== undefined && hit.instanceId >= 0) {
+      const mu = pool.getMUAtSlot(hit.instanceId);
+      if (mu) {
+        return {
+          node: hit.object,
+          nodeType: 'MU',
+          nodePath: mu.getName(),
+          instancedMU: mu,
+        };
+      }
+      return null;
+    }
+
+    // Look up the BVH group for this mesh
+    const group = this._meshToGroup.get(hit.object);
+    if (!group || hit.faceIndex == null) return null;
+
+    // Binary search face ranges
+    const objectPath = resolveHit(group.faceRanges, hit.faceIndex);
+    if (!objectPath) return null;
+
+    // Resolve to Object3D via registry
+    const node = this.registry.getNode(objectPath);
+    if (!node) return null;
+
+    // Check ancestor overrides (e.g. layout planner full-object selection)
     for (const override of this._ancestorOverrides) {
-      const overrideNode = override(mesh);
+      const overrideNode = override(node);
       if (overrideNode) {
-        const path = this.registry.getPathForNode(overrideNode);
-        if (path) {
-          const nodeType = this._determineNodeType(overrideNode, path);
-          return { node: overrideNode, nodeType, nodePath: path };
+        const overridePath = this.registry.getPathForNode(overrideNode);
+        if (overridePath) {
+          const nodeType = this._resolveNodeType(overrideNode);
+          return { node: overrideNode, nodeType, nodePath: overridePath };
         }
       }
     }
 
-    let current: Object3D | null = mesh;
-    while (current) {
-      const rv = current.userData?.realvirtual;
-      if (rv && typeof rv === 'object') {
-        const path = this.registry.getPathForNode(current);
-        if (path) {
-          // Determine node type from registered components
-          const nodeType = this._determineNodeType(current, path);
-          return { node: current, nodeType, nodePath: path };
-        }
-      }
-      current = current.parent;
-    }
-    return null;
+    const nodeType = this._resolveNodeType(node);
+    return { node, nodeType, nodePath: objectPath };
   }
 
-  /** Determine the primary node type from the registry. */
-  private _determineNodeType(node: Object3D, path: string): string {
-    // Fast path: check cached type from scene loader (avoids parent chain walk)
+  /** Determine the primary node type from cached data or registry. */
+  private _resolveNodeType(node: Object3D): string {
+    // Fast path: check cached type from scene loader
     const cachedType = node.userData?._rvType as string | undefined;
     if (cachedType) return cachedType;
 
-    // Check standard types in priority order
-    const typeChecks: Array<{ type: string; layerName: RaycastLayerName }> = [
-      { type: 'Drive', layerName: 'DRIVE' },
-      { type: 'Sensor', layerName: 'SENSOR' },
-      { type: 'MU', layerName: 'MU' },
-    ];
-
-    for (const { type } of typeChecks) {
-      const instance = this.registry.findInParent(node, type);
-      if (instance) return type;
+    // Check standard types in priority order via registry
+    const types = ['Drive', 'Sensor', 'MU', 'Pipe', 'Tank', 'Pump', 'ProcessingUnit'];
+    for (const type of types) {
+      if (this.registry.findInParent(node, type)) return type;
     }
 
     // Fallback: check realvirtual userData keys
@@ -554,24 +497,100 @@ export class RaycastManager {
     return 'Unknown';
   }
 
+  /**
+   * Walk up from `node` to find the ancestor that actually owns the
+   * component of the given type. Mirrors what the click handler does
+   * (e.g. findInParent<RVDrive>) so hover highlights the same subtree.
+   */
+  private _findComponentOwner(node: Object3D, nodeType: string): Object3D | null {
+    if (!KNOWN_TYPES.has(nodeType)) return null;
+    let current: Object3D | null = node;
+    while (current) {
+      const path = this.registry.getPathForNode(current);
+      if (path) {
+        const types = this.registry.getComponentTypes(path);
+        if (types.includes(nodeType)) return current;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  /** Check if a node type is allowed by the current enabled hover types. */
+  private _isTypeEnabled(nodeType: string): boolean {
+    // If the type isn't a known hoverable type, always allow it
+    if (!KNOWN_TYPES.has(nodeType)) return true;
+    return this._enabledTypes.has(nodeType as HoverableType);
+  }
+
+  /** Core raycast logic shared between pointer and XR. */
+  private _doRaycast(): void {
+    if (this._targets.length === 0) {
+      this._clearHover();
+      return;
+    }
+
+    const hits = this.raycaster.intersectObjects(this._targets, false);
+
+    let hitNode: Object3D | null = null;
+    let hitType: string | null = null;
+    let hitPath: string | null = null;
+    let hitInstancedMU: InstancedMovingUnit | null = null;
+
+    for (const hit of hits) {
+      if (this._isExcluded(hit.object)) continue;
+
+      const resolved = this._resolveHit(hit);
+      if (!resolved) break; // Structural mesh blocks — nothing behind is reachable
+
+      // Enforce exclusive hover mode: skip nodes whose type is not enabled
+      if (!this._isTypeEnabled(resolved.nodeType)) continue;
+
+      hitNode = resolved.node;
+      hitType = resolved.nodeType;
+      hitPath = resolved.nodePath;
+      hitInstancedMU = resolved.instancedMU ?? null;
+      break;
+    }
+
+    if (!hitNode) {
+      this._clearHover();
+      return;
+    }
+
+    // Walk up to the component-owning parent to match click/selection behavior.
+    // _resolveNodeType uses findInParent which may report a type from an ancestor
+    // (e.g. 'Drive' for a child mesh under a Drive). The click handler walks up
+    // to that ancestor for selection, so hover should highlight the same node.
+    const highlightNode = (hitType ? this._findComponentOwner(hitNode, hitType) : null) ?? hitNode;
+    const highlightPath = this.registry.getPathForNode(highlightNode) ?? hitPath;
+
+    if (highlightNode === this._hoveredNode && !hitInstancedMU) return;
+    // For instanced MUs, check if same MU is still highlighted
+    if (hitInstancedMU && this._hoveredInstancedMU === hitInstancedMU) return;
+
+    this._clearHover();
+    this._hoveredNode = highlightNode;
+    this._hoveredNodeType = hitType;
+    this._hoveredNodePath = highlightPath;
+    this._hoveredInstancedMU = hitInstancedMU;
+
+    if (hitInstancedMU) {
+      this.highlighter.highlightInstancedMU(hitInstancedMU);
+    } else {
+      // LayoutObject nodes need includeChildDrives to highlight the full subtree
+      const isLayout = !!(highlightNode.userData?.realvirtual as Record<string, unknown> | undefined)?.LayoutObject;
+      this.highlighter.highlight(highlightNode, false, { includeChildDrives: isLayout });
+    }
+    this.renderer.domElement.style.cursor = 'pointer';
+  }
+
   /** Check if a mesh should be excluded from raycast results. */
   private _isExcluded(mesh: Object3D): boolean {
     for (const filter of this._excludeFilters) {
       if (filter(mesh)) return true;
     }
     return false;
-  }
-
-  /** Update the raycaster's layer mask from enabled types. */
-  private _updateRaycasterLayers(): void {
-    // Start with no layers
-    this.raycaster.layers.mask = 0;
-    // Enable each active type's layer
-    for (const typeName of this._enabledTypes) {
-      this.raycaster.layers.enable(RaycastLayers[typeName]);
-    }
-    // Always also enable the default layer (layer 0) so standard meshes are testable
-    this.raycaster.layers.enable(RaycastLayers.DEFAULT);
   }
 
   /** Clear hover state and restore cursor. */

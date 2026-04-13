@@ -1,6 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { describe, it, expect, vi } from 'vitest';
-import { Object3D, Mesh, BoxGeometry, MeshBasicMaterial, Raycaster, Layers } from 'three';
-import { RaycastLayers } from '../src/core/engine/rv-raycast-layers';
+import { Object3D, Mesh, BoxGeometry, MeshBasicMaterial } from 'three';
+import { resolveHit, type FaceRange } from '../src/core/engine/rv-raycast-geometry';
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -34,22 +37,58 @@ function createOverlayMesh(): Mesh {
 
 // ─── Tests ──────────────────────────────────────────────────────────
 
-describe('RaycastManager', () => {
-  it('should register and clear targets by type', () => {
-    const targetRegistry = new Map<string, Object3D[]>();
+describe('resolveHit (face-range binary search)', () => {
+  const faceRanges: FaceRange[] = [
+    { startFace: 0, endFace: 100, objectPath: 'Root/DriveA' },
+    { startFace: 100, endFace: 250, objectPath: 'Root/DriveB' },
+    { startFace: 250, endFace: 300, objectPath: 'Root/Sensor1' },
+    { startFace: 300, endFace: 500, objectPath: 'Root/Group/DriveC' },
+  ];
 
-    const driveMesh1 = createDriveMesh('Drive1');
-    const driveMesh2 = createDriveMesh('Drive2');
-
-    // Register
-    targetRegistry.set('Drive', [driveMesh1, driveMesh2]);
-    expect(targetRegistry.get('Drive')?.length).toBe(2);
-
-    // Clear
-    targetRegistry.clear();
-    expect(targetRegistry.size).toBe(0);
+  it('resolves first range', () => {
+    expect(resolveHit(faceRanges, 0)).toBe('Root/DriveA');
+    expect(resolveHit(faceRanges, 50)).toBe('Root/DriveA');
+    expect(resolveHit(faceRanges, 99)).toBe('Root/DriveA');
   });
 
+  it('resolves middle range', () => {
+    expect(resolveHit(faceRanges, 100)).toBe('Root/DriveB');
+    expect(resolveHit(faceRanges, 200)).toBe('Root/DriveB');
+    expect(resolveHit(faceRanges, 249)).toBe('Root/DriveB');
+  });
+
+  it('resolves last range', () => {
+    expect(resolveHit(faceRanges, 300)).toBe('Root/Group/DriveC');
+    expect(resolveHit(faceRanges, 499)).toBe('Root/Group/DriveC');
+  });
+
+  it('returns null for face outside all ranges', () => {
+    expect(resolveHit(faceRanges, 500)).toBeNull();
+    expect(resolveHit(faceRanges, 1000)).toBeNull();
+  });
+
+  it('returns null for empty face ranges', () => {
+    expect(resolveHit([], 0)).toBeNull();
+  });
+
+  it('handles boundary between ranges', () => {
+    // Face 100 is the start of DriveB (exclusive end of DriveA)
+    expect(resolveHit(faceRanges, 99)).toBe('Root/DriveA');
+    expect(resolveHit(faceRanges, 100)).toBe('Root/DriveB');
+  });
+
+  it('handles single-face ranges', () => {
+    const singleFace: FaceRange[] = [
+      { startFace: 0, endFace: 1, objectPath: 'Root/Tiny' },
+      { startFace: 1, endFace: 2, objectPath: 'Root/Tiny2' },
+    ];
+    expect(resolveHit(singleFace, 0)).toBe('Root/Tiny');
+    expect(resolveHit(singleFace, 1)).toBe('Root/Tiny2');
+    expect(resolveHit(singleFace, 2)).toBeNull();
+  });
+});
+
+describe('RaycastManager behavior', () => {
   it('should apply exclude filters to intersections', () => {
     const overlayMesh = createOverlayMesh();
     const driveMesh = createDriveMesh('Drive1');
@@ -96,7 +135,6 @@ describe('RaycastManager', () => {
 
     viewer.on('drive-hover', (data: unknown) => receivedEvents.push(data));
 
-    // Compat-Layer must emit { drive, clientX, clientY } — NOT { drive, pointer }
     const mockDrive = { name: 'Drive1', path: '/Root/Drive1' };
     viewer.emit('drive-hover', {
       drive: mockDrive,
@@ -109,7 +147,6 @@ describe('RaycastManager', () => {
     expect(evt).toHaveProperty('clientX', 450);
     expect(evt).toHaveProperty('clientY', 300);
     expect(evt).toHaveProperty('drive', mockDrive);
-    // MUST NOT have 'pointer' property (breaking change)
     expect(evt).not.toHaveProperty('pointer');
   });
 
@@ -142,68 +179,13 @@ describe('RaycastManager', () => {
     emit({ nodeType: 'Drive', pointer: { x: 100, y: 200 } });
     expect(emitted.length).toBe(1);
 
-    // Disable (orbit start)
     enabled = false;
     emit({ nodeType: 'Drive', pointer: { x: 150, y: 250 } });
     expect(emitted.length).toBe(1);
 
-    // Re-enable (orbit end)
     enabled = true;
     emit({ nodeType: 'Drive', pointer: { x: 200, y: 300 } });
     expect(emitted.length).toBe(2);
-  });
-
-  it('should clearTargets on model-cleared', () => {
-    const viewer = createMockViewer();
-    const targetRegistry = new Map<string, Object3D[]>();
-
-    targetRegistry.set('Drive', [createDriveMesh('D1'), createDriveMesh('D2')]);
-    targetRegistry.set('Sensor', [new Object3D()]);
-    expect(targetRegistry.size).toBe(2);
-
-    viewer.on('model-cleared', () => targetRegistry.clear());
-    viewer.emit('model-cleared');
-
-    expect(targetRegistry.size).toBe(0);
-  });
-
-  it('should set layers on meshes when registering targets', () => {
-    const driveMesh = createDriveMesh('D1');
-    // Before registration: only on default layer
-    expect(driveMesh.layers.test(new Layers())).toBe(true); // layer 0
-
-    // Simulate registerTargets: enable DRIVE layer on all meshes
-    driveMesh.layers.enable(RaycastLayers.DRIVE);
-
-    const testLayers = new Layers();
-    testLayers.set(RaycastLayers.DRIVE);
-    expect(driveMesh.layers.test(testLayers)).toBe(true);
-  });
-
-  it('should enable/disable hover types via layers', () => {
-    const raycaster = new Raycaster();
-
-    // Default: only drives hoverable
-    raycaster.layers.set(0); // reset
-    raycaster.layers.enable(RaycastLayers.DRIVE);
-
-    const driveLayer = new Layers();
-    driveLayer.set(RaycastLayers.DRIVE);
-    const sensorLayer = new Layers();
-    sensorLayer.set(RaycastLayers.SENSOR);
-
-    // Raycaster matches drives but not sensors
-    expect(raycaster.layers.test(driveLayer)).toBe(true);
-    expect(raycaster.layers.test(sensorLayer)).toBe(false);
-
-    // Enable sensor hover
-    raycaster.layers.enable(RaycastLayers.SENSOR);
-    expect(raycaster.layers.test(sensorLayer)).toBe(true);
-
-    // Disable drive hover
-    raycaster.layers.disable(RaycastLayers.DRIVE);
-    expect(raycaster.layers.test(driveLayer)).toBe(false);
-    expect(raycaster.layers.test(sensorLayer)).toBe(true);
   });
 
   it('should provide driveHover deprecation getter', () => {
@@ -228,46 +210,5 @@ describe('RaycastManager', () => {
     expect(dh.enabled).toBe(true);
 
     warnSpy.mockRestore();
-  });
-
-  it('should have correct layer constants', () => {
-    expect(RaycastLayers.DEFAULT).toBe(0);
-    expect(RaycastLayers.DRIVE).toBe(1);
-    expect(RaycastLayers.SENSOR).toBe(2);
-    expect(RaycastLayers.MU).toBe(3);
-    expect(RaycastLayers.METADATA).toBe(4);
-    expect(RaycastLayers.SCENE_CLICK).toBe(5);
-  });
-
-  it('should remove layers when clearing targets', () => {
-    const mesh = createDriveMesh('D1');
-    mesh.layers.enable(RaycastLayers.DRIVE);
-
-    const driveLayerTest = new Layers();
-    driveLayerTest.set(RaycastLayers.DRIVE);
-    expect(mesh.layers.test(driveLayerTest)).toBe(true);
-
-    // Simulate clearTargets: disable layer
-    mesh.layers.disable(RaycastLayers.DRIVE);
-    expect(mesh.layers.test(driveLayerTest)).toBe(false);
-  });
-
-  it('should support multiple layers on same mesh', () => {
-    const mesh = createDriveMesh('D1');
-    mesh.layers.enable(RaycastLayers.DRIVE);
-    mesh.layers.enable(RaycastLayers.SCENE_CLICK);
-
-    const driveLayer = new Layers();
-    driveLayer.set(RaycastLayers.DRIVE);
-    const sceneLayer = new Layers();
-    sceneLayer.set(RaycastLayers.SCENE_CLICK);
-
-    expect(mesh.layers.test(driveLayer)).toBe(true);
-    expect(mesh.layers.test(sceneLayer)).toBe(true);
-
-    // Disable only DRIVE — SCENE_CLICK remains
-    mesh.layers.disable(RaycastLayers.DRIVE);
-    expect(mesh.layers.test(driveLayer)).toBe(false);
-    expect(mesh.layers.test(sceneLayer)).toBe(true);
   });
 });

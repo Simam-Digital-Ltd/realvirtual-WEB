@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { test, expect } from 'playwright/test';
 
 // Smoke test: verify both WebGL and WebGPU modes boot without errors.

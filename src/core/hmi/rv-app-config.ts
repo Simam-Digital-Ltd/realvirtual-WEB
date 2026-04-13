@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * Re-export barrel — rv-app-config moved to core/rv-app-config.ts.
  * This file exists for backward compatibility during migration.

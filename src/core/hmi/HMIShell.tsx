@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
+import { useSyncExternalStore } from 'react';
 import { Box } from '@mui/material';
 import { useViewer } from '../../hooks/use-viewer';
 import type { UISlot } from '../rv-ui-plugin';
@@ -11,11 +15,14 @@ interface HMIShellProps {
  * SlotRenderer — Renders all UI plugin components registered for a given slot.
  * Use alongside (or instead of) hardcoded children in HMIShell.
  *
+ * Reactive: re-renders when plugins are registered/unregistered via UIPluginRegistry.
  * Entries with a `visibilityRule` are filtered by the active UI contexts.
  * Entries WITHOUT a `visibilityRule` are ALWAYS visible (invariant).
  */
 export function SlotRenderer({ slot }: { slot: UISlot }) {
   const viewer = useViewer();
+  // Subscribe to registry changes so we re-render when model plugins load/unload
+  useSyncExternalStore(viewer.uiRegistry.subscribe, viewer.uiRegistry.getSnapshot);
   const entries = viewer.uiRegistry.getSlotComponents(slot);
   const contexts = useActiveContexts();
 

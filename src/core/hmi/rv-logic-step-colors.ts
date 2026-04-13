@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * rv-logic-step-colors.ts — Shared color and label constants for LogicStep
  * status display in hierarchy browser and property inspector.

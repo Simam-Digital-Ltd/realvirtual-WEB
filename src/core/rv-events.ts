@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * Minimal typed event emitter for the WebViewer core.
  * No external dependencies. Used by RVViewer for 'model-loaded', 'drive-hover', etc.

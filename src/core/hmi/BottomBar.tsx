@@ -1,8 +1,11 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   TextField, InputAdornment, Box, Paper, IconButton,
   Popover, Switch, FormControlLabel, Typography, Divider,
-  List, ListItemButton,
+  List, ListItemButton, Tooltip,
 } from '@mui/material';
 import { Search, Clear, MoreHoriz, CenterFocusStrong, Layers, DirectionsWalk } from '@mui/icons-material';
 import { CameraBar } from './CameraBar';
@@ -18,27 +21,10 @@ import {
 import type { NodeSearchResult } from '../engine/rv-node-registry';
 import { RvExtrasEditorPlugin } from './rv-extras-editor';
 export { BOTTOM_BAR_HEIGHT } from './layout-constants';
+import { RV_SCROLL_CLASS } from './shared-sx';
 
 const DEBOUNCE_MS = 250;
 const MAX_VISIBLE_RESULTS = 8;
-
-/** Dark-gray outer scrollbar — injected as real CSS for reliable pseudo-element support. */
-const SCROLL_CLASS = 'rv-result-scroll';
-const scrollStyleId = 'rv-result-scroll-style';
-if (typeof document !== 'undefined' && !document.getElementById(scrollStyleId)) {
-  const style = document.createElement('style');
-  style.id = scrollStyleId;
-  style.textContent = `
-    .${SCROLL_CLASS} { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.25) transparent; }
-    .${SCROLL_CLASS}::-webkit-scrollbar { width: 8px; }
-    .${SCROLL_CLASS}::-webkit-scrollbar-track { background: transparent; }
-    .${SCROLL_CLASS}::-webkit-scrollbar-thumb { background: #666; border-radius: 4px; }
-    .${SCROLL_CLASS}::-webkit-scrollbar-thumb:hover { background: #888; }
-    .${SCROLL_CLASS}::-webkit-scrollbar-button { display: none !important; width: 0 !important; height: 0 !important; }
-    .${SCROLL_CLASS}::-webkit-scrollbar-corner { background: #333; }
-  `;
-  document.head.appendChild(style);
-}
 
 export function BottomBar() {
   const viewer = useViewer();
@@ -239,7 +225,7 @@ export function BottomBar() {
         {showResults && (
           <Paper
             elevation={4}
-            className={SCROLL_CLASS}
+            className={RV_SCROLL_CLASS}
             onScroll={() => { if (programmaticScroll.current) programmaticScroll.current = false; else if (selectedIdx >= 0) setSelectedIdx(-1); }}
             sx={{
               width: { xs: 'calc(100vw - 24px)', sm: 388 },
@@ -256,13 +242,13 @@ export function BottomBar() {
                 const typeLabel = r.types.length > 0 ? r.types[0] : '';
                 const isSelected = i === selectedIdx;
                 return (
+                  <Tooltip title={r.path} placement="right" enterDelay={400} slotProps={{ tooltip: { sx: { fontSize: 10 } } }}>
                   <ListItemButton
                     key={r.path}
                     selected={isSelected}
                     onClick={() => handleResultClick(r)}
                     onMouseEnter={() => setSelectedIdx(i)}
                     onMouseMove={() => { if (selectedIdx !== i) setSelectedIdx(i); }}
-                    title={r.path}
                     sx={{ py: 0.25, px: 1.5, minHeight: 0 }}
                   >
                     <Typography variant="body2" noWrap sx={{ flex: 1 }}>{name}</Typography>
@@ -272,6 +258,7 @@ export function BottomBar() {
                       </Typography>
                     )}
                   </ListItemButton>
+                  </Tooltip>
                 );
               })}
             </List>

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { Object3D, Vector3, Quaternion, MathUtils, Mesh, RepeatWrapping } from 'three';
 import { debug } from './rv-debug';
 import { MM_TO_METERS } from './rv-constants';

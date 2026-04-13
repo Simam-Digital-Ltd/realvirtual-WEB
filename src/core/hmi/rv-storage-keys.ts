@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /** Central list of all localStorage keys used by the WebViewer. */
 
 export const ALL_RV_STORAGE_KEYS = [

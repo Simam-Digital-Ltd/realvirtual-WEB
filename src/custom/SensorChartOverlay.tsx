@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * SensorChartOverlay — Floating panel with a real-time ECharts step chart
  * showing sensor occupied/vacant states as high/low timelines.

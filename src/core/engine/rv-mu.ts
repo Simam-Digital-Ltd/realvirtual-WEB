@@ -1,10 +1,12 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import {
-  Object3D, Vector3, Quaternion, Matrix4, Box3,
+  Object3D, Vector3, Quaternion, Matrix4, Box3, Sphere,
   InstancedMesh, DynamicDrawUsage,
 } from 'three';
 import type { BufferGeometry, Material } from 'three';
 import { AABB } from './rv-aabb';
-import { RaycastLayers } from './rv-raycast-layers';
 import type { RVTransportSurface } from './rv-transport-surface';
 
 // Pre-allocated temp vector for getWorldPosition (no GC in hot path)
@@ -335,6 +337,10 @@ export class MUInstancePool {
   /** Callback invoked when an MU is released (for external cleanup, e.g. highlight) */
   onRelease?: (mu: InstancedMovingUnit) => void;
 
+  /** Callback invoked when the InstancedMesh is replaced during pool growth.
+   *  Used by RaycastManager to update its target list. */
+  onMeshChanged?: (oldMesh: InstancedMesh, newMesh: InstancedMesh) => void;
+
   constructor(
     geometry: BufferGeometry,
     material: Material | Material[],
@@ -353,12 +359,10 @@ export class MUInstancePool {
     this.instancedMesh = new InstancedMesh(geometry, mat, maxInstances);
     this.instancedMesh.instanceMatrix.setUsage(DynamicDrawUsage);
     this.instancedMesh.count = 0; // Start with no visible instances
-    this.instancedMesh.frustumCulled = false; // Instances spread across scene
+    this.instancedMesh.frustumCulled = true; // Per-pool frustum culling via computed bounding sphere
     this.instancedMesh.name = `__muPool_${templateName}`;
     // Tag for raycast manager identification
     this.instancedMesh.userData._muPool = this;
-    // Enable MU raycast layer for hover/click detection
-    this.instancedMesh.layers.enable(RaycastLayers.MU);
 
     // Allocate parallel arrays
     this.positions = new Float32Array(maxInstances * 3);
@@ -495,6 +499,46 @@ export class MUInstancePool {
 
     this.instancedMesh.instanceMatrix.needsUpdate = true;
     this._dirty = false;
+
+    // Recompute bounding sphere to cover all active instances for frustum culling.
+    // Uses positions array directly (O(n) but n = activeCount, typically small).
+    this._updateBoundingSphere();
+  }
+
+  /** Compute a bounding sphere encompassing all active instance positions + geometry radius. */
+  private _updateBoundingSphere(): void {
+    if (this.activeCount === 0) return;
+
+    // Compute centroid of all active positions
+    let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < this.activeCount; i++) {
+      cx += this.positions[i * 3];
+      cy += this.positions[i * 3 + 1];
+      cz += this.positions[i * 3 + 2];
+    }
+    cx /= this.activeCount;
+    cy /= this.activeCount;
+    cz /= this.activeCount;
+
+    // Find max distance from centroid
+    let maxDistSq = 0;
+    for (let i = 0; i < this.activeCount; i++) {
+      const dx = this.positions[i * 3] - cx;
+      const dy = this.positions[i * 3 + 1] - cy;
+      const dz = this.positions[i * 3 + 2] - cz;
+      const distSq = dx * dx + dy * dy + dz * dz;
+      if (distSq > maxDistSq) maxDistSq = distSq;
+    }
+
+    // Add geometry's own bounding sphere radius
+    const geo = this.instancedMesh.geometry;
+    if (!geo.boundingSphere) geo.computeBoundingSphere();
+    const geoRadius = geo.boundingSphere?.radius ?? 0;
+
+    const sphere = this.instancedMesh.boundingSphere ?? new Sphere();
+    sphere.center.set(cx, cy, cz);
+    sphere.radius = Math.sqrt(maxDistSq) + geoRadius;
+    this.instancedMesh.boundingSphere = sphere;
   }
 
   /** Grow pool by 2x when exhausted */
@@ -511,10 +555,9 @@ export class MUInstancePool {
     );
     newMesh.instanceMatrix.setUsage(DynamicDrawUsage);
     newMesh.count = this.activeCount;
-    newMesh.frustumCulled = false;
+    newMesh.frustumCulled = true;
     newMesh.name = this.instancedMesh.name;
     newMesh.userData._muPool = this;
-    newMesh.layers.enable(RaycastLayers.MU);
 
     // Copy existing matrices
     for (let i = 0; i < this.activeCount; i++) {
@@ -553,6 +596,9 @@ export class MUInstancePool {
       }
     }
 
+    // Notify raycast manager before swapping (needs old ref)
+    const oldMesh = this.instancedMesh;
+
     // Swap references
     this.instancedMesh = newMesh;
     this.positions = newPositions;
@@ -560,6 +606,9 @@ export class MUInstancePool {
     this.slotToMU = newSlotToMU;
     this.maxInstances = newMax;
     this._dirty = true;
+
+    // Notify external listeners (e.g. RaycastManager) about mesh replacement
+    this.onMeshChanged?.(oldMesh, newMesh);
   }
 
   /** Dispose pool and release GPU resources */

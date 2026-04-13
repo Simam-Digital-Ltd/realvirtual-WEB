@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * Dev-only in-app test runner.
  * Discovers vitest test files via the rv-test-runner Vite plugin and

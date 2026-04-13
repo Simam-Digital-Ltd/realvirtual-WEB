@@ -1405,7 +1405,7 @@ class MockHost {
 
 ## 12. Existing Plugins Reference
 
-### Core Plugins
+### Core Plugins (`core: true` — always loaded, survive model switches)
 
 | Plugin | ID | Callbacks | Purpose |
 |--------|----|-----------|---------|
@@ -1414,9 +1414,21 @@ class MockHost {
 | `SensorMonitorPlugin` | `sensor-monitor` | onModelLoaded, onFixedUpdatePost, onModelCleared | Event-based sensor change tracking via onChanged |
 | `TransportStatsPlugin` | `transport-stats` | onModelLoaded, onFixedUpdatePost, onModelCleared | 10Hz spawn/consume counters in RingBuffers |
 | `CameraEventsPlugin` | `camera-events` | onModelLoaded, onRender | Emits camera-animation-done |
-| `KpiDemoPlugin` | `kpi-demo` | (none) | Static OEE/Parts/CycleTime demo data with seeded PRNG |
-| `DemoHMIPlugin` | `demo-hmi` | (slots only) | Registers demo KPI cards, nav buttons, message tiles into HMI slots |
-| `TestAxesPlugin` | `test-axes` | onStart, onDestroy | Manual axis tester with slider UI (extends RVBehavior) |
+| `RvExtrasEditorPlugin` | `rv-extras-editor` | (slots only) | Hierarchy browser + property inspector |
+
+### Model-Specific Plugins (loaded/unloaded per model)
+
+| Plugin | ID | Purpose |
+|--------|----|---------|
+| `KpiDemoPlugin` | `kpi-demo` | Static OEE/Parts/CycleTime demo data with seeded PRNG |
+| `DemoHMIPlugin` | `demo-hmi` | Demo KPI cards, nav buttons, message tiles |
+| `TestAxesPlugin` | `test-axes` | Manual axis tester with slider UI |
+| `MachineControlPlugin` | `machine-control` | Machine start/stop control panel |
+| `MaintenancePlugin` | `maintenance` | Maintenance checklist and progress tracking |
+| `WebXRPlugin` | `webxr` | Immersive VR/AR on Quest 3 and other headsets |
+| `MultiuserPlugin` | `multiuser` | Presence + avatar synchronization |
+| `FpvPlugin` | `fpv` | First-person WASD + mouse look walkthrough |
+| `AnnotationPlugin` | `annotations` | 3D markers, labels, drawing on surfaces |
 
 ### Plugin Locations
 
@@ -1427,9 +1439,9 @@ class MockHost {
 | `SensorMonitorPlugin` | `src/plugins/sensor-monitor-plugin.ts` |
 | `TransportStatsPlugin` | `src/plugins/transport-stats-plugin.ts` |
 | `CameraEventsPlugin` | `src/plugins/camera-events-plugin.ts` |
-| `KpiDemoPlugin` | `src/plugins/kpi-demo-plugin.ts` |
-| `DemoHMIPlugin` | `src/custom/demo-hmi-plugin.tsx` |
-| `TestAxesPlugin` | `src/plugins/test-axes-plugin.tsx` |
+| `KpiDemoPlugin` | `src/plugins/demo/kpi-demo-plugin.ts` |
+| `DemoHMIPlugin` | `src/plugins/demo/demo-hmi-plugin.tsx` |
+| `TestAxesPlugin` | `src/plugins/demo/test-axes-plugin.tsx` |
 
 ### Data Access Patterns
 
@@ -1441,7 +1453,110 @@ class MockHost {
 
 ---
 
-## 13. Context Menu System
+## 13. Per-Model Plugin System
+
+Plugins are organized into three tiers:
+
+1. **Core plugins** (`core: true`) — Always loaded, survive model switches. Cannot be removed via `removePlugin()`.
+2. **Global private plugins** — Always loaded when the private folder is present (e.g., LayoutPlanner, DES).
+3. **Model-specific plugins** — Loaded/unloaded dynamically when a model is loaded or switched.
+
+Each model declares which plugins it needs via a `plugins/index.ts` entry point. When switching models, the previous model's plugins are fully unloaded (disposed, UI slots removed) and the new model's plugins are loaded.
+
+### Creating Model-Specific Plugins
+
+Create a `plugins/index.ts` in one of these locations:
+
+- **Public models**: `src/plugins/models/<ModelName>/index.ts`
+- **Private projects**: `projects/<projectname>/plugins/index.ts`
+
+The file must export three things:
+
+```typescript
+import type { RVViewer } from '../../../core/rv-viewer';
+import type { ModelPluginModule } from '../../../core/rv-model-plugin-manager';
+
+// Which GLB filenames (without .glb) this module handles
+export const models = ['MyModel', 'MyModelVariant'];
+
+const registeredIds: string[] = [];
+
+export function registerModelPlugins(viewer: RVViewer): void {
+  const plugins = [
+    new MyCustomPlugin(),
+    new WebXRPlugin(),    // Optional: include only if this model needs VR/AR
+  ];
+  for (const p of plugins) {
+    viewer.use(p);
+    registeredIds.push(p.id);
+  }
+}
+
+export function unregisterModelPlugins(viewer: RVViewer): void {
+  for (const id of registeredIds) {
+    viewer.removePlugin(id);
+  }
+  registeredIds.length = 0;
+}
+
+export default { models, registerModelPlugins, unregisterModelPlugins } satisfies ModelPluginModule;
+```
+
+### How It Works
+
+1. `ModelPluginManager` uses `import.meta.glob` to discover all `plugins/index.ts` files at build time
+2. When `viewer.loadModel(url)` is called, the manager extracts the model filename
+3. It finds the matching plugin module (by `models` array or folder name)
+4. Previous model's `unregisterModelPlugins()` is called — all plugins are disposed and removed
+5. New model's `registerModelPlugins()` is called — plugins are registered via `viewer.use()`
+6. Registered plugins receive `onModelLoaded` retroactively (standard `viewer.use()` behavior)
+
+### Plugin Management API
+
+```typescript
+// Register a plugin (standard)
+viewer.use(new MyPlugin());
+
+// Remove a non-core plugin (dispose + remove from all arrays + UI)
+viewer.removePlugin('my-plugin');  // returns true if removed
+
+// Disable a plugin (keeps it registered but skips all callbacks)
+viewer.disablePlugin('my-plugin');
+```
+
+### Example: Demo Model Plugins
+
+The built-in demo model (`DemoRealvirtualWeb.glb`) registers its plugins in `src/plugins/models/DemoRealvirtualWeb/index.ts`:
+
+```
+src/plugins/models/DemoRealvirtualWeb/index.ts
+  ├── KpiDemoPlugin        (OEE KPI cards)
+  ├── DemoHMIPlugin        (buttons, messages, navigation)
+  ├── TestAxesPlugin       (manual axis control)
+  ├── MachineControlPlugin (start/stop panel)
+  ├── MaintenancePlugin    (maintenance checklists)
+  ├── WebXRPlugin          (VR/AR)
+  ├── MultiuserPlugin      (presence)
+  ├── FpvPlugin            (first-person walkthrough)
+  └── AnnotationPlugin     (3D markers)
+```
+
+### Example: Private Project Plugins
+
+A private project (e.g., Mauser 3D HMI) registers its plugins in `projects/mauser3dhmi/plugins/index.ts`. Only the plugins this specific project needs are loaded:
+
+```
+projects/mauser3dhmi/plugins/index.ts
+  ├── WebXRPlugin          (VR/AR)
+  ├── MultiuserPlugin      (presence)
+  ├── FpvPlugin            (first-person walkthrough)
+  ├── AnnotationPlugin     (3D markers)
+  └── (custom Mauser HMI plugins)
+```
+
+---
+
+## 14. Context Menu System
 
 Plugin-extensible right-click context menus on 3D objects. Plugins register menu items via `ContextMenuStore`; items are filtered by `condition` callbacks at open time and sorted by `order`.
 

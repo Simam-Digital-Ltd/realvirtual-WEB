@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * WebXRPlugin — Immersive VR and AR sessions on WebXR-capable devices.
  *
@@ -35,7 +38,7 @@ import type { WebGLRenderer } from 'three';
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
-import { RVXRManager } from '../core/engine/rv-xr-manager';
+import { RVXRManager, type XRSupport } from '../core/engine/rv-xr-manager';
 import { tooltipStore } from '../core/hmi/tooltip/tooltip-store';
 
 const DEAD_ZONE = 0.15;
@@ -63,6 +66,17 @@ export class WebXRPlugin implements RVViewerPlugin {
   arSupported = false;
   /** True when VR sessions are supported by the browser. */
   vrSupported = false;
+  /** Eager XR support check — starts immediately, doesn't need viewer/model. */
+  private _supportReady: Promise<XRSupport>;
+
+  constructor() {
+    // Start XR support detection eagerly so the AR button appears before model load
+    this._supportReady = RVXRManager.checkSupport().then(s => {
+      this.arSupported = s.ar;
+      this.vrSupported = s.vr;
+      return s;
+    });
+  }
 
   private vrButton: HTMLElement | null = null;
   private arButton: HTMLElement | null = null;
@@ -160,9 +174,8 @@ export class WebXRPlugin implements RVViewerPlugin {
   }
 
   private async initXR(viewer: RVViewer): Promise<void> {
-    const support = await RVXRManager.checkSupport();
-    this.arSupported = support.ar;
-    this.vrSupported = support.vr;
+    // Await eagerly-started support check (already running from constructor)
+    await this._supportReady;
 
     if (viewer.isWebGPU || !RVXRManager.isXRCapable(viewer.renderer)) {
       console.warn('[WebXR] Renderer does not support WebXR');
@@ -214,12 +227,12 @@ export class WebXRPlugin implements RVViewerPlugin {
     };
 
     // VR button
-    if (support.vr) {
+    if (this.vrSupported) {
       const button = VRButton.createButton(glRenderer);
       Object.assign(button.style, {
         ...buttonStyle,
-        left: support.ar ? 'calc(50% - 90px)' : '50%',
-        transform: support.ar ? 'none' : 'translateX(-50%)',
+        left: this.arSupported ? 'calc(50% - 90px)' : '50%',
+        transform: this.arSupported ? 'none' : 'translateX(-50%)',
         background: 'rgba(79, 195, 247, 0.9)',
         color: '#000',
         boxShadow: '0 4px 20px rgba(79, 195, 247, 0.3)',
@@ -229,13 +242,13 @@ export class WebXRPlugin implements RVViewerPlugin {
     }
 
     // AR button (headset only — e.g. Quest passthrough)
-    if (support.ar) {
+    if (this.arSupported) {
       const arBtn = document.createElement('button');
       arBtn.textContent = 'ENTER AR';
       Object.assign(arBtn.style, {
         ...buttonStyle,
-        left: support.vr ? 'calc(50% + 90px)' : '50%',
-        transform: support.vr ? 'none' : 'translateX(-50%)',
+        left: this.vrSupported ? 'calc(50% + 90px)' : '50%',
+        transform: this.vrSupported ? 'none' : 'translateX(-50%)',
         background: 'rgba(129, 199, 132, 0.9)',
         color: '#000',
         boxShadow: '0 4px 20px rgba(129, 199, 132, 0.3)',
@@ -280,6 +293,8 @@ export class WebXRPlugin implements RVViewerPlugin {
       const session = await navigator.xr!.requestSession('immersive-ar', sessionInit);
 
       this.sessionMode = 'ar';
+      // Use native device resolution for sharp AR camera passthrough
+      renderer.xr.setFramebufferScaleFactor(window.devicePixelRatio);
       renderer.xr.setReferenceSpaceType('local-floor');
       await renderer.xr.setSession(session);
 

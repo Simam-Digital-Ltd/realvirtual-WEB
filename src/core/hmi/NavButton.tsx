@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { memo, type ReactNode } from 'react';
 import { IconButton, Tooltip, Badge } from '@mui/material';
 

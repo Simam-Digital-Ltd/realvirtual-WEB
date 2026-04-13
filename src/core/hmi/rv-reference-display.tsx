@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * rv-reference-display.tsx — Reference display components for the Property Inspector.
  *
@@ -24,17 +27,18 @@ import {
   formatSensorStatus,
   componentColor,
   BADGE_COLORS,
+  getRefSignalColor,
+  getSensorRefColor,
 } from './rv-inspector-helpers';
 
 // ── navigateToRef ────────────────────────────────────────────────────────
 
-/** Navigate to a referenced node: open hierarchy + select it. */
+/** Navigate to a referenced node: open hierarchy, expand tree, select + show inspector. */
 export function navigateToRef(viewer: RVViewer | null, path: string): void {
   if (!viewer) return;
   const plugin = viewer.getPlugin<RvExtrasEditorPlugin>('rv-extras-editor');
   if (!plugin) return;
-  if (!plugin.panelOpen) plugin.togglePanel();
-  plugin.selectNode(path);
+  plugin.selectAndReveal(path, true);
 }
 
 // ── ReferenceDisplay ─────────────────────────────────────────────────────
@@ -52,9 +56,9 @@ export function ReferenceDisplay({ value, viewer, signalStore }: {
 
   const handleClick = useCallback(() => navigateToRef(viewer, value.path), [viewer, value.path]);
 
-  // Signal references -> single combined badge with live value
+  // Signal references -> single combined badge with live value, gray when off
   if (isSignalRefType(value.componentType)) {
-    const color = componentColor(shortType);
+    const liveColor = isLinked ? getRefSignalColor(shortType, signalStore, value.path) : '#ef5350';
     const typeLabel = signalTypeLabel(shortType);
     const valueStr = formatRefSignalValue(shortType, signalStore, value.path);
 
@@ -69,20 +73,20 @@ export function ReferenceDisplay({ value, viewer, signalStore }: {
             fontSize: 9,
             fontWeight: 500,
             cursor: 'pointer',
-            bgcolor: isLinked ? color + '18' : 'rgba(239,83,80,0.1)',
-            color: isLinked ? color : '#ef5350',
-            border: `1px solid ${isLinked ? color + '44' : 'rgba(239,83,80,0.3)'}`,
+            bgcolor: liveColor + '18',
+            color: liveColor,
+            border: `1px solid ${liveColor}44`,
             '& .MuiChip-label': { px: 0.5, overflow: 'hidden', textOverflow: 'ellipsis' },
-            '&:hover': { bgcolor: isLinked ? color + '28' : 'rgba(239,83,80,0.15)' },
+            '&:hover': { bgcolor: liveColor + '28' },
           }}
         />
       </Tooltip>
     );
   }
 
-  // Sensor references -> green badge with live occupied status
+  // Sensor references -> gray when not occupied, green when occupied
   if (isSensorRefType(value.componentType)) {
-    const color = BADGE_COLORS['Sensor'] ?? '#66bb6a';
+    const liveColor = isLinked ? getSensorRefColor(signalStore, value.path) : '#ef5350';
     const statusStr = formatSensorStatus(signalStore, value.path);
     return (
       <Tooltip title={`${isLinked ? 'Linked' : 'Unlinked'} \u2192 ${value.path}\nClick to navigate`} placement="top">
@@ -95,11 +99,11 @@ export function ReferenceDisplay({ value, viewer, signalStore }: {
             fontSize: 9,
             fontWeight: 500,
             cursor: 'pointer',
-            bgcolor: isLinked ? color + '18' : 'rgba(239,83,80,0.1)',
-            color: isLinked ? color : '#ef5350',
-            border: `1px solid ${isLinked ? color + '44' : 'rgba(239,83,80,0.3)'}`,
+            bgcolor: liveColor + '18',
+            color: liveColor,
+            border: `1px solid ${liveColor}44`,
             '& .MuiChip-label': { px: 0.5, overflow: 'hidden', textOverflow: 'ellipsis' },
-            '&:hover': { bgcolor: isLinked ? color + '28' : 'rgba(239,83,80,0.15)' },
+            '&:hover': { bgcolor: liveColor + '28' },
           }}
         />
       </Tooltip>

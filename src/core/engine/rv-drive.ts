@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { Object3D, Vector3, Quaternion, Euler, MathUtils } from 'three';
 import { DriveDirection, directionToGltfAxis, isRotation } from './rv-coordinate-utils';
 import type { ComponentSchema, ComponentContext, RVComponent } from './rv-component-registry';

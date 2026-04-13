@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * RVHighlightManager — Central highlight system for the WebViewer.
  *
@@ -46,7 +49,7 @@ const SELECTION_EDGE_OPACITY = 0.8;
 const EDGE_THRESHOLD_DEG = 30;
 
 /** Max meshes for hover highlight — above this, show bounding-box wireframe instead. */
-const MAX_HOVER_MESHES = 200;
+const MAX_HOVER_MESHES = 50;
 
 // ─── Shared Materials ─────────────────────────────────────────────────
 
@@ -369,8 +372,9 @@ export class RVHighlightManager {
         const rv = node.userData?.realvirtual as Record<string, unknown> | undefined;
         if (rv?.['Drive']) return; // child drive boundary — don't highlight nested drives
       }
-      // Skip kinematic merge artifacts — merged chunks and hidden sources
-      if (node.userData?._rvKinGroupMerged) return;
+      // Skip hidden kinematic source meshes (originals hidden by merge).
+      // Merged chunks (_rvKinGroupMerged) are kept — they're visible and
+      // represent the Drive subtree for highlighting.
       if (node.userData?._rvKinGroupSource) return;
       if (
         (node as Mesh).isMesh &&

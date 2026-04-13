@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * Kinematic group draw call merge for uber-baked meshes.
  *
@@ -83,6 +86,9 @@ function isCandidate(mesh: Mesh, sharedUberMaterial: Material): boolean {
   if (mesh.matrixAutoUpdate !== true) return false;
   // Must be visible (not already hidden by static merge)
   if (!mesh.visible) return false;
+  // Skip meshes under an invisible ancestor (Source/MU templates)
+  let anc = mesh.parent;
+  while (anc) { if (!anc.visible) return false; anc = anc.parent; }
   // Must have usable geometry
   if (!mesh.geometry?.attributes?.position) return false;
   // Skip anything already flagged by static merge or a previous kinematic merge pass

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { describe, test, expect, afterEach } from 'vitest';
 import { mockNavigatorXR, clearNavigatorXR } from './mocks/webxr-mock';
 import { RVXRManager } from '../src/core/engine/rv-xr-manager';

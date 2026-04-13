@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /** Persists visual settings and camera bookmarks to localStorage. */
 
 import { getAppConfig, isSettingsLocked } from '../rv-app-config';
@@ -56,6 +59,24 @@ export interface VisualSettings {
   fpvSensitivity: number;
   /** FPV eye height above ground in meters. */
   fpvEyeHeight: number;
+  /** Whether Screen Space Ambient Occlusion (GTAO) is enabled. WebGL only. */
+  ssaoEnabled: boolean;
+  /** SSAO blend intensity (0 = invisible, 1 = full). */
+  ssaoIntensity: number;
+  /** SSAO sampling radius in world units. */
+  ssaoRadius: number;
+  /** Whether bloom (glow on bright areas) is enabled. WebGL only. */
+  bloomEnabled: boolean;
+  /** Bloom glow intensity (0–2). */
+  bloomIntensity: number;
+  /** Brightness threshold for bloom (0–1). Only pixels above this luminance bloom. */
+  bloomThreshold: number;
+  /** Bloom spread radius (0–1). */
+  bloomRadius: number;
+  /** Whether the ground (floor) plane is visible. */
+  groundEnabled: boolean;
+  /** Floor brightness multiplier (0 = black, 1 = default, 2 = double). */
+  groundBrightness: number;
 }
 
 const MODE_DEFAULTS: Record<LightingMode, LightingModeSettings> = {
@@ -90,6 +111,15 @@ const DEFAULTS: VisualSettings = {
   fpvSprintSpeed: 5.0,
   fpvSensitivity: 0.002,
   fpvEyeHeight: 1.7,
+  ssaoEnabled: true,
+  ssaoIntensity: 1.0,
+  ssaoRadius: 0.15,
+  bloomEnabled: true,
+  bloomIntensity: 0.2,
+  bloomThreshold: 0.85,
+  bloomRadius: 0.4,
+  groundEnabled: true,
+  groundBrightness: 1.0,
 };
 
 function migrateToneMapping(raw: unknown, mode: LightingMode): ToneMappingType {
@@ -144,6 +174,15 @@ export function loadVisualSettings(): VisualSettings {
     fpvSprintSpeed: fromStorage.fpvSprintSpeed,
     fpvSensitivity: fromStorage.fpvSensitivity,
     fpvEyeHeight: fromStorage.fpvEyeHeight,
+    ssaoEnabled: fromStorage.ssaoEnabled,
+    ssaoIntensity: fromStorage.ssaoIntensity,
+    ssaoRadius: fromStorage.ssaoRadius,
+    bloomEnabled: fromStorage.bloomEnabled,
+    bloomIntensity: fromStorage.bloomIntensity,
+    bloomThreshold: fromStorage.bloomThreshold,
+    bloomRadius: fromStorage.bloomRadius,
+    groundEnabled: fromStorage.groundEnabled,
+    groundBrightness: fromStorage.groundBrightness,
   };
 }
 
@@ -181,6 +220,30 @@ function loadFromLocalStorage(): VisualSettings {
     const fpvEyeHeightRaw = (parsed as Record<string, unknown>).fpvEyeHeight;
     const fpvEyeHeight = (typeof fpvEyeHeightRaw === 'number' && fpvEyeHeightRaw >= 0.5 && fpvEyeHeightRaw <= 5)
       ? fpvEyeHeightRaw : DEFAULTS.fpvEyeHeight;
+    const ssaoEnabledRaw = (parsed as Record<string, unknown>).ssaoEnabled;
+    const ssaoEnabled = typeof ssaoEnabledRaw === 'boolean' ? ssaoEnabledRaw : DEFAULTS.ssaoEnabled;
+    const ssaoIntensityRaw = (parsed as Record<string, unknown>).ssaoIntensity;
+    const ssaoIntensity = (typeof ssaoIntensityRaw === 'number' && ssaoIntensityRaw >= 0 && ssaoIntensityRaw <= 2)
+      ? ssaoIntensityRaw : DEFAULTS.ssaoIntensity;
+    const ssaoRadiusRaw = (parsed as Record<string, unknown>).ssaoRadius;
+    const ssaoRadius = (typeof ssaoRadiusRaw === 'number' && ssaoRadiusRaw >= 0.01 && ssaoRadiusRaw <= 1)
+      ? ssaoRadiusRaw : DEFAULTS.ssaoRadius;
+    const bloomEnabledRaw = (parsed as Record<string, unknown>).bloomEnabled;
+    const bloomEnabled = typeof bloomEnabledRaw === 'boolean' ? bloomEnabledRaw : DEFAULTS.bloomEnabled;
+    const bloomIntensityRaw = (parsed as Record<string, unknown>).bloomIntensity;
+    const bloomIntensity = (typeof bloomIntensityRaw === 'number' && bloomIntensityRaw >= 0 && bloomIntensityRaw <= 2)
+      ? bloomIntensityRaw : DEFAULTS.bloomIntensity;
+    const bloomThresholdRaw = (parsed as Record<string, unknown>).bloomThreshold;
+    const bloomThreshold = (typeof bloomThresholdRaw === 'number' && bloomThresholdRaw >= 0 && bloomThresholdRaw <= 1)
+      ? bloomThresholdRaw : DEFAULTS.bloomThreshold;
+    const bloomRadiusRaw = (parsed as Record<string, unknown>).bloomRadius;
+    const bloomRadius = (typeof bloomRadiusRaw === 'number' && bloomRadiusRaw >= 0 && bloomRadiusRaw <= 1)
+      ? bloomRadiusRaw : DEFAULTS.bloomRadius;
+    const groundEnabledRaw = (parsed as Record<string, unknown>).groundEnabled;
+    const groundEnabled = typeof groundEnabledRaw === 'boolean' ? groundEnabledRaw : DEFAULTS.groundEnabled;
+    const groundBrightnessRaw = (parsed as Record<string, unknown>).groundBrightness;
+    const groundBrightness = (typeof groundBrightnessRaw === 'number' && groundBrightnessRaw >= 0 && groundBrightnessRaw <= 2)
+      ? groundBrightnessRaw : DEFAULTS.groundBrightness;
     return {
       lightingMode: mode,
       modeSettings,
@@ -195,6 +258,15 @@ function loadFromLocalStorage(): VisualSettings {
       fpvSprintSpeed,
       fpvSensitivity,
       fpvEyeHeight,
+      ssaoEnabled,
+      ssaoIntensity,
+      ssaoRadius,
+      bloomEnabled,
+      bloomIntensity,
+      bloomThreshold,
+      bloomRadius,
+      groundEnabled,
+      groundBrightness,
     };
   } catch {
     return { ...DEFAULTS, modeSettings: { simple: { ...MODE_DEFAULTS.simple }, default: { ...MODE_DEFAULTS.default } }, cameras: [...DEFAULTS.cameras] };

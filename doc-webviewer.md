@@ -43,10 +43,11 @@ src/
 │   ├── rv-camera-manager.ts             # CameraManager (projection, animation, viewport offset)
 │   ├── rv-visual-settings-manager.ts    # VisualSettingsManager (lighting, shadows, tone mapping)
 │   ├── rv-plugin.ts                     # RVViewerPlugin interface (lifecycle + optional UI slots)
+│   ├── rv-model-plugin-manager.ts       # Per-model dynamic plugin loading/unloading
 │   ├── rv-events.ts                     # Typed EventEmitter<TEvents>
 │   ├── rv-behavior.ts                    # RVBehavior abstract base class (MonoBehaviour-like)
-│   ├── rv-ui-plugin.ts                  # UISlot types, UISlotEntry
-│   ├── rv-ui-registry.ts               # UIPluginRegistry (slot component lookup)
+│   ├── rv-ui-plugin.ts                  # UISlot types, UISlotEntry (with pluginId tracking)
+│   ├── rv-ui-registry.ts               # UIPluginRegistry (slot component lookup, register/unregister)
 │   ├── types/
 │   │   └── plugin-types.ts             # Shared plugin API type definitions (decouples core↔plugins)
 │   ├── engine/                          # Simulation engine subsystems
@@ -143,21 +144,28 @@ src/
 │   ├── base-industrial-interface.ts     # Abstract interface base class
 │   ├── websocket-realtime-interface.ts  # WebSocket Realtime protocol
 │   └── ctrlx-interface.ts              # Bosch Rexroth ctrlX protocol
-├── plugins/                             # Optional plugins (lazy-loaded when declared)
+├── plugins/                             # Plugin implementations
 │   ├── sensor-monitor-plugin.ts         # Event-based sensor monitoring (core)
 │   ├── transport-stats-plugin.ts        # Transport statistics (10Hz RingBuffer, core)
 │   ├── camera-events-plugin.ts          # Camera animation done events (core)
 │   ├── drive-order-plugin.ts            # Topological drive sorting for CAM/Gear (core)
-│   ├── maintenance-plugin.ts           # Maintenance step guides + checklist UI (lazy)
-│   ├── machine-control-plugin.ts       # Machine start/stop/mode control panel (lazy)
-│   ├── multiuser-plugin.ts             # Multi-user presence + avatars (lazy)
-│   ├── webxr-plugin.ts                 # WebXR VR/AR support (lazy)
-│   ├── fpv-plugin.tsx                  # First-person view navigation (lazy)
-│   ├── mcp-bridge-plugin.ts            # Claude MCP WebSocket bridge (lazy)
-│   ├── layout-planner-plugin.ts        # Factory layout planner with drag & drop (lazy)
-│   ├── rv-layout-store.ts              # Layout state store (useSyncExternalStore)
-│   ├── debug-endpoint-plugin.ts        # Debug HTTP endpoint
-│   └── perf-test-plugin.ts             # Performance benchmarking (dev)
+│   ├── multiuser-plugin.ts             # Multi-user presence + avatars
+│   ├── webxr-plugin.ts                 # WebXR VR/AR support
+│   ├── fpv-plugin.tsx                  # First-person view navigation
+│   ├── annotation-plugin.ts            # 3D markers, labels, drawing
+│   ├── mcp-bridge-plugin.ts            # Claude MCP WebSocket bridge (dev)
+│   ├── debug-endpoint-plugin.ts        # Debug HTTP endpoint (dev)
+│   ├── demo/                            # Demo model plugins (loaded per-model)
+│   │   ├── index.ts                    # Barrel exports (no global registration)
+│   │   ├── kpi-demo-plugin.ts          # OEE/Parts/CycleTime demo data
+│   │   ├── demo-hmi-plugin.tsx         # Demo KPI cards, buttons, messages
+│   │   ├── test-axes-plugin.tsx        # Manual axis control slider
+│   │   ├── machine-control-plugin.ts   # Machine start/stop panel
+│   │   ├── maintenance-plugin.ts       # Maintenance checklists
+│   │   └── perf-test-plugin.ts         # Performance benchmarking (?perf)
+│   └── models/                          # Per-model plugin entry points
+│       └── DemoRealvirtualWeb/
+│           └── index.ts                # Registers all demo model plugins
 ├── hooks/                               # React hooks
 │   ├── use-viewer.ts                    # RVViewer context access
 │   ├── use-plugin.ts                    # usePlugin<T>(id) for type-safe plugin access
@@ -318,6 +326,16 @@ In selective mode, core plugins (physics, drive sorting, sensor monitoring) alwa
 See **[Model-Specific Plugin Configuration](#model-specific-plugin-configuration)** for how to declare `rv_plugins`.
 
 Plugins with `slots` automatically register React components into HMI layout positions (kpi-bar, button-group, messages, views, search-bar, settings-tab).
+
+### Plugin Tiers
+
+| Tier | Loaded when | Can be removed | Examples |
+|------|------------|----------------|----------|
+| **Core** (`core: true`) | Always — survive model switches | No (`removePlugin()` blocked) | drive-order, sensor-monitor, transport-stats, camera-events, rapier-physics, extras-editor |
+| **Global Private** | Always when private folder present | Yes | layout-planner, des-plugin, des-hmi |
+| **Model-Specific** | Only when matching GLB is loaded | Yes (auto-removed on model switch) | kpi-demo, demo-hmi, webxr, multiuser, fpv, annotations |
+
+Model-specific plugins are defined in `plugins/index.ts` files per model folder. The `ModelPluginManager` auto-discovers them via `import.meta.glob` and loads/unloads them when models are switched. See **[doc-extending-webviewer.md](doc-extending-webviewer.md) § Per-Model Plugin System** for how to create model-specific plugins.
 
 See **[doc-extending-webviewer.md](doc-extending-webviewer.md)** for detailed plugin development guide, UI slot system, event bus, hooks reference, and examples.
 
@@ -591,6 +609,121 @@ return {
 if (isSettingsLocked()) return;  // Lock guard — no-op when locked
 localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
 ```
+
+## Publishing
+
+### Public Demo
+
+The standard publish workflow deploys to `https://web.realvirtual.io/{demoName}/`:
+
+1. **Unity:** Tools → realvirtual → Export → WebViewer Tools → Publish tab
+2. Select provider (Bunny CDN), enter demo name, export scene, click Publish
+3. The viewer app + GLB are uploaded to the CDN
+
+Or via Claude: `/deploy-web`
+
+### Private Projects
+
+Private projects publish to **unguessable URLs** at `https://web.realvirtual.io/{code}/` where `{code}` is a 32-character hex string (128-bit entropy). Each project is fully self-contained — its own GLB models, plugins, and settings.
+
+**Local project structure:**
+
+```
+Assets/realvirtual-WebViewer-Private~/projects/
+  mauser3dhmi/                        # Project folder
+    project.json                      # Metadata: name, code, settings
+    index.ts                          # Project-level plugins (optional)
+    models/
+      CL Digital Twin V100.glb        # Customer-specific GLBs
+    models/CL Digital Twin V100/
+      index.ts                        # Model-specific plugins (optional)
+    plugins/
+      customer-hmi.ts                 # Plugin source files
+```
+
+**project.json format:**
+
+```json
+{
+  "name": "Mauser 3D HMI",
+  "code": "a9d6c728c2a7006e52e55c03a174efbf",
+  "created": "2026-04-03",
+  "lastPublished": "",
+  "settings": {
+    "defaultModel": "CL Digital Twin V100.glb"
+  }
+}
+```
+
+**Unity workflow:**
+
+1. Open the **Private** tab in WebViewer Tools
+2. Click **New Project** (or create the folder structure manually)
+3. Open your customer scene, click **Export Scene** on the project card
+4. Optionally write an `index.ts` for project-specific plugins
+5. Click **Publish** — stages, compiles plugins, uploads to CDN
+6. Share the URL: `https://web.realvirtual.io/{code}/`
+
+Or via Claude: `/deploy-web-private`
+
+**How it works:**
+
+- The shared app bundle (`index.html`, `assets/`) is copied from `dist/` — no separate Vite build per project
+- Project `index.ts` is compiled to `project-plugin.js` via esbuild (<1s)
+- Model-specific `index.ts` compiled to `model-plugin.js` in the model's subfolder
+- At runtime, the viewer loads `project-plugin.js` and `model-plugin.js` via dynamic `import()` and calls `setup(viewer)`
+- Customer GLBs never touch `public/models/` — they stay in the private project folder
+
+### Project-Specific Plugins (index.ts)
+
+Project plugins control which plugins are active and can disable standard plugins. The viewer instance is injected — no direct imports from the app source needed.
+
+**Project-level** (applies to all models in the project):
+
+```ts
+import type { RVViewer } from 'realvirtual-webviewer';
+import { CustomerHmiPlugin } from './plugins/customer-hmi';
+
+export default function setup(viewer: RVViewer): void {
+  viewer.use(new CustomerHmiPlugin());
+  viewer.disablePlugin('kpi-demo');      // Disable standard plugins
+  viewer.disablePlugin('test-axes');
+}
+```
+
+**Model-level** (applies only to a specific model):
+
+```ts
+import type { RVViewer } from 'realvirtual-webviewer';
+
+export default function setup(viewer: RVViewer): void {
+  viewer.disablePlugin('sensor-monitor');  // Not needed for this model
+}
+```
+
+**`disablePlugin(id)` API:**
+
+- Removes the plugin from all tick callbacks (`onFixedUpdatePre/Post`, `onRender`)
+- Skips the plugin in lifecycle callbacks (`onModelLoaded`, `onModelCleared`, `onConnectionStateChanged`)
+- Core plugins (`core: true`) cannot be disabled
+- `dispose()` is still called for disabled plugins (prevents memory leaks)
+
+### CDN Structure
+
+```
+https://web.realvirtual.io/
+  demo/                              # Public demo
+    index.html, assets/*, models/demo.glb
+  a9d6c728c2a7006e52e55c03a174efbf/  # Private project (root-level)
+    index.html                       # Same app bundle
+    assets/                          # Same JS/CSS
+    project-plugin.js                # Compiled from project index.ts
+    models/
+      CL Digital Twin V100.glb       # Customer-specific
+    settings.json                    # Project-specific config
+```
+
+Security is based on URL unguessability (128-bit entropy, same principle as Google Docs share links). HTTPS is enforced by Bunny CDN.
 
 ## GLB Extras Format
 

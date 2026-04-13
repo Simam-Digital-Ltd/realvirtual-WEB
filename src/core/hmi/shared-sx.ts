@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * Shared MUI sx prop factories for dark-theme styled components.
  *
@@ -6,6 +9,31 @@
  */
 
 import type { SxProps, Theme } from '@mui/material';
+
+// ─── Shared scrollbar CSS class ─────────────────────────────────────────
+
+/**
+ * CSS class name for the standard dark-theme scrollbar.
+ * Apply via `className={RV_SCROLL_CLASS}` on any scrollable container.
+ * Injects the CSS once on first import.
+ */
+export const RV_SCROLL_CLASS = 'rv-scroll';
+
+const _scrollStyleId = 'rv-scroll-shared-style';
+if (typeof document !== 'undefined' && !document.getElementById(_scrollStyleId)) {
+  const s = document.createElement('style');
+  s.id = _scrollStyleId;
+  s.textContent = `
+    .${RV_SCROLL_CLASS} { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.25) transparent; }
+    .${RV_SCROLL_CLASS}::-webkit-scrollbar { width: 10px; }
+    .${RV_SCROLL_CLASS}::-webkit-scrollbar-track { background: transparent; }
+    .${RV_SCROLL_CLASS}::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
+    .${RV_SCROLL_CLASS}::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.35); border: 2px solid transparent; background-clip: padding-box; }
+    .${RV_SCROLL_CLASS}::-webkit-scrollbar-button { display: none !important; }
+    .${RV_SCROLL_CLASS}::-webkit-scrollbar-corner { background: transparent; }
+  `;
+  document.head.appendChild(s);
+}
 
 /**
  * Returns sx for a compact dark-theme ToggleButtonGroup.

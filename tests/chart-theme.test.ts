@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { describe, it, expect } from 'vitest';
 import { createBaseChartOption, DARK_TOOLTIP_BASE } from '../src/core/hmi/chart-theme';
 

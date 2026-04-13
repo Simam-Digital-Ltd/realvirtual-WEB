@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * Shared signal polling hook — consolidates duplicate setInterval(500ms)
  * patterns used by HierarchyBrowser and PropertyInspector for live

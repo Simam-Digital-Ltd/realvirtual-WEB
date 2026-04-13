@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * PropertyInspector — Editable property panel for the selected hierarchy node.
  *
@@ -22,6 +25,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useSignalTick } from '../../hooks/use-signal-tick';
 import { useEditorPlugin } from '../../hooks/use-editor-plugin';
 import { MathUtils } from 'three';
+import { RV_SCROLL_CLASS } from './shared-sx';
 import {
   Box,
   Typography,
@@ -43,9 +47,7 @@ import { LeftPanel } from './LeftPanel';
 import { INSPECTOR_PANEL_WIDTH } from './layout-constants';
 import {
   isHiddenComponentType,
-  isComponentRef,
   componentColor,
-  pathsMatch,
   getSignalDisplayValue,
   getDriveDisplayValue,
   getLiveDriveFields,
@@ -378,23 +380,10 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
     : null;
 
   // Find reverse references: who points to this node via ComponentReference?
-  const referencedBy = useMemo<ReverseReference[]>(() => {
+  // Uses the pre-built index in NodeRegistry (O(1) lookup instead of full scene scan).
+  const referencedBy = useMemo<readonly ReverseReference[]>(() => {
     if (!selectedPath || !viewer.registry) return [];
-    const results: ReverseReference[] = [];
-    viewer.registry.forEachNode((path, node) => {
-      if (path === selectedPath) return; // Skip self
-      const rv = node.userData?.realvirtual as Record<string, Record<string, unknown>> | undefined;
-      if (!rv) return;
-      for (const [compType, compData] of Object.entries(rv)) {
-        if (typeof compData !== 'object' || compData === null) continue;
-        for (const [fieldName, value] of Object.entries(compData as Record<string, unknown>)) {
-          if (isComponentRef(value) && pathsMatch(value.path, selectedPath)) {
-            results.push({ sourcePath: path, fieldName, componentType: compType });
-          }
-        }
-      }
-    });
-    return results;
+    return viewer.registry.getReferencesTo(selectedPath);
   }, [selectedPath, viewer.registry]);
 
   // Count total overrides for this node
@@ -554,11 +543,10 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
     >
       {/* Scrollable content — own scroll container */}
       <Box
+        className={RV_SCROLL_CLASS}
         sx={{
           flex: 1,
           overflow: 'auto',
-          '&::-webkit-scrollbar': { width: 6 },
-          '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 3 },
         }}
       >
         {/* LogicStep Runtime Status (above component sections, hidden when Idle) */}

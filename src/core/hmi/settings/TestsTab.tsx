@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { useState, useCallback } from 'react';
 import { Typography, Box, Button, CircularProgress } from '@mui/material';
 import { PlayArrow, CheckCircle, Error as ErrorIcon } from '@mui/icons-material';

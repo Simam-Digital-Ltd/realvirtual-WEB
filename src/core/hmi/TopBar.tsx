@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { useState, useEffect, useCallback, useSyncExternalStore, useRef } from 'react';
 import { useEditorPlugin } from '../../hooks/use-editor-plugin';
 import { Typography, Box, IconButton, Paper, Tabs, Tab, Tooltip } from '@mui/material';

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * DemoHMIPlugin — Registers demo HMI content into the slot system.
  *
@@ -166,7 +169,7 @@ function DriveInfoMessage(_props: UISlotProps) {
   );
 }
 
-const DOC_URL = 'pdf/fanuc-crx-educational-cell-manual.pdf#page=105';
+const DOC_URL = `${import.meta.env.BASE_URL}pdf/fanuc-crx-educational-cell-manual.pdf#page=105`;
 
 function RobotMaintenanceMessage(_props: UISlotProps) {
   const [docOpen, setDocOpen] = useState(false);

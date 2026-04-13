@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * Tests for FPS performance optimization (plan-094).
  *
@@ -173,11 +176,16 @@ describe('Static mesh classification', () => {
     expect(dynamicMesh.matrixAutoUpdate).toBe(true);
   });
 
-  it('should have castShadow = false concept for static meshes', () => {
+  it('should enable castShadow on static meshes (uber merge collapses cost)', () => {
+    // Plan-094 originally disabled castShadow on static meshes to avoid
+    // per-mesh shadow draws. That made factory walls / frames / fixtures
+    // invisible in the shadow map. The uber merge collapses untextured
+    // statics into one draw, so static cast is cheap again — textured
+    // statics cast individually (small N in typical scenes).
     const staticMesh = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
-    staticMesh.castShadow = false;
+    staticMesh.castShadow = true;
     staticMesh.receiveShadow = true;
-    expect(staticMesh.castShadow).toBe(false);
+    expect(staticMesh.castShadow).toBe(true);
     expect(staticMesh.receiveShadow).toBe(true);
   });
 });

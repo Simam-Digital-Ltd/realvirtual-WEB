@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * rv-component-registry.ts — Component auto-mapping system for GLB extras.
  *
@@ -19,7 +22,7 @@ import type { AABB } from './rv-aabb';
 
 // ─── Schema Types ────────────────────────────────────────────────
 
-export type FieldType = 'number' | 'boolean' | 'string' | 'vector3' | 'componentRef' | 'enum';
+export type FieldType = 'number' | 'boolean' | 'string' | 'vector3' | 'componentRef' | 'componentRefArray' | 'enum';
 
 export interface FieldDescriptor {
   type: FieldType;
@@ -140,6 +143,11 @@ export function applySchema(
         instance[key] = raw;
         break;
 
+      case 'componentRefArray':
+        // Preserve raw ComponentRef array for later resolution by resolveComponentRefs()
+        instance[key] = Array.isArray(raw) ? raw : [];
+        break;
+
       case 'enum': {
         const enumMap = desc.enumMap;
         if (enumMap && typeof raw === 'string' && raw in enumMap) {
@@ -170,6 +178,36 @@ export function resolveComponentRefs(
 ): void {
   for (const key of Object.keys(instance)) {
     const val = instance[key];
+
+    // Handle arrays of ComponentRefs (componentRefArray schema type)
+    if (Array.isArray(val)) {
+      const resolved: unknown[] = [];
+      let isRefArray = false;
+      for (const item of val) {
+        if (isComponentRef(item)) {
+          isRefArray = true;
+          const ref = item as ComponentRef;
+          const res = registry.resolve(ref);
+          if (res.signalAddress !== undefined) {
+            resolved.push(res.signalAddress);
+          } else if (res.sensor !== undefined) {
+            resolved.push(res.sensor);
+          } else if (res.drive !== undefined) {
+            resolved.push(res.drive);
+          } else {
+            // Keep the raw ref path for DES component resolution
+            resolved.push(ref.path);
+          }
+        } else {
+          resolved.push(item);
+        }
+      }
+      if (isRefArray) {
+        instance[key] = resolved;
+      }
+      continue;
+    }
+
     if (!isComponentRef(val)) continue;
 
     const ref = val as ComponentRef;

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * Tooltip utility functions — projection and viewport clamping.
  *
@@ -41,6 +44,53 @@ export function projectToScreen(
   _tempVec.project(camera);
 
   // Behind-camera check: projected z > 1 means behind
+  if (_tempVec.z > 1) {
+    return { x: 0, y: 0, visible: false };
+  }
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  return {
+    x: (_tempVec.x * 0.5 + 0.5) * rect.width + rect.left,
+    y: (-_tempVec.y * 0.5 + 0.5) * rect.height + rect.top,
+    visible: true,
+  };
+}
+
+/**
+ * Convert a world-space point to an Object3D's local space.
+ * Used to store tooltip anchors that track object movement.
+ */
+export function worldToLocal(
+  worldPoint: [number, number, number],
+  target: Object3D,
+): [number, number, number] {
+  target.updateWorldMatrix(true, false);
+  _tempVec.set(worldPoint[0], worldPoint[1], worldPoint[2]);
+  target.worldToLocal(_tempVec);
+  return [_tempVec.x, _tempVec.y, _tempVec.z];
+}
+
+/**
+ * Project a 3D point to screen (pixel) coordinates.
+ *
+ * If `localTarget` is provided, `point` is treated as local-space
+ * coordinates of that object — transformed by its current matrixWorld
+ * each call so the projected position tracks object movement.
+ * Otherwise `point` is treated as a fixed world-space position.
+ */
+export function projectPointToScreen(
+  point: [number, number, number],
+  camera: Camera,
+  renderer: HasDomElement,
+  localTarget?: Object3D,
+): ScreenProjection {
+  _tempVec.set(point[0], point[1], point[2]);
+  if (localTarget) {
+    localTarget.updateWorldMatrix(true, false);
+    _tempVec.applyMatrix4(localTarget.matrixWorld);
+  }
+  _tempVec.project(camera);
+
   if (_tempVec.z > 1) {
     return { x: 0, y: 0, visible: false };
   }

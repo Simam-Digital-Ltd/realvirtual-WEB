@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { describe, it, expect } from 'vitest';
 import { MM_TO_METERS, DRAG_THRESHOLD_PX, DEFAULT_DPR_CAP, lastPathSegment } from '../src/core/engine/rv-constants';
 

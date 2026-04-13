@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { useState, useSyncExternalStore } from 'react';
 import { Box, Paper, Typography } from '@mui/material';
 import { Circle } from '@mui/icons-material';

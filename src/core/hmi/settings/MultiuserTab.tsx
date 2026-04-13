@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Typography, Box, Button, Select, MenuItem, Switch, TextField } from '@mui/material';
 import { useViewer } from '../../../hooks/use-viewer';

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { useEffect } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
 import { useViewer } from '../hooks/use-viewer';
@@ -18,9 +21,19 @@ import { useUIVisible } from '../core/hmi/ui-context-store';
 // Generic tooltip system (replaces former DriveTooltip)
 import { TooltipLayer } from '../core/hmi/tooltip/TooltipLayer';
 import { DriveTooltipController } from '../core/hmi/tooltip/DriveTooltipController';
-// Import DriveTooltipContent to trigger self-registration in tooltipRegistry
+// Import tooltip content providers to trigger self-registration in tooltipRegistry
 import '../core/hmi/tooltip/DriveTooltipContent';
+import '../core/hmi/tooltip/PipeTooltipContent';
+import '../core/hmi/tooltip/TankTooltipContent';
+import '../core/hmi/tooltip/PumpTooltipContent';
+import '../core/hmi/tooltip/ProcessingUnitTooltipContent';
 import { tooltipStore } from '../core/hmi/tooltip/tooltip-store';
+import { PipelineTooltipController } from '../core/hmi/tooltip/PipelineTooltipController';
+import { MetadataTooltipController } from '../core/hmi/tooltip/MetadataTooltipController';
+// Import metadata tooltip content provider to trigger self-registration
+import '../core/hmi/tooltip/MetadataTooltipContent';
+// Import metadata field renderer to trigger self-registration
+import '../core/hmi/rv-metadata-field-renderer';
 
 // Context menu (plugin-extensible right-click / long-press menu)
 import { ContextMenuLayer } from '../core/hmi/ContextMenuLayer';
@@ -34,29 +47,12 @@ import { AnnotationEditModal } from '../core/hmi/AnnotationEditModal';
 // Demo chart overlays
 import { DriveChartOverlay } from './DriveChartOverlay';
 
-/** Apply persisted visual settings to the viewer on startup. */
+/** Apply persisted visual settings to the viewer on startup (batch — single recompile). */
 function useApplyPersistedSettings() {
   const viewer = useViewer();
   useEffect(() => {
     const s = loadVisualSettings();
-    const ms = s.modeSettings[s.lightingMode];
-    viewer.toneMapping = ms.toneMapping;
-    viewer.toneMappingExposure = ms.toneMappingExposure;
-    viewer.ambientColor = ms.ambientColor;
-    viewer.ambientIntensity = ms.ambientIntensity;
-    viewer.dirLightColor = ms.dirLightColor;
-    viewer.dirLightIntensity = ms.dirLightIntensity;
-    viewer.shadowIntensity = ms.shadowIntensity;
-    viewer.shadowQuality = ms.shadowQuality;
-    viewer.dirLightEnabled = ms.dirLightEnabled;
-    viewer.shadowEnabled = ms.shadowEnabled;
-    viewer.lightingMode = s.lightingMode;
-    viewer.lightIntensity = ms.lightIntensity;
-    viewer.fov = s.fov;
-    viewer.projection = s.projection;
-    // Apply individual rendering settings (antialias already set at construction)
-    viewer.shadowMapSize = s.shadowMapSize ?? 1024;
-    viewer.shadowRadius = s.shadowRadius ?? 2;
+    viewer.applyVisualSettings(s);
   }, [viewer]);
 }
 
@@ -99,6 +95,8 @@ export function App() {
         <AnnotationEditModal />
       </HMIShell>
       <DriveTooltipController />
+      <PipelineTooltipController />
+      <MetadataTooltipController />
       <DriveChartOverlay />
     </ThemeProvider>
   );

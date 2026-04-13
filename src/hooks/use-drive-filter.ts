@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * React hook for drive filtering state.
  * Subscribes to viewer 'drive-filter' events and returns current filter + filtered drives.

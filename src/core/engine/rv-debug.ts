@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * rv-debug.ts — Structured debug logging for the WebViewer.
  *
@@ -32,7 +35,8 @@ export type DebugCategory =
   | 'config'     // App config loading
   | 'multiuser'  // Multiuser synchronization
   | 'interface'  // Industrial interface connections
-  | 'render';    // Render loop, performance metrics
+  | 'render'     // Render loop, performance metrics
+  | 'plugins';   // Model plugin loading/unloading
 
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * Shared chart constants — used by DriveChartOverlay, SensorChartOverlay,
  * and any future real-time chart overlays.

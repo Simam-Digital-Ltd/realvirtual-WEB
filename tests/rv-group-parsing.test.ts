@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { describe, it, expect } from 'vitest';
 import { Object3D } from 'three';
 import { GroupRegistry } from '../src/core/engine/rv-group-registry';

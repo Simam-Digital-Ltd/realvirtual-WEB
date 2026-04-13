@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * React hook for unified node filtering state.
  * Subscribes to viewer 'node-filter' events and returns current filter + filtered nodes.

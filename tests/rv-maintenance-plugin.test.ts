@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { MaintenancePlugin, type MaintenanceMode, type StepResult } from '../src/plugins/demo/maintenance-plugin';
 import type { MaintenanceProcedure } from '../src/core/maintenance-parser';

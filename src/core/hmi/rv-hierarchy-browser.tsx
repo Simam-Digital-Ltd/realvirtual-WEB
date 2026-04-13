@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /**
  * HierarchyBrowser — Tree view of all GLB nodes with rv extras.
  *
@@ -23,16 +26,16 @@ import {
   Typography,
   TextField,
   IconButton,
-  Collapse,
   InputAdornment,
   Chip,
+  Tooltip,
 } from '@mui/material';
 import {
   Search,
   ExpandMore,
   ChevronRight,
 } from '@mui/icons-material';
-import { filterChipSx } from './shared-sx';
+import { filterChipSx, RV_SCROLL_CLASS } from './shared-sx';
 import type { RVViewer } from '../rv-viewer';
 import type { ContextMenuTarget } from './context-menu-store';
 import { HIERARCHY_MIN_WIDTH, HIERARCHY_MAX_WIDTH, type EditableNodeInfo } from './rv-extras-editor';
@@ -299,13 +302,6 @@ function getStepInfoForPath(engine: RVLogicEngine | null, path: string | null): 
 
 /** Format container progress text. */
 function formatContainerProgress(info: StepStateInfo): string | null {
-  if (info.type === 'SerialContainer' && info.currentIndex !== undefined && info.childCount !== undefined) {
-    const cycle = info.completedCycles ? ` #${info.completedCycles}` : '';
-    return `${info.currentIndex + 1}/${info.childCount}${cycle}`;
-  }
-  if (info.type === 'ParallelContainer' && info.finishedCount !== undefined && info.childCount !== undefined) {
-    return `${info.finishedCount}/${info.childCount}`;
-  }
   if (info.type === 'Delay' && info.state === StepState.Active && info.elapsed !== undefined && info.duration !== undefined) {
     return `${info.elapsed.toFixed(1)}s/${info.duration.toFixed(1)}s`;
   }
@@ -342,6 +338,7 @@ function badgeLabel(type: string, stepState?: StepState): string {
     }
     return shortType;
   }
+  if (type === 'RuntimeMetadata') return 'Metadata';
   if (type === 'ConnectSignal') return 'Conn';
   if (type === 'TransportSurface') return 'TS';
   if (type === 'DrivesRecorder') return 'Rec';
@@ -442,7 +439,7 @@ const NodeBadges = memo(function NodeBadges({
   const progressText = stepInfo ? formatContainerProgress(stepInfo) : null;
 
   return (
-    <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 0, ml: 'auto', alignItems: 'center', overflow: 'hidden', minWidth: 0 }}>
+    <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 1, ml: 'auto', alignItems: 'center', overflow: 'hidden', minWidth: 0 }}>
       {nonSignalTypes.map((type) => (
         <BadgeChip
           key={type}
@@ -653,21 +650,24 @@ const TreeNodeRow = memo(function TreeNodeRow({
         {/* Status dot for LogicStep nodes */}
         {stepInfo && <StepStateDot stepState={stepInfo.state} />}
 
-        <Typography
-          sx={{
-            fontSize: 12,
-            lineHeight: 1.3,
-            fontWeight: hasComponents ? 400 : 500,
-            color: isSelected ? 'primary.main' : hasComponents ? 'text.primary' : 'text.secondary',
-            flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            mr: 0.25,
-          }}
-        >
-          {node.name}
-        </Typography>
+        <Tooltip title={node.name} placement="top" enterDelay={400} slotProps={{ tooltip: { sx: { fontSize: 10 } } }}>
+          <Typography
+            sx={{
+              fontSize: 12,
+              lineHeight: 1.3,
+              fontWeight: hasComponents ? 400 : 500,
+              color: isSelected ? 'primary.main' : hasComponents ? 'text.primary' : 'text.secondary',
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              minWidth: 60,
+              mr: 0.25,
+            }}
+          >
+            {node.name}
+          </Typography>
+        </Tooltip>
 
         {hasComponents && (
           <NodeBadges types={node.types} signalStore={signalStore} path={node.path} stepInfo={stepInfo} />
@@ -675,27 +675,23 @@ const TreeNodeRow = memo(function TreeNodeRow({
 
       </Box>
 
-      {hasChildren && (
-        <Collapse in={isExpanded} timeout={100} unmountOnExit>
-          {node.children.map((child, i) => (
-            <TreeNodeRow
-              key={child.name + '-' + i}
-              node={child}
-              depth={depth + 1}
-              selectedPaths={selectedPaths}
-              expanded={expanded}
-              onToggleExpand={onToggleExpand}
-              onSelect={onSelect}
-              onDoubleClick={onDoubleClick}
-              onHover={onHover}
-              onContextMenu={onContextMenu}
-              signalStore={signalStore}
-              logicEngine={logicEngine}
-              liveTick={liveTick}
-            />
-          ))}
-        </Collapse>
-      )}
+      {hasChildren && isExpanded && node.children.map((child, i) => (
+        <TreeNodeRow
+          key={child.name + '-' + i}
+          node={child}
+          depth={depth + 1}
+          selectedPaths={selectedPaths}
+          expanded={expanded}
+          onToggleExpand={onToggleExpand}
+          onSelect={onSelect}
+          onDoubleClick={onDoubleClick}
+          onHover={onHover}
+          onContextMenu={onContextMenu}
+          signalStore={signalStore}
+          logicEngine={logicEngine}
+          liveTick={liveTick}
+        />
+      ))}
     </>
   );
 });
@@ -727,6 +723,10 @@ const FlatNodeRow = memo(function FlatNodeRow({ info, selectedPaths, onSelect, o
   const stepInfo = hasLogicStep ? getStepInfoForPath(logicEngine, info.path) : null;
   const isContainer = info.types.some(t => t === 'LogicStep_SerialContainer' || t === 'LogicStep_ParallelContainer');
 
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    onSelect(info.path, e.shiftKey);
+  }, [info.path, onSelect]);
+
   const handleDblClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     onDoubleClick(info.path);
@@ -739,6 +739,9 @@ const FlatNodeRow = memo(function FlatNodeRow({ info, selectedPaths, onSelect, o
       onContextMenu(e, info.path);
     }
   }, [info.path, onContextMenu]);
+
+  const handleMouseEnter = useCallback(() => onHover(info.path), [info.path, onHover]);
+  const handleMouseLeave = useCallback(() => onHover(null), [onHover]);
 
   // Long-press state for touch context menu
   const flatLpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -780,15 +783,15 @@ const FlatNodeRow = memo(function FlatNodeRow({ info, selectedPaths, onSelect, o
   return (
     <Box
       data-path={info.path}
-      onClick={(e: React.MouseEvent) => onSelect(info.path, e.shiftKey)}
+      onClick={handleClick}
       onDoubleClick={handleDblClick}
       onContextMenu={handleCtxMenu}
       onPointerDown={handleFlatPointerDown}
       onPointerMove={handleFlatPointerMove}
       onPointerUp={cancelFlatLp}
       onPointerLeave={cancelFlatLp}
-      onMouseEnter={() => onHover(info.path)}
-      onMouseLeave={() => onHover(null)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       style={virtualStyle}
       sx={{
         display: 'flex',
@@ -817,22 +820,24 @@ const FlatNodeRow = memo(function FlatNodeRow({ info, selectedPaths, onSelect, o
       {/* Status dot for LogicStep nodes — only Active/Waiting */}
       {stepInfo && <StepStateDot stepState={stepInfo.state} />}
 
-      <Typography
-        sx={{
-          fontSize: 12,
-          lineHeight: 1.3,
-          color: isSelected ? 'primary.main' : 'text.primary',
-          fontWeight: isContainer ? 600 : 400,
-          flex: 1,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          minWidth: 0,
-          mr: 0.5,
-        }}
-      >
-        {name}
-      </Typography>
+      <Tooltip title={name} placement="top" enterDelay={400} slotProps={{ tooltip: { sx: { fontSize: 10 } } }}>
+        <Typography
+          sx={{
+            fontSize: 12,
+            lineHeight: 1.3,
+            color: isSelected ? 'primary.main' : 'text.primary',
+            fontWeight: isContainer ? 600 : 400,
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            minWidth: 60,
+            mr: 0.5,
+          }}
+        >
+          {name}
+        </Typography>
+      </Tooltip>
 
       <NodeBadges types={info.types} signalStore={signalStore} path={info.path} stepInfo={stepInfo} />
     </Box>
@@ -1004,18 +1009,22 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
 
   // ── Hover highlight (orange, temporary) ──
   // Selection highlight (cyan, persistent) is handled by SelectionManager.
+  // Debounced to avoid blocking the UI when scrolling over many hierarchy rows.
+
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleHover = useCallback((path: string | null) => {
-    if (path && viewer.registry) {
-      const node = viewer.registry.getNode(path);
+    if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
+    if (!path) { viewer.highlighter.clear(); return; }
+    hoverTimerRef.current = setTimeout(() => {
+      hoverTimerRef.current = null;
+      const node = viewer.registry?.getNode(path);
       if (node) {
         viewer.highlighter.highlight(node, true, { includeChildDrives: true });
       } else {
         viewer.highlighter.clear();
       }
-    } else {
-      viewer.highlighter.clear();
-    }
+    }, 80);
   }, [viewer]);
 
   const handleSelect = useCallback(
@@ -1160,12 +1169,11 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
       {/* Tree / Flat list — own scroll container for useVirtualizer compatibility */}
       <Box
         ref={scrollContainerRef}
+        className={RV_SCROLL_CLASS}
         sx={{
           flex: 1,
           overflow: 'auto',
           py: 0.5,
-          '&::-webkit-scrollbar': { width: 6 },
-          '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255, 255, 255, 0.1)', borderRadius: 3 },
         }}
       >
         {isFlat ? (

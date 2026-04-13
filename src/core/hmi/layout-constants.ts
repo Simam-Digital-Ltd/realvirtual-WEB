@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
 /** Shared layout constants — kept dependency-free to avoid circular imports. */
 
 /** Height of the bottom bar area (search + padding) for layout calculations. */
