@@ -89,7 +89,7 @@ src/
   hooks/                         # React hooks
   interfaces/                    # Industrial protocol adapters
   plugins/                       # Built-in plugins
-  custom/                        # Demo-specific HMI customizations
+  plugins/demo/                  # Demo charts and HMI plugin (OeeChart, DriveChartOverlay, etc.)
 tests/                           # Vitest browser tests
 e2e/                             # Playwright E2E tests
 public/models/                   # GLB model files

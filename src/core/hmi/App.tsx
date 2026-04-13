@@ -3,49 +3,47 @@
 
 import { useEffect } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
-import { useViewer } from '../hooks/use-viewer';
+import { useViewer } from '../../hooks/use-viewer';
 
 // Core HMI components
-import { rvDarkTheme } from '../core/hmi/theme';
-import { HMIShell, SlotRenderer } from '../core/hmi/HMIShell';
-import { TopBar } from '../core/hmi/TopBar';
-import { KpiBar } from '../core/hmi/KpiBar';
-import { LogoBadge, ButtonPanel } from '../core/hmi/ButtonPanel';
-import { MessagePanel } from '../core/hmi/MessagePanel';
-import { BottomBar } from '../core/hmi/BottomBar';
+import { rvDarkTheme } from './theme';
+import { HMIShell, SlotRenderer } from './HMIShell';
+import { TopBar } from './TopBar';
+import { KpiBar } from './KpiBar';
+import { LogoBadge, ButtonPanel } from './ButtonPanel';
+import { MessagePanel } from './MessagePanel';
+import { BottomBar } from './BottomBar';
 
-import { loadVisualSettings } from '../core/hmi/visual-settings-store';
-import { useHmiVisible } from '../core/hmi/hmi-visibility-store';
-import { useUIVisible } from '../core/hmi/ui-context-store';
+import { loadVisualSettings } from './visual-settings-store';
+import { useHmiVisible } from './hmi-visibility-store';
+import { useUIVisible } from './ui-context-store';
 
 // Generic tooltip system (replaces former DriveTooltip)
-import { TooltipLayer } from '../core/hmi/tooltip/TooltipLayer';
-import { DriveTooltipController } from '../core/hmi/tooltip/DriveTooltipController';
+import { TooltipLayer } from './tooltip/TooltipLayer';
+import { DriveTooltipController } from './tooltip/DriveTooltipController';
 // Import tooltip content providers to trigger self-registration in tooltipRegistry
-import '../core/hmi/tooltip/DriveTooltipContent';
-import '../core/hmi/tooltip/PipeTooltipContent';
-import '../core/hmi/tooltip/TankTooltipContent';
-import '../core/hmi/tooltip/PumpTooltipContent';
-import '../core/hmi/tooltip/ProcessingUnitTooltipContent';
-import { tooltipStore } from '../core/hmi/tooltip/tooltip-store';
-import { PipelineTooltipController } from '../core/hmi/tooltip/PipelineTooltipController';
-import { MetadataTooltipController } from '../core/hmi/tooltip/MetadataTooltipController';
+import './tooltip/DriveTooltipContent';
+import './tooltip/PipeTooltipContent';
+import './tooltip/TankTooltipContent';
+import './tooltip/PumpTooltipContent';
+import './tooltip/ProcessingUnitTooltipContent';
+import { tooltipStore } from './tooltip/tooltip-store';
+import { PipelineTooltipController } from './tooltip/PipelineTooltipController';
+import { MetadataTooltipController } from './tooltip/MetadataTooltipController';
 // Import metadata tooltip content provider to trigger self-registration
-import '../core/hmi/tooltip/MetadataTooltipContent';
+import './tooltip/MetadataTooltipContent';
 // Import metadata field renderer to trigger self-registration
-import '../core/hmi/rv-metadata-field-renderer';
+import './rv-metadata-field-renderer';
 
 // Context menu (plugin-extensible right-click / long-press menu)
-import { ContextMenuLayer } from '../core/hmi/ContextMenuLayer';
-import { SetPositionDialog } from '../core/hmi/SetPositionDialog';
+import { ContextMenuLayer } from './ContextMenuLayer';
+import { SetPositionDialog } from './SetPositionDialog';
 
 // Annotation & Shared View overlays
-import { AnnotationPanel } from '../core/hmi/AnnotationPanel';
-import { SharedViewBanner } from '../core/hmi/SharedViewBanner';
-import { AnnotationEditModal } from '../core/hmi/AnnotationEditModal';
+import { AnnotationPanel } from './AnnotationPanel';
+import { SharedViewBanner } from './SharedViewBanner';
+import { AnnotationEditModal } from './AnnotationEditModal';
 
-// Demo chart overlays
-import { DriveChartOverlay } from './DriveChartOverlay';
 
 /** Apply persisted visual settings to the viewer on startup (batch — single recompile). */
 function useApplyPersistedSettings() {
@@ -97,7 +95,6 @@ export function App() {
       <DriveTooltipController />
       <PipelineTooltipController />
       <MetadataTooltipController />
-      <DriveChartOverlay />
     </ThemeProvider>
   );
 }

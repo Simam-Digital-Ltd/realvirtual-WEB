@@ -12,14 +12,14 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Box, ToggleButtonGroup, ToggleButton } from '@mui/material';
-import { useViewer } from '../hooks/use-viewer';
-import { useEChart } from '../hooks/use-echart';
-import { useSensorChartOpen } from '../hooks/use-sensor-chart';
-import { useMaintenanceMode } from '../hooks/use-maintenance-mode';
-import { BOTTOM_BAR_HEIGHT } from '../core/hmi/layout-constants';
-import { ChartPanel } from '../core/hmi/ChartPanel';
-import { SensorRecorderPlugin } from '../plugins/sensor-recorder-plugin';
-import { NodeRegistry } from '../core/engine/rv-node-registry';
+import { useViewer } from '../../hooks/use-viewer';
+import { useEChart } from '../../hooks/use-echart';
+import { useSensorChartOpen } from '../../hooks/use-sensor-chart';
+import { useMaintenanceMode } from '../../hooks/use-maintenance-mode';
+import { BOTTOM_BAR_HEIGHT } from '../../core/hmi/layout-constants';
+import { ChartPanel } from '../../core/hmi/ChartPanel';
+import { SensorRecorderPlugin } from '../sensor-recorder-plugin';
+import { NodeRegistry } from '../../core/engine/rv-node-registry';
 import {
   type TimePeriod,
   PERIOD_OPTIONS,
@@ -27,15 +27,15 @@ import {
   CHART_REFRESH_INTERVAL,
   CHART_DEFAULT_WIDTH,
   SENSOR_PALETTE,
-} from '../core/hmi/chart-constants';
-import { compactToggleGroupSx } from '../core/hmi/shared-sx';
+} from '../../core/hmi/chart-constants';
+import { compactToggleGroupSx } from '../../core/hmi/shared-sx';
 import {
   DARK_TEXT_STYLE,
   DARK_TITLE_STYLE,
   DARK_AXIS_LINE,
   DARK_AXIS_LABEL,
   DARK_TOOLTIP_BASE,
-} from '../core/hmi/chart-theme';
+} from '../../core/hmi/chart-theme';
 
 const DEFAULT_H = 340;
 const BOTTOM_MARGIN = BOTTOM_BAR_HEIGHT + 12;

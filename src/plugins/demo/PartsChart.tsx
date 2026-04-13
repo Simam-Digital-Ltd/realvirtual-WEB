@@ -10,11 +10,11 @@
 
 import { useEffect } from 'react';
 import { Box } from '@mui/material';
-import { ChartPanel } from '../core/hmi/ChartPanel';
-import { useKpiData } from '../hooks/use-kpi-data';
-import { movingAverage } from '../core/hmi/kpi-utils';
-import { useEChart } from '../hooks/use-echart';
-import { createBaseChartOption } from '../core/hmi/chart-theme';
+import { ChartPanel } from '../../core/hmi/ChartPanel';
+import { useKpiData } from '../../hooks/use-kpi-data';
+import { movingAverage } from '../../core/hmi/kpi-utils';
+import { useEChart } from '../../hooks/use-echart';
+import { createBaseChartOption } from '../../core/hmi/chart-theme';
 
 interface PartsChartProps {
   open: boolean;

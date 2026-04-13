@@ -18,14 +18,15 @@ import { KpiCard } from '../../core/hmi/KpiCard';
 import { TileCard } from '../../core/hmi/TileCard';
 import { NavButton } from '../../core/hmi/NavButton';
 
-// Custom charts (demo content)
-import { OeeChart } from '../../custom/OeeChart';
-import { PartsChart } from '../../custom/PartsChart';
-import { CycleTimeChart } from '../../custom/CycleTimeChart';
-import { EnergyChart } from '../../custom/EnergyChart';
+// Demo charts (co-located in plugins/demo/)
+import { OeeChart } from './OeeChart';
+import { PartsChart } from './PartsChart';
+import { CycleTimeChart } from './CycleTimeChart';
+import { EnergyChart } from './EnergyChart';
 
-// Custom overlays
-import { SensorChartOverlay } from '../../custom/SensorChartOverlay';
+// Demo chart overlays (co-located in plugins/demo/)
+import { SensorChartOverlay } from './SensorChartOverlay';
+import { DriveChartOverlay } from './DriveChartOverlay';
 import { DocViewerOverlay } from '../../core/hmi/DocViewerOverlay';
 
 // Hooks
@@ -82,7 +83,12 @@ function PowerKpi(_props: UISlotProps) {
 
 function DrivesButton({ viewer }: UISlotProps) {
   const open = useDriveChartOpen();
-  return <NavButton icon={<Speed />} label="Drives" active={open} onClick={() => viewer.toggleDriveChart()} />;
+  return (
+    <>
+      <NavButton icon={<Speed />} label="Drives" active={open} onClick={() => viewer.toggleDriveChart()} />
+      <DriveChartOverlay />
+    </>
+  );
 }
 
 function SensorsButton({ viewer }: UISlotProps) {

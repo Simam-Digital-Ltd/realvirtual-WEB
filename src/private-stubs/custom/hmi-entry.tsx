@@ -6,12 +6,12 @@
  *
  * When the private folder is absent, Vite resolves
  * `@rv-private/custom/hmi-entry` to this stub.
- * It mounts the public App.tsx (minimal shell: TopBar + BottomBar + SlotRenderer).
+ * It mounts App.tsx from core/hmi/ (minimal shell: TopBar + BottomBar + SlotRenderer).
  */
 
 import { createRoot } from 'react-dom/client';
 import { RVViewerProvider } from '../../hooks/use-viewer';
-import { App } from '../../custom/App';
+import { App } from '../../core/hmi/App';
 import type { RVViewer } from '../../core/rv-viewer';
 
 export function initHMI(viewer: RVViewer): void {

@@ -126,12 +126,53 @@ src/
   hooks/             # React hooks
   interfaces/        # Industrial protocol adapters (WebSocket, MQTT, ctrlX)
   plugins/           # Built-in plugins (multiuser, annotations, FPV, XR)
+    demo/            # Demo charts and HMI (OEE, cycle time, energy, drive/sensor overlays)
     models/          # Per-model plugins (auto-loaded when a model is selected)
-  custom/            # Demo-specific HMI customizations
 tests/               # 1300+ Vitest browser tests
 e2e/                 # Playwright E2E tests
 public/models/       # GLB model files
 ```
+
+## Extending realvirtual WEB
+
+The plugin system makes it easy to add custom functionality. Create a plugin class and register it with `viewer.use()`:
+
+```typescript
+import type { RVViewerPlugin } from './core/rv-plugin';
+import type { RVViewer } from './core/rv-viewer';
+
+class MyPlugin implements RVViewerPlugin {
+  id = 'my-plugin';
+
+  install(viewer: RVViewer) {
+    // Access drives, signals, scene — all from the viewer API
+    viewer.on('model-loaded', () => {
+      const drives = viewer.drives;          // all drives in the scene
+      const signals = viewer.signalStore;    // PLC signal store
+      console.log(`Model loaded with ${drives.length} drives`);
+    });
+  }
+}
+
+// Register in main.ts or a model-specific plugin module
+viewer.use(new MyPlugin());
+```
+
+**Per-model plugins** load automatically when a specific GLB is selected. Place them in `src/plugins/models/<ModelName>/index.ts`:
+
+```typescript
+export const models = ['MyMachine'];  // matches MyMachine.glb
+
+export function registerModelPlugins(viewer) {
+  viewer.use(new MyCustomDashboard());
+}
+
+export function unregisterModelPlugins(viewer) {
+  viewer.removePlugin('my-dashboard');
+}
+```
+
+For the full plugin API — UI slots, event bus, hooks, context menus, and tooltip extensions — see [doc-extending-webviewer.md](doc-extending-webviewer.md).
 
 ## Documentation
 

@@ -12,16 +12,16 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Box, ToggleButtonGroup, ToggleButton, Chip } from '@mui/material';
 import { FilterAltOff } from '@mui/icons-material';
-import { useViewer } from '../hooks/use-viewer';
-import { useEChart } from '../hooks/use-echart';
-import { useDriveChartOpen } from '../hooks/use-drive-chart';
-import { useDrives } from '../hooks/use-drives';
-import { useDriveFilter } from '../hooks/use-drive-filter';
-import { useMaintenanceMode } from '../hooks/use-maintenance-mode';
-import { BOTTOM_BAR_HEIGHT } from '../core/hmi/layout-constants';
-import { ChartPanel } from '../core/hmi/ChartPanel';
-import { DriveRecorderPlugin } from '../plugins/drive-recorder-plugin';
-import { NodeRegistry } from '../core/engine/rv-node-registry';
+import { useViewer } from '../../hooks/use-viewer';
+import { useEChart } from '../../hooks/use-echart';
+import { useDriveChartOpen } from '../../hooks/use-drive-chart';
+import { useDrives } from '../../hooks/use-drives';
+import { useDriveFilter } from '../../hooks/use-drive-filter';
+import { useMaintenanceMode } from '../../hooks/use-maintenance-mode';
+import { BOTTOM_BAR_HEIGHT } from '../../core/hmi/layout-constants';
+import { ChartPanel } from '../../core/hmi/ChartPanel';
+import { DriveRecorderPlugin } from '../drive-recorder-plugin';
+import { NodeRegistry } from '../../core/engine/rv-node-registry';
 import {
   type TimePeriod,
   PERIOD_OPTIONS,
@@ -29,8 +29,8 @@ import {
   CHART_REFRESH_INTERVAL,
   CHART_DEFAULT_WIDTH,
   DRIVE_PALETTE,
-} from '../core/hmi/chart-constants';
-import { compactToggleGroupSx } from '../core/hmi/shared-sx';
+} from '../../core/hmi/chart-constants';
+import { compactToggleGroupSx } from '../../core/hmi/shared-sx';
 import {
   DARK_TEXT_STYLE,
   DARK_TITLE_STYLE,
@@ -38,7 +38,7 @@ import {
   DARK_AXIS_LABEL,
   DARK_SPLIT_LINE,
   DARK_TOOLTIP_BASE,
-} from '../core/hmi/chart-theme';
+} from '../../core/hmi/chart-theme';
 
 type ChartMode = 'position' | 'speed' | 'both';
 

@@ -137,7 +137,7 @@ src/
 ├── private-stubs/                       # No-op fallbacks when private folder absent
 │   ├── private-plugins.ts              # export function registerPrivatePlugins() {} // no-op
 │   └── custom/
-│       └── hmi-entry.tsx               # Mounts public App.tsx
+│       └── hmi-entry.tsx               # Mounts core/hmi/App.tsx
 ├── interfaces/                          # Industrial interface plugins
 │   ├── interface-manager.ts             # Interface coordinator (mutex, auto-connect)
 │   ├── interface-settings-store.ts      # Interface settings (WS, MQTT, ctrlX)
@@ -159,6 +159,12 @@ src/
 │   │   ├── index.ts                    # Barrel exports (no global registration)
 │   │   ├── kpi-demo-plugin.ts          # OEE/Parts/CycleTime demo data
 │   │   ├── demo-hmi-plugin.tsx         # Demo KPI cards, buttons, messages
+│   │   ├── DriveChartOverlay.tsx       # Real-time drive position/speed chart
+│   │   ├── SensorChartOverlay.tsx      # Real-time sensor timeline chart
+│   │   ├── OeeChart.tsx               # OEE breakdown chart
+│   │   ├── PartsChart.tsx             # Parts per hour chart
+│   │   ├── CycleTimeChart.tsx         # Cycle time scatter chart
+│   │   ├── EnergyChart.tsx            # Power consumption chart
 │   │   ├── test-axes-plugin.tsx        # Manual axis control slider
 │   │   ├── machine-control-plugin.ts   # Machine start/stop panel
 │   │   ├── maintenance-plugin.ts       # Maintenance checklists
@@ -184,8 +190,6 @@ src/
 │   ├── use-maintenance-mode.ts         # Maintenance mode state
 │   ├── use-groups-overlay.ts           # Group visibility
 │   └── use-interface-status.ts          # Interface connection status
-├── custom/                              # Customizable app shell
-│   └── App.tsx                          # Public app layout (minimal — no demo charts)
 └── tests/
     ├── glb-extras.test.ts               # GLB structure (21 tests)
     ├── rv-node-registry.test.ts         # NodeRegistry (34 tests)
