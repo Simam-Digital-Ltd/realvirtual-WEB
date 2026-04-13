@@ -36,6 +36,8 @@ realvirtual WEB replaces traditional desktop HMI and SCADA visualization with a 
 ### 3D HMI / Operator Dashboards
 Web-based HMI connected to real PLCs via WebSocket or MQTT. Live signal visualization, KPI overlays, drive monitoring — replacing desktop HMI applications with a browser link.
 
+![HMI Overview — KPI cards, message panel, button panel, search bar, camera presets](docs/images/screenshot-hmi-overview.png)
+
 ### Machine Information System
 Attach PDFs, maintenance guides, technical drawings, operating manuals, and spare part lists directly to individual 3D components. Technicians open a link on their tablet, click on a motor or valve, and immediately see its documentation, maintenance history, and real-time status — all in 3D context, on-site or remotely. No more searching through binders or file shares.
 
@@ -134,6 +136,14 @@ public/models/       # GLB model files
 ```
 
 ## Extending realvirtual WEB
+
+Plugins can contribute UI components to predefined **slots** in the HMI layout — KPI bar, button panel, message panel, settings tabs, and more. The built-in demo plugin uses all of these:
+
+![Drive Monitor — real-time ECharts overlay showing all drive positions](docs/images/screenshot-drive-chart.png)
+
+![Hierarchy Browser — scene tree with component type filters and search](docs/images/screenshot-hierarchy.png)
+
+![Settings Panel — tabbed configuration for model, visual, physics, interfaces, and AI](docs/images/screenshot-settings.png)
 
 The plugin system makes it easy to add custom functionality. Create a plugin class and register it with `viewer.use()`:
 
