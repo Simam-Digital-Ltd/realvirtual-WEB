@@ -1,6 +1,6 @@
 # CLAUDE.md — realvirtual WEB
 
-This file provides guidance to Claude Code when working with the realvirtual WebViewer codebase.
+This file provides guidance to Claude Code when working with the realvirtual WEB codebase.
 
 ## Project Overview
 
@@ -156,9 +156,9 @@ When the dev server is running (`npm run dev`), debug endpoints are available:
 
 ## MCP Integration
 
-The WebViewer includes a built-in MCP bridge (`src/plugins/mcp-bridge-plugin.ts`) that exposes the running Three.js scene to AI assistants. The MCP tools documentation is in `webviewer.mcp.md`.
+realvirtual WEB includes a built-in MCP bridge (`src/plugins/mcp-bridge-plugin.ts`) that exposes the running Three.js scene to AI assistants. The MCP tools documentation is in `webviewer.mcp.md`.
 
-The recommended MCP server is [realvirtual-MCP](https://github.com/game4automation/realvirtual-MCP) — a Python bridge that connects AI agents (Claude Code, Claude Desktop, Cursor) to the WebViewer via the debug API. When also used with the Unity Editor, 80+ additional tools for scene authoring and simulation control become available.
+The recommended MCP server is [realvirtual-MCP](https://github.com/game4automation/realvirtual-MCP) — a Python bridge that connects AI agents (Claude Code, Claude Desktop, Cursor) to realvirtual WEB via the debug API. When also used with the Unity Editor, 80+ additional tools for scene authoring and simulation control become available.
 
 ## Documentation Files
 

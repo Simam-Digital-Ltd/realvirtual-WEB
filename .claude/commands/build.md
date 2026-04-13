@@ -5,7 +5,7 @@ allowed-tools: Bash(*)
 
 # Build Command
 
-Build the WebViewer for production deployment.
+Build realvirtual WEB for production deployment.
 
 ## Task
 

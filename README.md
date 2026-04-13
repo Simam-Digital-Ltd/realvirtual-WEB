@@ -7,6 +7,8 @@
 [![Three.js](https://img.shields.io/badge/Three.js-WebGL%20%7C%20WebGPU-green.svg)](https://threejs.org/)
 [![AI-Driven Development](https://img.shields.io/badge/AI--Driven_Development-MCP_Enabled-blueviolet.svg)](https://github.com/game4automation/realvirtual-MCP)
 
+![realvirtual WEB — Browser-based 3D HMI and Digital Twin Viewer](docs/images/realvirtual-web-demo.jpg)
+
 realvirtual WEB is an open-source, browser-based 3D HMI and digital twin viewer for manufacturing. Load any standard GLB/glTF file and view it as an interactive 3D model in the browser. For full digital twin functionality — drives, sensors, transport simulation, signal wiring, and KPI dashboards — use GLB files enriched with `rv_extras` metadata, either exported from [realvirtual.io](https://realvirtual.io) Professional or authored manually. No installation required.
 
 **One link. Any device. Live Digital Twin.** Try it: [web.realvirtual.io/demo](https://web.realvirtual.io/demo)
@@ -19,10 +21,10 @@ realvirtual WEB replaces traditional desktop HMI and SCADA visualization with a 
 
 ### Key Capabilities
 
-- **Live 3D HMI** — Real-time PLC signal visualization via WebSocket or MQTT. Drive monitoring, sensor states, KPI overlays, alarm dashboards.
+- **Live 3D HMI** — Real-time PLC signal visualization via WebSocket or MQTT. Drive monitoring, sensor states, KPI overlays, alarm dashboards, and production charts powered by [Apache ECharts](https://echarts.apache.org/).
 - **Machine Information System** — Attach documents, maintenance guides, technical drawings, and manuals directly to 3D components. Technicians click a part and see its documentation in context — accessible from any device on the shop floor.
 - **Transport Simulation** — Full in-browser simulation engine at 60 Hz fixed timestep: conveyor surfaces, sources, sinks, sensors with AABB collision, grippers, and material flow.
-- **LogicStep Sequencing** — Serial/parallel containers, signal conditions, delays, drive commands — ported from the Unity simulation engine.
+- **LogicStep Sequencing** — Serial/parallel containers, signal conditions, delays, drive commands — ported from realvirtual.io Professional based on Unity.
 - **WebXR (VR/AR)** — Immersive visualization on Meta Quest, Apple Vision Pro, and AR on Android/iOS with surface detection.
 - **Multiuser Sessions** *(Beta)* — Real-time collaboration with avatars, shared camera views, role management, and late-join state sync.
 - **Plugin Architecture** — Extend with custom plugins for project-specific HMI, KPI dashboards, maintenance workflows, and industrial interfaces.
@@ -135,11 +137,11 @@ public/models/       # GLB model files
 
 ## AI-Enabled Development (MCP)
 
-realvirtual WEB and [realvirtual.io](https://realvirtual.io) are fully AI-enabled through the **Model Context Protocol (MCP)**. AI coding assistants like [Claude Code](https://claude.ai/code) can directly interact with both the Unity Editor and the running WebViewer:
+realvirtual WEB and [realvirtual.io](https://realvirtual.io) are fully AI-enabled through the **Model Context Protocol (MCP)**. AI coding assistants like [Claude Code](https://claude.ai/code) can directly interact with both the Unity Editor and the running realvirtual WEB instance:
 
 The [**realvirtual MCP Server**](https://github.com/game4automation/realvirtual-MCP) is the recommended AI bridge. It connects AI assistants to:
 
-- **WebViewer** — List drives and positions, read/write PLC signals, query the scene hierarchy, inspect sensor states, debug transport simulation — all from the running browser scene.
+- **realvirtual WEB** — List drives and positions, read/write PLC signals, query the scene hierarchy, inspect sensor states, debug transport simulation — all from the running browser scene.
 - **Unity Editor** *(optional)* — When used with [realvirtual.io](https://realvirtual.io), 80+ additional tools are available: create GameObjects, set component properties, run simulations, manage scenes, take screenshots, and run tests.
 
 This means AI assistants can design, build, test, and debug industrial digital twins end-to-end.
