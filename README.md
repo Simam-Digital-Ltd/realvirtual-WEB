@@ -182,7 +182,7 @@ This program is licensed under the **GNU Affero General Public License v3 (AGPL-
 
 **What this means:** If you use, modify, or build upon realvirtual WEB in your own project — including deploying it as a web service — you must publish your **complete project** under the same AGPL-3.0 license and make it freely available. This includes all source code, configuration, and **all content delivered through the application** (such as GLB model files, settings, and plugins). This applies whether served over a network or distributed directly.
 
-The "Powered by realvirtual WEB" watermark must remain visible in all AGPL deployments. Removal of the watermark requires a commercial license.
+The "Powered by realvirtual WEB" watermark and the realvirtual logo must remain visible and unmodified in all AGPL deployments. Removal or modification of any branding requires a commercial license.
 
 See [LICENSE](LICENSE) for the full license text.
 
