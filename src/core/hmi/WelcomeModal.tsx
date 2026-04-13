@@ -48,20 +48,27 @@ export function WelcomeModal({ open, onClose }: WelcomeModalProps) {
         </Typography>
 
         <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
-          Browser-based <strong style={{ color: '#fff' }}>3D HMI, Machine Information System, and Digital Twin Viewer</strong> for
-          industrial automation. Load GLB models and run transport simulation, drive animation,
-          sensor collision, and LogicStep sequencing — no installation required.
+          <strong style={{ color: '#fff' }}>3D HMI</strong> &middot;{' '}
+          <strong style={{ color: '#fff' }}>Machine & Maintenance Information</strong> &middot;{' '}
+          <strong style={{ color: '#fff' }}>Product Configuration</strong> &middot;{' '}
+          <strong style={{ color: '#fff' }}>Sales</strong> &middot;{' '}
+          <strong style={{ color: '#fff' }}>Training</strong>
         </Typography>
 
         <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
-          Connect to real PLCs via WebSocket or MQTT for live signal visualization,
-          KPI dashboards, and alarm monitoring. Attach documents, maintenance guides,
-          and technical drawings directly to 3D components.
+          One link is all it takes. Share interactive 3D digital twins with operators,
+          service technicians, sales teams, and customers — directly in the browser,
+          on any device, no installation required.
+        </Typography>
+
+        <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
+          Connect to real PLCs via WebSocket or MQTT. Attach documents, maintenance guides,
+          and technical drawings directly to 3D components. Build product configurators,
+          KPI dashboards, and training environments — all from a single GLB export.
         </Typography>
 
         <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
           Open source under the <strong style={{ color: '#fff' }}>AGPL-3.0 license</strong>.
-          Built with Three.js, React, Material UI, Rapier.js, Apache ECharts, and Vite.
           Part of the{' '}
           <a href="https://realvirtual.io" target="_blank" rel="noopener noreferrer" style={{ color: '#4fc3f7', textDecoration: 'none' }}>
             realvirtual.io
