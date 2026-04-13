@@ -54,6 +54,7 @@ Share virtual commissioning models with customers for review and sign-off — wo
 ## Quick Start
 
 ```bash
+# Requirements: Node.js >= 20.19 or >= 22.12
 # Clone the repository (increase buffer for large GLB model files)
 git config --global http.postBuffer 524288000
 git clone https://github.com/game4automation/realvirtual-WEB.git
@@ -180,6 +181,8 @@ Copyright (C) 2025 [realvirtual GmbH](https://realvirtual.io)
 This program is licensed under the **GNU Affero General Public License v3 (AGPL-3.0)**.
 
 **What this means:** If you use, modify, or build upon realvirtual WEB in your own project — including deploying it as a web service — you must publish your **complete project** under the same AGPL-3.0 license and make it freely available. This includes all source code, configuration, and **all content delivered through the application** (such as GLB model files, settings, and plugins). This applies whether served over a network or distributed directly.
+
+The "Powered by realvirtual WEB" watermark must remain visible in all AGPL deployments. Removal of the watermark requires a commercial license.
 
 See [LICENSE](LICENSE) for the full license text.
 

@@ -24,6 +24,12 @@ import { activateContext, registerUIElement } from './core/hmi/ui-context-store'
 import { initHMI } from '@rv-private/custom/hmi-entry';
 import { registerPrivatePlugins } from '@rv-private/private-plugins';
 
+// Hide AGPL watermark for commercial (private) builds
+if (__RV_HAS_PRIVATE__) {
+  const wm = document.getElementById('rv-watermark');
+  if (wm) wm.style.display = 'none';
+}
+
 // Core Plugins (always included in public AGPL build)
 import { SensorMonitorPlugin } from './plugins/sensor-monitor-plugin';
 import { TransportStatsPlugin } from './plugins/transport-stats-plugin';

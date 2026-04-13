@@ -186,6 +186,33 @@
   </div>
 
   <div id="react-root"></div>
+
+  <!-- AGPL Watermark — removal requires a commercial license -->
+  <a id="rv-watermark" href="https://realvirtual.io" target="_blank" rel="noopener noreferrer">
+    Powered by <strong>realvirtual WEB</strong> · AGPL-3.0
+  </a>
+  <style>
+    #rv-watermark {
+      position: fixed;
+      bottom: 6px;
+      right: 12px;
+      z-index: 9999;
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.35);
+      text-decoration: none;
+      pointer-events: auto;
+      letter-spacing: 0.3px;
+      transition: color 0.2s;
+    }
+    #rv-watermark:hover {
+      color: rgba(255, 255, 255, 0.7);
+    }
+    #rv-watermark strong {
+      font-weight: 600;
+    }
+  </style>
+
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
