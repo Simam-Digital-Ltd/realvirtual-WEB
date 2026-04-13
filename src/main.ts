@@ -24,8 +24,8 @@ import { activateContext, registerUIElement } from './core/hmi/ui-context-store'
 import { initHMI } from '@rv-private/custom/hmi-entry';
 import { registerPrivatePlugins } from '@rv-private/private-plugins';
 
-// Hide AGPL watermark for commercial (private) builds
-if (__RV_HAS_PRIVATE__) {
+// Hide AGPL watermark for commercial builds (RV_COMMERCIAL=1)
+if (__RV_COMMERCIAL__) {
   const wm = document.getElementById('rv-watermark');
   if (wm) wm.style.display = 'none';
 }

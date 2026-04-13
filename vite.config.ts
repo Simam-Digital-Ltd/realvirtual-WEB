@@ -398,6 +398,7 @@ export default defineConfig({
   },
   define: {
     __RV_HAS_PRIVATE__: JSON.stringify(HAS_PRIVATE),
+    __RV_COMMERCIAL__: JSON.stringify(!!process.env.RV_COMMERCIAL),
   },
   server: {
     open: true,
