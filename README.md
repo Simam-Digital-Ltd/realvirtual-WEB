@@ -126,6 +126,8 @@ src/
   hooks/             # React hooks
   interfaces/        # Industrial protocol adapters (WebSocket, MQTT, ctrlX)
   plugins/           # Built-in plugins (multiuser, annotations, FPV, XR)
+    models/          # Per-model plugins (auto-loaded when a model is selected)
+  custom/            # Demo-specific HMI customizations
 tests/               # 1300+ Vitest browser tests
 e2e/                 # Playwright E2E tests
 public/models/       # GLB model files
