@@ -48,27 +48,35 @@ export function WelcomeModal({ open, onClose }: WelcomeModalProps) {
         </Typography>
 
         <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
-          This is a <strong style={{ color: '#fff' }}>prototype</strong> demonstrating
-          the 3D HMI possibilities of a{' '}
-          <strong style={{ color: '#4fc3f7' }}>realvirtual.io Professional</strong> Web
-          export. Think of this kind of model connected to a real system.
+          Browser-based <strong style={{ color: '#fff' }}>3D HMI, Machine Information System, and Digital Twin Viewer</strong> for
+          industrial automation. Load GLB models and run transport simulation, drive animation,
+          sensor collision, and LogicStep sequencing — no installation required.
         </Typography>
 
         <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
-          Exports in seconds from Unity Editor — using modern web standards like
-          Three.js, React and glTF/GLB. realvirtual WEB includes WebSocket, MQTT,
-          Beckhoff, Bosch Rexroth and KEBA interfaces out of the box.
-          Robot kinematics may not move correctly in this preview.
+          Connect to real PLCs via WebSocket or MQTT for live signal visualization,
+          KPI dashboards, and alarm monitoring. Attach documents, maintenance guides,
+          and technical drawings directly to 3D components.
         </Typography>
 
         <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
-          Fully open source under the{' '}
-          <strong style={{ color: '#fff' }}>AGPL license</strong>. Built with
-          Three.js, React, Material UI, Rapier.js, ECharts and Vite.
+          Open source under the <strong style={{ color: '#fff' }}>AGPL-3.0 license</strong>.
+          Built with Three.js, React, Material UI, Rapier.js, Apache ECharts, and Vite.
+          Part of the{' '}
+          <a href="https://realvirtual.io" target="_blank" rel="noopener noreferrer" style={{ color: '#4fc3f7', textDecoration: 'none' }}>
+            realvirtual.io
+          </a>{' '}
+          industrial digital twin platform.
+        </Typography>
+
+        <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
+          <a href="https://github.com/game4automation/realvirtual-WEB" target="_blank" rel="noopener noreferrer" style={{ color: '#4fc3f7', textDecoration: 'none' }}>
+            github.com/game4automation/realvirtual-WEB
+          </a>
         </Typography>
 
         <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.35)' }}>
-          &copy; realvirtual GmbH
+          &copy; 2025 realvirtual GmbH
         </Typography>
 
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>

@@ -18,8 +18,10 @@ const logoUrl = `${import.meta.env.BASE_URL}logo.png`;
 // ── Logo Badge (always visible, independent of ButtonPanel) ─────────────
 
 /** Logo + connection status badge — always visible at top-left. */
+const WELCOME_DISMISSED_KEY = 'rv-welcome-dismissed';
+
 export function LogoBadge() {
-  const [aboutOpen, setAboutOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(() => !localStorage.getItem(WELCOME_DISMISSED_KEY));
   const isMobile = useMobileLayout();
   const mcp = useMcpBridge();
 
@@ -71,7 +73,7 @@ export function LogoBadge() {
         )}
       </Paper>
 
-      <WelcomeModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
+      <WelcomeModal open={aboutOpen} onClose={() => { setAboutOpen(false); localStorage.setItem(WELCOME_DISMISSED_KEY, '1'); }} />
     </>
   );
 }
