@@ -54,6 +54,11 @@ Share virtual commissioning models with customers for review and sign-off — wo
 ## Quick Start
 
 ```bash
+# Clone the repository (increase buffer for large GLB model files)
+git config --global http.postBuffer 524288000
+git clone https://github.com/game4automation/realvirtual-WEB.git
+cd realvirtual-WEB
+
 npm install
 npm run dev          # Vite dev server with HMR
 ```
