@@ -188,6 +188,7 @@ For the full plugin API — UI slots, event bus, hooks, context menus, and toolt
 
 | Document | Contents |
 |----------|----------|
+| [Unity Export Guide](https://doc.realvirtual.io/extensions/realvirtual-web) | GLB export from Unity, publish workflow, WebViewer Tools (Pro) |
 | [Architecture](doc-webviewer.md) | Full architecture, component reference, configuration |
 | [Plugin Development](doc-extending-webviewer.md) | Plugin system, custom components, UI slots, hooks |
 | [Multiuser System](doc-multiuser-system.md) | Sessions, shared views, avatars *(Beta)* |
@@ -223,7 +224,7 @@ realvirtual.io follows a deliberate two-platform architecture:
 |---|---|---|
 | **Purpose** | CAD import, behavior modeling, virtual commissioning | Browser-based 3D HMI, monitoring, collaboration |
 | **Technology** | Unity Engine, C#, Unity Industry | Three.js, TypeScript, React |
-| **Deployment** | Desktop application, XR headsets | Any modern browser |
+| **Deployment** | Desktop application, XR headsets, mobile devices | Any modern browser |
 | **PLC connection** | Native protocol drivers | WebSocket / MQTT gateway |
 | **Target user** | Automation engineer, simulation expert | Operator, service tech, sales, customer |
 
