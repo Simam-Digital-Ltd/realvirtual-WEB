@@ -59,6 +59,7 @@ export function WelcomeModal({ open, onClose }: WelcomeModalProps) {
           One link is all it takes. Share interactive 3D digital twins with operators,
           service technicians, sales teams, and customers — directly in the browser,
           on any device, no installation required.
+          No cloud lock-in. Your data, your server.
         </Typography>
 
         <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
