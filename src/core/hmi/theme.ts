@@ -6,19 +6,22 @@ import { createTheme } from '@mui/material/styles';
 export const rvDarkTheme = createTheme({
   palette: {
     mode: 'dark',
-    primary:    { main: '#4fc3f7' },
-    secondary:  { main: '#e94078' },
+    primary:    { main: '#20a1b1' }, // Simam Teal
+    secondary:  { main: '#7b52ee' }, // Simam Purple
     success:    { main: '#66bb6a' },
     warning:    { main: '#ffa726' },
     error:      { main: '#ef5350' },
     background: {
       default: 'transparent',
-      paper: 'rgba(18, 18, 18, 0.65)',
+      paper: 'rgba(10, 10, 10, 0.6)', // Darker glass
     },
   },
   typography: {
-    fontFamily: '"Inter", "Roboto", "Arial", sans-serif',
+    fontFamily: '"Roboto", "Jost", "Inter", sans-serif',
     fontSize: 13,
+    h1: { fontFamily: '"Jost", sans-serif', fontWeight: 700 },
+    h2: { fontFamily: '"Jost", sans-serif', fontWeight: 600 },
+    h3: { fontFamily: '"Jost", sans-serif', fontWeight: 600 },
   },
   shape: {
     borderRadius: 4,
@@ -37,9 +40,10 @@ export const rvDarkTheme = createTheme({
       defaultProps: { elevation: 0 },
       styleOverrides: {
         root: {
-          backdropFilter: 'blur(16px)',
+          backdropFilter: 'blur(12px) saturate(180%)',
           backgroundImage: 'none !important',
-          backgroundColor: 'rgba(18, 18, 18, 0.65) !important',
+          backgroundColor: 'rgba(10, 10, 10, 0.6) !important',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
           // Reduce blur on touch devices for GPU performance
           '@media (hover: none) and (pointer: coarse)': {
             backdropFilter: 'blur(8px)',

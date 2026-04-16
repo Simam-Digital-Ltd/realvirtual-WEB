@@ -1,0 +1,46 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap');
+
+:root {
+  --rv-brand-teal: #20a1b1;
+  --rv-brand-purple: #7b52ee;
+  --rv-bg-dark: #0a0a0a;
+}
+
+body {
+  font-family: "Roboto", sans-serif;
+  background-color: var(--rv-bg-dark);
+  color: white;
+  margin: 0;
+}
+
+/* Glassmorphism Utilities */
+.glass {
+  background: rgba(10, 10, 10, 0.6) !important;
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-teal {
+  border-top: 2px solid var(--rv-brand-teal) !important;
+}
+
+.glass-purple {
+  border-top: 2px solid var(--rv-brand-purple) !important;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--rv-brand-teal);
+}
