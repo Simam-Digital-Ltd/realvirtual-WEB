@@ -13,6 +13,7 @@
  */
 
 import { RVViewer } from './core/rv-viewer';
+import './index.css';
 import { debug, logInfo } from './core/engine/rv-debug';
 import { initTestRunner } from './rv-test-runner';
 import { fetchAppConfig, setAppConfig, initAnalytics } from './core/rv-app-config';
@@ -37,6 +38,11 @@ import { CameraEventsPlugin } from './plugins/camera-events-plugin';
 import { DriveOrderPlugin } from './plugins/drive-order-plugin';
 import { RapierPhysicsPlugin } from './core/engine/rapier-physics-plugin';
 import { loadPhysicsSettings } from './core/hmi/physics-settings-store';
+import { OSMMapPlugin } from './plugins/osm-map-plugin';
+import { MaintenanceInsightPlugin } from './plugins/maintenance-insight-plugin';
+import { AlarmRadarPlugin } from './plugins/alarm-radar-plugin';
+import { AIAssistantPlugin } from './plugins/ai-assistant-plugin';
+import { PhysicsPointerPlugin } from './plugins/physics-pointer-plugin';
 
 // Extras editor plugin (hierarchy browser + property editor)
 import { RvExtrasEditorPlugin } from './core/hmi/rv-extras-editor';
@@ -192,6 +198,11 @@ async function init() {
     .use(ifaceManager)
     .use(rapierPlugin)
     .use(new DriveOrderPlugin())
+    .use(new OSMMapPlugin())
+    .use(new MaintenanceInsightPlugin())
+    .use(new AlarmRadarPlugin())
+    .use(new AIAssistantPlugin())
+    .use(new PhysicsPointerPlugin())
     .use(new SensorMonitorPlugin())
     .use(new TransportStatsPlugin())
     .use(new CameraEventsPlugin())
