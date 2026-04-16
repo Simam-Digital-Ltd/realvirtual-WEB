@@ -268,6 +268,25 @@ export class RVPhysicsWorld {
     info.body.setLinvel({ x: velocity.x, y: velocity.y, z: velocity.z }, true);
   }
 
+  /**
+   * Apply an impulse to a MU body.
+   */
+  applyImpulse(muId: string, impulse: { x: number; y: number; z: number }): void {
+    const info = this._bodyMap.get(muId);
+    if (!info) return;
+    info.body.applyImpulse({ x: impulse.x, y: impulse.y, z: impulse.z }, true);
+  }
+
+  /**
+   * Directly set the translation of a body.
+   */
+  setTranslation(muId: string, position: { x: number; y: number; z: number }): void {
+    const info = this._bodyMap.get(muId);
+    if (!info) return;
+    info.body.setTranslation({ x: position.x, y: position.y, z: position.z }, true);
+    info.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+  }
+
   /** Check if a MU body exists */
   hasMU(muId: string): boolean {
     return this._bodyMap.has(muId);

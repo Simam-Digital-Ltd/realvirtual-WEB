@@ -1327,11 +1327,8 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     // Try loading project-plugin.js (placed alongside index.html by private publish)
     await tryLoadPlugin('./project-plugin.js');
 
-    // Try loading model-specific plugin: ./models/{modelBaseName}/model-plugin.js
-    const lastSlash = url.lastIndexOf('/');
-    const fileName = lastSlash >= 0 ? url.substring(lastSlash + 1) : url;
-    const modelBaseName = fileName.replace(/\.glb$/i, '');
-    await tryLoadPlugin(`./models/${modelBaseName}/model-plugin.js`);
+    // Legacy plugin loading silenced to prevent noisy console 404s
+    // await tryLoadPlugin(`./models/${modelBaseName}/model-plugin.js`);
 
     // --- Per-model plugin loading (dynamic import of model-specific plugins/index.ts) ---
     if (this.modelPluginManager) {

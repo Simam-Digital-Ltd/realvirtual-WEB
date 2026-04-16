@@ -46,6 +46,11 @@ const SELECTION_OPACITY = 0.25;
 const SELECTION_EDGE_COLOR = new Color(0x4fc3f7);
 const SELECTION_EDGE_OPACITY = 0.8;
 
+const ALARM_COLOR = new Color(0xff0000);
+const ALARM_OPACITY = 0.35;
+const ALARM_EDGE_COLOR = new Color(0xff3333);
+const ALARM_EDGE_OPACITY = 1.0;
+
 const EDGE_THRESHOLD_DEG = 30;
 
 /** Max meshes for hover highlight — above this, show bounding-box wireframe instead. */
@@ -95,6 +100,27 @@ const selectionEdgeMat = new LineBasicMaterial({
   linewidth: 1,
 });
 
+/** Alarm overlay material — red, pulsing (opacity updated by AlarmRadarPlugin) */
+const alarmOverlayMat = new MeshBasicMaterial({
+  color: ALARM_COLOR,
+  transparent: true,
+  opacity: ALARM_OPACITY,
+  depthTest: false,
+  depthWrite: false,
+  side: DoubleSide,
+});
+alarmOverlayMat.name = '_alarmOverlay';
+
+/** Alarm edge outline material */
+const alarmEdgeMat = new LineBasicMaterial({
+  color: ALARM_EDGE_COLOR,
+  transparent: true,
+  opacity: ALARM_EDGE_OPACITY,
+  depthTest: false,
+  depthWrite: false,
+  linewidth: 1,
+});
+
 /** WeakMap cache for EdgesGeometry — avoids recomputing edges for the same BufferGeometry */
 const edgeGeometryCache = new WeakMap<BufferGeometry, EdgesGeometry>();
 
@@ -113,10 +139,14 @@ export class RVHighlightManager {
   private hoverPairs: OverlayPair[] = [];
   /** Selection overlay pairs (persistent). */
   private selectionPairs: OverlayPair[] = [];
+  /** Alarm overlay pairs (red, pulsing). */
+  private alarmPairs: OverlayPair[] = [];
   /** When true, update() re-syncs hover overlay matrices from source meshes. */
   private hoverTracked = false;
   /** When true, update() re-syncs selection overlay matrices. */
   private selectionTracked = false;
+  /** When true, update() re-syncs alarm overlay matrices. */
+  private alarmTracked = false;
 
   constructor(private readonly scene: Scene) {}
 
@@ -324,6 +354,53 @@ export class RVHighlightManager {
     return this.selectionPairs.length > 0;
   }
 
+  // ─── Alarm API (visual faults) ─────────────────────────────────────
+
+  /** 
+   * Highlight a subtree with red alarm overlay. 
+   * Unlike hover/selection, multiple alarms can be active at once.
+   */
+  highlightAlarm(root: Object3D, id: string): void {
+    this.alarmTracked = true;
+    const thresholdRad = EDGE_THRESHOLD_DEG * (Math.PI / 180);
+    const meshes = this.collectMeshes(root, false, true);
+    
+    for (const mesh of meshes) {
+      mesh.updateWorldMatrix(true, false);
+      const pair = this._createOverlayPair(
+        mesh.geometry, mesh.matrixWorld, mesh, `${id}_alarm`, thresholdRad,
+        alarmOverlayMat, alarmEdgeMat, 1100,
+      );
+      // Give the meshes a specific marker so we can clear them by ID
+      pair.fill.userData.alarmId = id;
+      pair.edge.userData.alarmId = id;
+      this.alarmPairs.push(pair);
+    }
+  }
+
+  /** Remove alarm highlight overlays for a specific ID. */
+  clearAlarm(id: string): void {
+    const toRemove = this.alarmPairs.filter(p => p.fill.userData.alarmId === id);
+    for (const { fill, edge } of toRemove) {
+      this.scene.remove(fill);
+      this.scene.remove(edge);
+    }
+    this.alarmPairs = this.alarmPairs.filter(p => p.fill.userData.alarmId !== id);
+    if (this.alarmPairs.length === 0) this.alarmTracked = false;
+  }
+
+  /** Update pulsing effect for all active alarms. */
+  updateAlarmPulse(time: number): void {
+    if (this.alarmPairs.length === 0) return;
+    const pulse = (Math.sin(time * 6) + 1) * 0.5; // 0 to 1
+    alarmOverlayMat.opacity = ALARM_OPACITY * (0.5 + 0.5 * pulse);
+    alarmEdgeMat.opacity = ALARM_EDGE_OPACITY * (0.8 + 0.2 * pulse);
+  }
+
+  get isAlarmActive(): boolean {
+    return this.alarmPairs.length > 0;
+  }
+
   // ─── Common API ────────────────────────────────────────────────────
 
   /**
@@ -336,6 +413,9 @@ export class RVHighlightManager {
     }
     if (this.selectionTracked && this.selectionPairs.length > 0) {
       this._syncPairs(this.selectionPairs);
+    }
+    if (this.alarmTracked && this.alarmPairs.length > 0) {
+      this._syncPairs(this.alarmPairs);
     }
   }
 
