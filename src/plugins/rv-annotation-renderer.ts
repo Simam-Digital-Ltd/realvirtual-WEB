@@ -98,6 +98,7 @@ function getSelectionRingGeometry(): RingGeometry {
 export class AnnotationRenderer {
   readonly group = new Group();
   private _resources = new Map<string, AnnotationResources>();
+  private _tempDrawings = new Map<string, Line>();
   private _selectionRing: Mesh | null = null;
   private _selectionRingMaterial: MeshBasicMaterial | null = null;
   private _camera: Camera | null = null;
@@ -378,6 +379,33 @@ export class AnnotationRenderer {
       lineMaterial,
       lineGeometry,
     });
+  }
+
+  /** Update or create a temporary 'live' drawing line for a remote player. */
+  updateTempDrawing(playerId: string, points: [number, number, number][], color: string): void {
+    let line = this._tempDrawings.get(playerId);
+    if (!line) {
+      const mat = new LineBasicMaterial({ color: new Color(color), transparent: true, opacity: 0.6 });
+      const geo = new BufferGeometry();
+      line = new Line(geo, mat);
+      line.layers.set(ANNOTATION_LAYER);
+      this.group.add(line);
+      this._tempDrawings.set(playerId, line);
+    }
+
+    const vPoints = points.map(p => new Vector3(p[0], p[1], p[2]));
+    line.geometry.setFromPoints(vPoints);
+  }
+
+  /** Remove temporary drawing for a player (called when they finish or cancel). */
+  removeTempDrawing(playerId: string): void {
+    const line = this._tempDrawings.get(playerId);
+    if (line) {
+      this.group.remove(line);
+      line.geometry.dispose();
+      (line.material as LineBasicMaterial).dispose();
+      this._tempDrawings.delete(playerId);
+    }
   }
 
   // ── Internal helpers ─────────────────────────────────────────────────

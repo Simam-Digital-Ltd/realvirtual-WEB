@@ -18,7 +18,7 @@
  *
  * Phase 2: VR controller spheres + distance-based LOD (full avatar < 10 m, label-only > 10 m).
  *
- * Phase 3: cursor ray — a colored THREE.Line rendered from origin in direction
+ * Phase 3: cursor ray — a colored THREE.Mesh (cylinder) rendered from origin in direction
  * while the remote user is actively hovering over 3D content. Auto-hides after
  * CURSOR_RAY_TIMEOUT_MS of inactivity (no new cursor_ray messages).
  */
@@ -27,6 +27,7 @@ import {
   Mesh,
   MeshStandardMaterial,
   SphereGeometry,
+  CylinderGeometry,
   Color,
   Group,
   CanvasTexture,
@@ -34,8 +35,6 @@ import {
   Sprite,
   Vector3,
   Quaternion,
-  Line,
-  LineBasicMaterial,
   BufferGeometry,
   Float32BufferAttribute,
 } from 'three';
@@ -79,8 +78,9 @@ interface AvatarResources {
   ctrlRightGeometry?: SphereGeometry;
   ctrlRightMaterial?: MeshStandardMaterial;
   // Phase 3: cursor ray
-  cursorRayGeometry?: BufferGeometry;
-  cursorRayMaterial?: LineBasicMaterial;
+  cursorRayGeometry?: CylinderGeometry;
+  cursorRayMaterial?: MeshStandardMaterial;
+  pointerHead?: Mesh;
 }
 
 interface AvatarInstance {
@@ -90,7 +90,8 @@ interface AvatarInstance {
   ctrlLeft: Mesh | null;
   ctrlRight: Mesh | null;
   // Phase 3: cursor ray line (world-space, parented to scene not avatar group)
-  cursorRay: Line | null;
+  cursorRay: Mesh | null;
+  pointerHead?: Mesh;
   cursorRayHideTimer: ReturnType<typeof setTimeout> | null;
   // Lerp targets
   targetPosition: Vector3;
@@ -323,9 +324,9 @@ export class AvatarManager {
 
   /**
    * Show or update the cursor ray for a remote player.
-   * The ray is a colored Line rendered from `origin` in `direction` for
+   * The ray is a colored Mesh (cylinder) rendered from `origin` in `direction` for
    * CURSOR_RAY_LENGTH metres. It auto-hides after CURSOR_RAY_TIMEOUT_MS of
-   * inactivity. Phase 3 stub — geometry is created lazily on first call.
+   * inactivity.
    * @param playerId  Remote player identifier.
    * @param origin    Ray origin in world space [x, y, z].
    * @param direction Ray direction (unit vector) in world space [x, y, z].
@@ -340,28 +341,47 @@ export class AvatarManager {
 
     // Lazily create the ray geometry/material on first cursor_ray message
     if (!avatar.cursorRay) {
-      const geo = new BufferGeometry();
-      const positions = new Float32Array(6); // two points × 3 components
-      geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
-      const mat = new LineBasicMaterial({ color: new Color(avatar.info.color), transparent: true, opacity: 0.7 });
-      avatar.cursorRay = new Line(geo, mat);
+      // Use a thin cylinder instead of a line for premium look
+      const geo = new CylinderGeometry(0.005, 0.005, CURSOR_RAY_LENGTH, 8);
+      geo.rotateX(Math.PI / 2); // Orient along Z
+      geo.translate(0, 0, CURSOR_RAY_LENGTH / 2); // Origin at avatar
+      
+      const mat = new MeshStandardMaterial({ 
+        color: new Color(avatar.info.color), 
+        emissive: new Color(avatar.info.color),
+        emissiveIntensity: 3,
+        transparent: true, 
+        opacity: 0.8 
+      });
+      avatar.cursorRay = new Mesh(geo, mat);
+      
+      // Add a 'Pointer Head' (small glowing sphere at the hit point)
+      const headGeo = new SphereGeometry(0.02, 16, 16);
+      const headMat = new MeshStandardMaterial({
+        color: new Color(avatar.info.color),
+        emissive: new Color(avatar.info.color),
+        emissiveIntensity: 6,
+      });
+      const head = new Mesh(headGeo, headMat);
+      avatar.cursorRay.add(head); // Child of ray
+      avatar.pointerHead = head;
+
       avatar.cursorRay.frustumCulled = false;
       avatar.resources.cursorRayGeometry = geo;
       avatar.resources.cursorRayMaterial = mat;
+      avatar.resources.pointerHead = head;
       this.scene.add(avatar.cursorRay);
     }
 
-    // Update ray endpoint positions
-    const end: [number, number, number] = [
-      origin[0] + direction[0] * CURSOR_RAY_LENGTH,
-      origin[1] + direction[1] * CURSOR_RAY_LENGTH,
-      origin[2] + direction[2] * CURSOR_RAY_LENGTH,
-    ];
-    const posAttr = avatar.cursorRay.geometry.attributes['position'] as Float32BufferAttribute;
-    posAttr.setXYZ(0, origin[0], origin[1], origin[2]);
-    posAttr.setXYZ(1, end[0], end[1], end[2]);
-    posAttr.needsUpdate = true;
+    // Update ray position and orientation
+    avatar.cursorRay.position.set(origin[0], origin[1], origin[2]);
+    avatar.cursorRay.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(...direction));
     avatar.cursorRay.visible = true;
+
+    // Position pointer head at the end of the ray
+    if (avatar.pointerHead) {
+      avatar.pointerHead.position.set(0, 0, CURSOR_RAY_LENGTH);
+    }
 
     // Reset auto-hide timer
     if (avatar.cursorRayHideTimer !== null) clearTimeout(avatar.cursorRayHideTimer);

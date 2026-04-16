@@ -261,8 +261,25 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
   }
 
   /** Handle incoming annotation message from multiuser. */
+  /** Handle incoming annotation message from multiuser. */
   handleRemoteMessage(type: string, msg: Record<string, unknown>): void {
+    const playerId = msg['playerId'] as string; // Relay server injects this
+    
     switch (type) {
+      case 'annotation_drawing': {
+        const points = msg['points'] as [number, number, number][];
+        const color = msg['color'] as string;
+        if (playerId && points) {
+          this._renderer?.updateTempDrawing(playerId, points, color);
+        }
+        break;
+      }
+      case 'annotation_drawing_end': {
+        if (playerId) {
+          this._renderer?.removeTempDrawing(playerId);
+        }
+        break;
+      }
       case 'annotation_add': {
         const ann = msg['annotation'] as Annotation;
         if (!ann || this._annotations.some(a => a.id === ann.id)) return;
@@ -274,11 +291,10 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
           this._renderer?.addAnnotation(ann);
         }
         this._emitSnapshot();
-        break;
       }
       case 'annotation_update': {
-        const id = msg['id'] as string;
-        const changes = msg['changes'] as Record<string, unknown>;
+        const id = payload['id'] as string;
+        const changes = payload['changes'] as Record<string, unknown>;
         if (!id || !changes) return;
         const ann = this._annotations.find(a => a.id === id);
         if (!ann) return;
@@ -294,7 +310,7 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
         break;
       }
       case 'annotation_remove': {
-        const id = msg['id'] as string;
+        const id = payload['id'] as string;
         if (!id) return;
         const idx = this._annotations.findIndex(a => a.id === id);
         if (idx < 0) return;
@@ -408,6 +424,15 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
       const hit = this._worldRaycast(e);
       if (hit) {
         this._drawingPoints.push([hit.point.x, hit.point.y, hit.point.z]);
+        this._renderer?.updateDrawingProgress(this._drawingPoints);
+
+        // Broadcast drawing progress to other users
+        if (this._syncSend) {
+          this._syncSend('annotation_drawing', { 
+            points: this._drawingPoints,
+            color: DEFAULT_COLOR // Or current selection color
+          });
+        }
         // We complete drawing on double-click or when mode is toggled off
         if (this._drawingPoints.length >= 2 && e.detail >= 2) {
           // Double-click finishes drawing

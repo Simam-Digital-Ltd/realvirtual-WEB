@@ -668,6 +668,8 @@ export class MultiuserPlugin extends RVBehavior {
       case 'annotation_update':
       case 'annotation_remove':
       case 'annotation_sync':
+      case 'annotation_drawing':
+      case 'annotation_drawing_end':
         this._handleAnnotationMessage(type, msg);
         break;
       case 'error':
