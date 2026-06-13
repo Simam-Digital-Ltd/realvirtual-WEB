@@ -31,6 +31,29 @@ export interface SiteCondition {
   notes: string;
 }
 
+export interface WeatherData {
+  temp: number;
+  windSpeed: number;
+  condition: string;
+  precipitation: number;
+  isRaining: boolean;
+  timestamp: string;
+}
+
+export interface FloodAlert {
+  id: string;
+  description: string;
+  severity: string;
+  severityLevel: number;
+  timeRaised: string;
+}
+
+export interface TrafficStatus {
+  flowPct: number;
+  statusLabel: string;
+  incidents: number;
+}
+
 /**
  * GeospatialService
  * Fetches industrial intelligence data from open and key-less sources.

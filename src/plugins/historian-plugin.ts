@@ -26,8 +26,7 @@ export class HistorianPlugin implements RVViewerPlugin {
 
   readonly slots: UISlotEntry[] = [
     {
-      id: 'timeline-panel',
-      slot: 'bottom-bar',
+      slot: 'views',
       order: 10,
       component: TimelinePanel,
     }

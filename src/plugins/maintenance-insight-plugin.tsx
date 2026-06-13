@@ -104,13 +104,13 @@ const MaintenanceInsightDashboard: React.FC<UISlotProps> = ({ viewer }) => {
 
         <Box sx={{ px: 2, pb: 2 }}>
           <Grid container spacing={2}>
-            <Grid item xs={6}>
+            <Grid size={6}>
               <Box sx={{ p: 1.5, bgcolor: 'rgba(255,255,255,0.03)', borderRadius: 1 }}>
                 <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>MTBF Prediction</Typography>
                 <Typography variant="h5" sx={{ color: '#20a1b1', fontWeight: 700 }}>4,120h</Typography>
               </Box>
             </Grid>
-            <Grid item xs={6}>
+            <Grid size={6}>
               <Box sx={{ p: 1.5, bgcolor: 'rgba(255,255,255,0.03)', borderRadius: 1 }}>
                 <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>System Health</Typography>
                 <Typography variant="h5" sx={{ color: healthScore > 90 ? '#4caf50' : '#ff9800', fontWeight: 700 }}>{healthScore.toFixed(0)}%</Typography>
@@ -145,7 +145,6 @@ export class MaintenanceInsightPlugin implements RVViewerPlugin {
   readonly order = 500;
   readonly slots: UISlotEntry[] = [
     {
-      id: 'maintenance-dashboard',
       slot: 'views',
       order: 10,
       component: MaintenanceInsightDashboard,

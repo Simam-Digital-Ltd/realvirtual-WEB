@@ -80,18 +80,18 @@ const AIAssistantUI: React.FC<UISlotProps> = ({ viewer }) => {
     else if (input.includes('go to') || input.includes('show me') || input.includes('find')) {
       // Find component in registry
       const term = text.split(' ').pop() || '';
-      const results = viewer.registry.search(term);
+      const results = viewer.registry?.search(term) ?? [];
       if (results.length > 0) {
         const node = results[0].node;
-        viewer.cameraManager.flyTo(node);
-        viewer.highlightManager.highlight(node, true);
+        viewer.fitToNodes([node]);
+        viewer.highlighter.highlight(node, true);
         response = `Taking you to ${results[0].path}. I've highlighted it for you.`;
       } else {
         response = `I couldn't find a component named "${term}". Try searching for specific machine IDs.`;
       }
     }
     else if (input.includes('reset') || input.includes('restart')) {
-      viewer.simulationLoop.reset();
+      void viewer.reloadModel();
       response = "Simulation state has been reset to initial parameters.";
     }
 
@@ -257,8 +257,7 @@ export class AIAssistantPlugin implements RVViewerPlugin {
 
   readonly slots: UISlotEntry[] = [
     {
-      id: 'ai-chat',
-      slot: 'app-bar-end', // Floating placement via Bar slot
+      slot: 'toolbar-button',
       order: 10,
       component: AIAssistantUI,
     }

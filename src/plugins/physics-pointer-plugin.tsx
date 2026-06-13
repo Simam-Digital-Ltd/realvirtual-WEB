@@ -8,7 +8,7 @@ import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { UISlotEntry, UISlotProps } from '../core/rv-ui-plugin';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
-import { Vector3, Plane, Raycaster } from 'three';
+import { Vector2, Vector3, Plane, Raycaster } from 'three';
 
 // ─── UI Component ───
 
@@ -48,7 +48,6 @@ export class PhysicsPointerPlugin implements RVViewerPlugin {
 
   readonly slots: UISlotEntry[] = [
     {
-      id: 'physics-toggle',
       slot: 'button-group',
       order: 10,
       component: PhysicsToggle,
@@ -76,13 +75,13 @@ export class PhysicsPointerPlugin implements RVViewerPlugin {
     if (!this.enabled || !this._viewer) return;
 
     // Use viewer's raycaster to find MUs
-    const mouse = {
-      x: (e.clientX / window.innerWidth) * 2 - 1,
-      y: -(e.clientY / window.innerHeight) * 2 + 1
-    };
+    const mouse = new Vector2(
+      (e.clientX / window.innerWidth) * 2 - 1,
+      -(e.clientY / window.innerHeight) * 2 + 1
+    );
 
     this._raycaster.setFromCamera(mouse, this._viewer.camera);
-    
+
     // Raycast against physics world
     const physicsPlugin = this._viewer.getPlugin<any>('rapier-physics');
     if (!physicsPlugin?.physicsWorld) return;
@@ -113,10 +112,10 @@ export class PhysicsPointerPlugin implements RVViewerPlugin {
   private _onMouseMove = (e: MouseEvent) => {
     if (!this._draggedMUId || !this._viewer) return;
 
-    const mouse = {
-      x: (e.clientX / window.innerWidth) * 2 - 1,
-      y: -(e.clientY / window.innerHeight) * 2 + 1
-    };
+    const mouse = new Vector2(
+      (e.clientX / window.innerWidth) * 2 - 1,
+      -(e.clientY / window.innerHeight) * 2 + 1
+    );
 
     this._raycaster.setFromCamera(mouse, this._viewer.camera);
     

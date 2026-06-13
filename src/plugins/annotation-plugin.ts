@@ -293,10 +293,11 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
           this._renderer?.addAnnotation(ann);
         }
         this._emitSnapshot();
+        break;
       }
       case 'annotation_update': {
-        const id = payload['id'] as string;
-        const changes = payload['changes'] as Record<string, unknown>;
+        const id = msg['id'] as string;
+        const changes = msg['changes'] as Record<string, unknown>;
         if (!id || !changes) return;
         const ann = this._annotations.find(a => a.id === id);
         if (!ann) return;
@@ -312,7 +313,7 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
         break;
       }
       case 'annotation_remove': {
-        const id = payload['id'] as string;
+        const id = msg['id'] as string;
         if (!id) return;
         const idx = this._annotations.findIndex(a => a.id === id);
         if (idx < 0) return;
@@ -440,6 +441,7 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
           // Double-click finishes drawing
           this.addDrawing([...this._drawingPoints]);
           this._drawingPoints = [];
+          this._renderer?.clearDrawingProgress();
         }
       }
       return;

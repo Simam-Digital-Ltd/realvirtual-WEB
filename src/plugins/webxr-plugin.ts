@@ -212,7 +212,6 @@ export class WebXRPlugin implements RVViewerPlugin {
 
     if (!navigator.xr) {
       console.error('[WebXR] navigator.xr is undefined. This site must be served over HTTPS for WebXR to work.');
-      tooltipStore.show('WebXR requires a secure (HTTPS) context.', 'error');
       return;
     }
 

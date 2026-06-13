@@ -96,6 +96,9 @@ function getSelectionRingGeometry(): RingGeometry {
 // ── AnnotationRenderer ───────────────────────────────────────────────
 
 export class AnnotationRenderer {
+  /** Reserved temp-drawing id for the local user's live polyline preview. */
+  private static readonly LOCAL_PREVIEW_ID = '__local_preview__';
+
   readonly group = new Group();
   private _resources = new Map<string, AnnotationResources>();
   private _tempDrawings = new Map<string, Line>();
@@ -395,6 +398,16 @@ export class AnnotationRenderer {
 
     const vPoints = points.map(p => new Vector3(p[0], p[1], p[2]));
     line.geometry.setFromPoints(vPoints);
+  }
+
+  /** Live preview of the local user's in-progress polyline (before it is committed). */
+  updateDrawingProgress(points: [number, number, number][]): void {
+    this.updateTempDrawing(AnnotationRenderer.LOCAL_PREVIEW_ID, points, '#FF5722');
+  }
+
+  /** Clear the local in-progress polyline preview (after commit or cancel). */
+  clearDrawingProgress(): void {
+    this.removeTempDrawing(AnnotationRenderer.LOCAL_PREVIEW_ID);
   }
 
   /** Remove temporary drawing for a player (called when they finish or cancel). */

@@ -35,7 +35,8 @@ import {
   Thunderstorm
 } from '@mui/icons-material';
 import { Slider } from '@mui/material';
-import type { RVViewerPlugin, PluginSlotEntry } from '../core/rv-plugin';
+import type { RVViewerPlugin } from '../core/rv-plugin';
+import type { UISlotEntry } from '../core/rv-ui-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
 import { GeospatialService, type SiteMetrics, type SiteCondition, type TrafficStatus, type OperationalIntelligence, type ForecastItem } from '../core/geospatial-service';
@@ -63,10 +64,9 @@ export class SiteIntelligencePlugin implements RVViewerPlugin {
   private viewer: RVViewer | null = null;
 
   // React component for the plugin slots
-  slots: PluginSlotEntry[] = [
+  slots: UISlotEntry[] = [
     {
-      id: 'site-stats-overlay',
-      slot: 'right-overlay',
+      slot: 'overlay',
       component: () => <SiteStatsPanel plugin={this} />
     }
   ];
@@ -76,14 +76,13 @@ export class SiteIntelligencePlugin implements RVViewerPlugin {
   }
 
   public setDaytime(hour: number): void {
-    const mapPlugin = this.viewer?.getPlugin<{ setDaytime: (h: number) => void }>('osm-map');
-    if (mapPlugin) {
-      mapPlugin.setDaytime(hour);
-    }
+    const mapPlugin = this.viewer?.getPlugin('osm-map') as unknown as { setDaytime?: (h: number) => void } | undefined;
+    mapPlugin?.setDaytime?.(hour);
   }
 
   public isMapActive(): boolean {
-    return !!this.viewer?.getPlugin<{ active: boolean }>('osm-map')?.active;
+    const mapPlugin = this.viewer?.getPlugin('osm-map') as unknown as { active?: boolean } | undefined;
+    return !!mapPlugin?.active;
   }
 
   public getSiteManager(): SiteManagerPlugin | null {

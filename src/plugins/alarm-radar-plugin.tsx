@@ -2,9 +2,9 @@
 // Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
 
 import React, { useState, useEffect } from 'react';
-import { 
-  Box, Chip, Tooltip, Typography, List, ListItem, 
-  ListItemText, Popover, IconButton, Badge, useTheme 
+import {
+  Box, Tooltip, Typography, List, ListItemButton,
+  ListItemText, Popover, IconButton, Badge
 } from '@mui/material';
 import { ShieldAlert, AlertCircle, MapPin, Zap } from 'lucide-react';
 import type { RVViewerPlugin } from '../core/rv-plugin';
@@ -28,15 +28,14 @@ interface Alarm {
 const AlarmStatusPill: React.FC<UISlotProps> = ({ viewer }) => {
   const [activeAlarms, setActiveAlarms] = useState<Alarm[]>([]);
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
-  const theme = useTheme();
 
   useEffect(() => {
     // Subscribe to custom event from plugin instance
     const plugin = viewer.getPlugin<AlarmRadarPlugin>('alarm-radar');
     if (!plugin) return;
 
-    const handleUpdate = (alarms: Alarm[]) => {
-      setActiveAlarms([...alarms]);
+    const handleUpdate = (alarms: unknown) => {
+      setActiveAlarms([...(alarms as Alarm[])]);
     };
 
     plugin.on('alarms-changed', handleUpdate);
@@ -58,8 +57,8 @@ const AlarmStatusPill: React.FC<UISlotProps> = ({ viewer }) => {
 
   const handleFlyTo = (alarm: Alarm) => {
     if (alarm.node) {
-      viewer.cameraManager.flyTo(alarm.node);
-      viewer.highlightManager.highlight(alarm.node, true);
+      viewer.fitToNodes([alarm.node]);
+      viewer.highlighter.highlight(alarm.node, true);
     }
     handleClose();
   };
@@ -106,23 +105,22 @@ const AlarmStatusPill: React.FC<UISlotProps> = ({ viewer }) => {
         </Box>
         <List sx={{ maxHeight: 300, overflow: 'auto', p: 0 }}>
           {activeAlarms.map((alarm) => (
-            <ListItem 
-              key={alarm.id} 
-              button 
+            <ListItemButton
+              key={alarm.id}
               onClick={() => handleFlyTo(alarm)}
-              sx={{ 
+              sx={{
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.05)' },
                 borderBottom: '1px solid rgba(255,255,255,0.05)'
               }}
             >
-              <ListItemText 
-                primary={alarm.name} 
+              <ListItemText
+                primary={alarm.name}
                 secondary={new Date(alarm.timestamp).toLocaleTimeString()}
                 primaryTypographyProps={{ fontSize: '0.85rem', fontWeight: 600 }}
                 secondaryTypographyProps={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}
               />
               <MapPin size={14} color="#20a1b1" />
-            </ListItem>
+            </ListItemButton>
           ))}
         </List>
       </Popover>
@@ -140,8 +138,7 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
   
   readonly slots: UISlotEntry[] = [
     {
-      id: 'alarm-status',
-      slot: 'status',
+      slot: 'messages',
       order: 100,
       component: AlarmStatusPill,
     }
@@ -167,8 +164,8 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
   }
 
   onFixedUpdatePost(): void {
-    if (this._viewer?.highlightManager) {
-      this._viewer.highlightManager.updateAlarmPulse(performance.now() / 1000);
+    if (this._viewer?.highlighter) {
+      this._viewer.highlighter.updateAlarmPulse(performance.now() / 1000);
     }
   }
 
@@ -191,7 +188,7 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
   }
 
   private _setupAlarmListener(name: string, initial: boolean | number): void {
-    if (!this._viewer) return;
+    if (!this._viewer?.signalStore) return;
 
     const handler = (val: boolean | number) => {
       const isActive = val === true || (typeof val === 'number' && val > 0);
@@ -211,8 +208,8 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
 
       // Find node by mapping signal name to hierarchy
       // In realvirtual, signal names often mirror node names or paths
-      const node = this._viewer?.registry.getNode(name) || null;
-      const path = node ? this._viewer?.registry.getPathForNode(node) || name : name;
+      const node = this._viewer?.registry?.getNode(name) || null;
+      const path = node ? this._viewer?.registry?.getPathForNode(node) || name : name;
 
       const alarm: Alarm = {
         id: name,
@@ -225,8 +222,8 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
       this._activeAlarms.set(name, alarm);
       
       // Visual highlight
-      if (node && this._viewer?.highlightManager) {
-        this._viewer.highlightManager.highlightAlarm(node, name);
+      if (node && this._viewer?.highlighter) {
+        this._viewer.highlighter.highlightAlarm(node, name);
       }
 
       this.emit('alarms-changed', this.activeAlarms);
@@ -240,8 +237,8 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
       this._activeAlarms.delete(name);
       
       // Clear highlight
-      if (this._viewer?.highlightManager) {
-        this._viewer.highlightManager.clearAlarm(name);
+      if (this._viewer?.highlighter) {
+        this._viewer.highlighter.clearAlarm(name);
       }
 
       this.emit('alarms-changed', this.activeAlarms);
@@ -255,6 +252,6 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
 
   dispose(): void {
     this._cleanup();
-    this.off('alarms-changed');
+    this.removeAllListeners();
   }
 }

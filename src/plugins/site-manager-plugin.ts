@@ -37,8 +37,7 @@ export class SiteManagerPlugin implements RVViewerPlugin {
 
   readonly slots: UISlotEntry[] = [
     {
-      id: 'breadcrumb-nav',
-      slot: 'top-bar',
+      slot: 'toolbar-button',
       order: 10,
       component: BreadcrumbUI,
     }
@@ -78,11 +77,11 @@ export class SiteManagerPlugin implements RVViewerPlugin {
   private _subscribeToSites(): void {
     if (this._unsubscribe) return;
 
-    debug('site-manager', 'Subscribing to Firestore sites...');
+    debug('plugins', 'Subscribing to Firestore sites...');
     const q = query(collection(db, "sites"));
     this._unsubscribe = onSnapshot(q, (snapshot) => {
       this._sites = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Site));
-      debug('site-manager', `Fetched ${this._sites.length} sites from Firestore`);
+      debug('plugins', `Fetched ${this._sites.length} sites from Firestore`);
       
       // Update current site if needed
       if (this._viewer?.currentModelUrl) {

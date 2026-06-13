@@ -63,7 +63,7 @@ export const DataConnectService = {
       });
       
       // We return the identifier we used so the caller can track it
-      return { id, ...result.data.simulation_insert };
+      return { ...result.data.simulation_insert, id };
     } catch (error) {
       console.error("[DataConnect] Failed to record simulation:", error);
       throw error;
