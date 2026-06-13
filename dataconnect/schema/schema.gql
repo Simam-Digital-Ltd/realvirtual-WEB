@@ -1,0 +1,56 @@
+type User @table {
+  id: UUID!
+  displayName: String!
+  createdAt: Timestamp!
+  role: String!
+  email: String
+  photoUrl: String
+  department: String
+}
+
+type Robot @table {
+  id: UUID!
+  name: String!
+  model: String!
+  serialNumber: String!
+  location: String!
+  createdAt: Timestamp!
+  manufacturer: String
+  installationDate: Date
+  lastMaintenanceDate: Date
+}
+
+type DigitalTwinModel @table {
+  id: UUID!
+  name: String!
+  version: String!
+  modelDataUrl: String!
+  createdAt: Timestamp!
+  description: String
+  associatedRobotType: String
+}
+
+type RobotEvent @table {
+  id: UUID!
+  robot: Robot
+  timestamp: Timestamp!
+  eventType: String!
+  data: String! # JSON blob of event-specific data
+  severity: String
+  message: String
+  temperature: Float
+  vibration: Float
+  oeeScore: Float
+}
+
+type Simulation @table {
+  id: UUID!
+  robot: Robot
+  user: User
+  name: String!
+  createdAt: Timestamp!
+  simulationData: String! # JSON blob of simulated actions/paths
+  status: String!
+  description: String
+  resultSummary: String
+}

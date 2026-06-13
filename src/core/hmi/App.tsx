@@ -43,6 +43,7 @@ import { SetPositionDialog } from './SetPositionDialog';
 import { AnnotationPanel } from './AnnotationPanel';
 import { SharedViewBanner } from './SharedViewBanner';
 import { AnnotationEditModal } from './AnnotationEditModal';
+import { TrendOverlayChart } from './TrendOverlayChart';
 
 
 /** Apply persisted visual settings to the viewer on startup (batch — single recompile). */
@@ -91,6 +92,7 @@ export function App() {
         <SharedViewBanner />
         {hmiVisible && <AnnotationPanel />}
         <AnnotationEditModal />
+        {hmiVisible && <TrendOverlayChart />}
       </HMIShell>
       <DriveTooltipController />
       <PipelineTooltipController />

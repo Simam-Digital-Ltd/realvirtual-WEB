@@ -6,3 +6,10 @@ dist-private/
 test-results/
 *.local
 *.tsbuildinfo
+.agents/skills/
+.claude/
+.windsurf/
+
+# Firebase deploy cache
+.firebase/
+dataconnect/.dataconnect/

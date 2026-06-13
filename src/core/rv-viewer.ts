@@ -2149,8 +2149,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     }
     if (this.controls.enabled) this.controls.update();
     // Highlight tracked mode needs rendering when overlays move
-    if (this.highlighter.isActive || this.highlighter.isSelectionActive) this._renderDirty = true;
+    if (this.highlighter.isActive || this.highlighter.isSelectionActive || this.highlighter.isAlarmActive) this._renderDirty = true;
     this.highlighter.update();
+    this.highlighter.updateAlarmPulse(now);
 
     // A pending shadow-dirty flag MUST trigger a render, otherwise the
     // flag would be consumed below without the shadow map ever being

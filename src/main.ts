@@ -18,7 +18,7 @@ import { debug, logInfo } from './core/engine/rv-debug';
 import { initTestRunner } from './rv-test-runner';
 import { fetchAppConfig, setAppConfig, initAnalytics } from './core/rv-app-config';
 import { loadVisualSettings } from './core/hmi/visual-settings-store';
-import { isMobileDevice } from './hooks/use-mobile-layout';
+import { isMobileDevice, isHeadsetDevice } from './hooks/use-mobile-layout';
 import { activateContext, registerUIElement } from './core/hmi/ui-context-store';
 
 // Private content (resolves to stubs when private folder is absent)
@@ -39,10 +39,14 @@ import { DriveOrderPlugin } from './plugins/drive-order-plugin';
 import { RapierPhysicsPlugin } from './core/engine/rapier-physics-plugin';
 import { loadPhysicsSettings } from './core/hmi/physics-settings-store';
 import { OSMMapPlugin } from './plugins/osm-map-plugin';
+import { SiteIntelligencePlugin } from './plugins/site-intelligence-plugin';
 import { MaintenanceInsightPlugin } from './plugins/maintenance-insight-plugin';
 import { AlarmRadarPlugin } from './plugins/alarm-radar-plugin';
 import { AIAssistantPlugin } from './plugins/ai-assistant-plugin';
 import { PhysicsPointerPlugin } from './plugins/physics-pointer-plugin';
+import { SiteManagerPlugin } from './plugins/site-manager-plugin';
+import { HistorianPlugin } from './plugins/historian-plugin';
+import { WebXRPlugin } from './plugins/webxr-plugin';
 
 // Extras editor plugin (hierarchy browser + property editor)
 import { RvExtrasEditorPlugin } from './core/hmi/rv-extras-editor';
@@ -62,10 +66,12 @@ const LS_KEY_MODEL = 'rv-webviewer-last-model';
 const LS_KEY_RENDERER = 'rv-webviewer-renderer';
 
 // --- Renderer selection via URL parameter (fallback to localStorage) ---
-// Mobile/touch devices always use WebGL — WebGPU is desktop-only unless explicitly overridden.
+// Mobile/touch devices and VR Headsets always use WebGL — WebGPU is desktop-only unless explicitly overridden.
 const params = new URLSearchParams(window.location.search);
 const isTouchDevice = isMobileDevice();
-const useWebGPU = !isTouchDevice
+const isHeadset = isHeadsetDevice();
+
+const useWebGPU = !isTouchDevice && !isHeadset
   && (params.get('renderer') ?? localStorage.getItem(LS_KEY_RENDERER)) === 'webgpu';
 
 // --- Loading overlay ---
@@ -98,6 +104,8 @@ function hideLoadingOverlay() {
     loadingOverlay.classList.remove('fade-out');
   }, 600);
 }
+
+import './core/rv-firebase';
 
 async function init() {
   // --- Microsoft Teams integration ---
@@ -206,6 +214,10 @@ async function init() {
     .use(new SensorMonitorPlugin())
     .use(new TransportStatsPlugin())
     .use(new CameraEventsPlugin())
+    .use(new SiteManagerPlugin())
+    .use(new HistorianPlugin())
+    .use(new SiteIntelligencePlugin())
+    .use(new WebXRPlugin())
     .use(new RvExtrasEditorPlugin());
 
   // --- Per-model plugin manager (loads model-specific plugins on model switch) ---

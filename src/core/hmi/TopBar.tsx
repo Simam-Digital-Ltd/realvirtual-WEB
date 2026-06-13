@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useSyncExternalStore, useRef } from '
 import { useEditorPlugin } from '../../hooks/use-editor-plugin';
 import { Typography, Box, IconButton, Paper, Tabs, Tab, Tooltip } from '@mui/material';
 import { Settings, Close, AccountTree, ViewInAr, People, PushPin } from '@mui/icons-material';
-import { useMobileLayout } from '../../hooks/use-mobile-layout';
+import { useMobileLayout, isHeadsetDevice } from '../../hooks/use-mobile-layout';
 import { useViewer } from '../../hooks/use-viewer';
 import { isSettingsLocked, isTabLocked } from './rv-app-config';
 import { HierarchyBrowser } from './rv-hierarchy-browser';
@@ -139,13 +139,18 @@ export function TopBar() {
             </IconButton>
           </Tooltip>
         )}
-        {!isMobile && (
+        {( !isMobile || isHeadsetDevice() ) && (
           <Tooltip title={vrOpen ? 'Close VR/AR' : 'VR / AR'} placement="bottom">
             <IconButton
               size="small"
               color={vrOpen ? 'primary' : 'inherit'}
               sx={{ p: 0.75 }}
-              onClick={() => { setVrOpen(!vrOpen); setMuOpen(false); setSettingsOpen(false); if (hierarchyOpen) plugin?.togglePanel(); }}
+              onClick={() => { 
+                setVrOpen(!vrOpen); 
+                setMuOpen(false); 
+                setSettingsOpen(false); 
+                if (hierarchyOpen) plugin?.togglePanel(); 
+              }}
             >
               {vrOpen ? <Close fontSize="small" /> : <Typography sx={{ fontSize: 11, fontWeight: 700, px: 0.25 }}>VR</Typography>}
             </IconButton>

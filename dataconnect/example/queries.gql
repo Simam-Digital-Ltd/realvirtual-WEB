@@ -1,0 +1,107 @@
+query ListAllDigitalTwinModels @auth(level: PUBLIC, insecureReason: "This operation lists publicly available digital twin models and contains no sensitive user data.") {
+  digitalTwinModels {
+    id
+    name
+    version
+    modelDataUrl
+    description
+    associatedRobotType
+    createdAt
+  }
+}
+
+query GetRobotById($robotId: UUID!) @auth(level: PUBLIC, insecureReason: "This operation retrieves general robot information and does not expose sensitive data.") {
+  robot(id: $robotId) {
+    id
+    name
+    model
+    serialNumber
+    location
+    manufacturer
+    installationDate
+    lastMaintenanceDate
+    createdAt
+  }
+}
+
+mutation CreateNewSimulation($id: UUID!, $name: String!, $simulationData: String!, $status: String!, $robotId: UUID!, $userId: UUID!) @auth(level: USER) {
+  simulation_insert(data: {
+    id: $id,
+    name: $name,
+    simulationData: $simulationData,
+    status: $status,
+    robotId: $robotId,
+    userId: $userId,
+    createdAt_expr: "request.time"
+  })
+}
+
+query GetUserSimulations @auth(level: USER) {
+  users(where: {id: {eq_expr: "auth.uid"}}) {
+    id
+    displayName
+    simulations_on_user {
+      id
+      name
+      status
+      createdAt
+      robot {
+        id
+        name
+      }
+    }
+  }
+}
+
+query ListRobotHistoricalEvents($startTime: Timestamp!) @auth(level: PUBLIC, insecureReason: "Retrieving non-sensitive historical robot movement data for the digital twin dashboard.") {
+  robotEvents(
+    where: { 
+      eventType: { eq: "LOCATION_UPDATE" }, 
+      timestamp: { ge: $startTime } 
+    },
+    orderBy: { timestamp: DESC }
+  ) {
+    id
+    robot {
+      id
+      name
+    }
+    timestamp
+    data
+  }
+}
+
+query Get7DayTrendData($robotId: UUID!, $startTime: Timestamp!) @auth(level: PUBLIC, insecureReason: "Retrieves 7-day trend data for dashboard.") {
+  robotEvents(
+    where: { 
+      robotId: { eq: $robotId },
+      timestamp: { ge: $startTime } 
+    },
+    orderBy: { timestamp: ASC }
+  ) {
+    id
+    timestamp
+    temperature
+    vibration
+    oeeScore
+  }
+}
+
+query GetPredictiveDiagnostics($robotId: UUID!) @auth(level: PUBLIC, insecureReason: "Retrieves latest diagnostic alerts for maintenance.") {
+  robotEvents(
+    where: { 
+      robotId: { eq: $robotId },
+      eventType: { eq: "DIAGNOSTIC_ALERT" }
+    },
+    orderBy: { timestamp: DESC },
+    limit: 5
+  ) {
+    id
+    timestamp
+    severity
+    message
+    data
+    temperature
+    vibration
+  }
+}

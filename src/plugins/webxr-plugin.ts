@@ -35,6 +35,7 @@ import {
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 import type { WebGLRenderer } from 'three';
+import { isHeadsetDevice } from '../hooks/use-mobile-layout';
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
@@ -167,10 +168,7 @@ export class WebXRPlugin implements RVViewerPlugin {
 
   /** Detect if running on a VR headset browser (Quest, Pico, etc.) vs mobile/desktop. */
   private static isHeadsetBrowser(): boolean {
-    const ua = navigator.userAgent.toLowerCase();
-    return ua.includes('oculus') || ua.includes('quest')
-        || ua.includes('pico') || ua.includes('vive')
-        || ua.includes('wolvic') || ua.includes('magic leap');
+    return isHeadsetDevice();
   }
 
   private async initXR(viewer: RVViewer): Promise<void> {
@@ -212,18 +210,27 @@ export class WebXRPlugin implements RVViewerPlugin {
     // On mobile/desktop, entry is handled through the app menu instead.
     if (!WebXRPlugin.isHeadsetBrowser()) return;
 
+    if (!navigator.xr) {
+      console.error('[WebXR] navigator.xr is undefined. This site must be served over HTTPS for WebXR to work.');
+      tooltipStore.show('WebXR requires a secure (HTTPS) context.', 'error');
+      return;
+    }
+
     const buttonStyle = {
       position: 'fixed',
-      bottom: '20px',
-      padding: '12px 32px',
-      border: 'none',
-      borderRadius: '8px',
-      fontSize: '16px',
-      fontWeight: '700',
+      bottom: '32px', // Moved up slightly to avoid overlapping with browser nav
+      padding: '16px 40px',
+      border: '1px solid rgba(255,255,255,0.2)',
+      borderRadius: '12px',
+      fontSize: '18px',
+      fontWeight: '800',
       fontFamily: 'system-ui, sans-serif',
       cursor: 'pointer',
       zIndex: '10000',
-      letterSpacing: '0.5px',
+      letterSpacing: '1px',
+      backdropFilter: 'blur(10px)',
+      boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+      transition: 'all 0.2s ease',
     };
 
     // VR button
@@ -231,11 +238,10 @@ export class WebXRPlugin implements RVViewerPlugin {
       const button = VRButton.createButton(glRenderer);
       Object.assign(button.style, {
         ...buttonStyle,
-        left: this.arSupported ? 'calc(50% - 90px)' : '50%',
-        transform: this.arSupported ? 'none' : 'translateX(-50%)',
-        background: 'rgba(79, 195, 247, 0.9)',
-        color: '#000',
-        boxShadow: '0 4px 20px rgba(79, 195, 247, 0.3)',
+        left: this.arSupported ? 'calc(50% - 100px)' : '50%',
+        transform: this.arSupported ? 'translateX(-100%)' : 'translateX(-50%)',
+        background: 'rgba(32, 161, 177, 0.95)',
+        color: '#fff',
       });
       this.vrButton = button;
       document.body.appendChild(button);
@@ -247,13 +253,21 @@ export class WebXRPlugin implements RVViewerPlugin {
       arBtn.textContent = 'ENTER AR';
       Object.assign(arBtn.style, {
         ...buttonStyle,
-        left: this.vrSupported ? 'calc(50% + 90px)' : '50%',
+        left: this.vrSupported ? 'calc(50% + 100px)' : '50%',
         transform: this.vrSupported ? 'none' : 'translateX(-50%)',
-        background: 'rgba(129, 199, 132, 0.9)',
-        color: '#000',
-        boxShadow: '0 4px 20px rgba(129, 199, 132, 0.3)',
+        background: 'rgba(129, 199, 132, 0.95)',
+        color: '#fff',
       });
-      arBtn.addEventListener('click', () => this.startAR());
+      arBtn.onclick = () => {
+        glRenderer.xr.getSession()?.end(); // Close existing if any
+        navigator.xr?.requestSession('immersive-ar', {
+          requiredFeatures: ['hit-test'],
+          optionalFeatures: ['dom-overlay'],
+          domOverlay: { root: document.body }
+        }).then(session => {
+          glRenderer.xr.setSession(session);
+        });
+      };
       this.arButton = arBtn;
       document.body.appendChild(arBtn);
     }

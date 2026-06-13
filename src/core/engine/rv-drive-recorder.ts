@@ -11,6 +11,7 @@
 
 import { RingBuffer } from './rv-ring-buffer';
 import type { RVDrive } from './rv-drive';
+import type { CompactRecording } from './rv-drives-playback';
 
 export interface DriveTimeSeries {
   drive: RVDrive;
@@ -74,5 +75,37 @@ export class DriveDataRecorder {
       s.position.clear();
       s.speed.clear();
     }
+  }
+
+  /** 
+   * Exports the current ring buffer state to a compact recording format.
+   * Useful for "Factory Time Machine" playback.
+   */
+  toCompactRecording(): CompactRecording {
+    const numberFrames = this.timeBuffer.count;
+    const driveCount = this.series.length;
+    
+    // positions is a flat array: [f0d0, f0d1, ..., f1d0, f1d1, ...]
+    const positions = new Array<number>(numberFrames * driveCount);
+    
+    // Extract each drive's time series to arrays
+    const drivePositions = this.series.map(s => s.position.toArray());
+    
+    for (let f = 0; f < numberFrames; f++) {
+      for (let d = 0; d < driveCount; d++) {
+        positions[f * driveCount + d] = drivePositions[d][f];
+      }
+    }
+
+    return {
+      fixedDeltaTime: this.sampleInterval,
+      numberFrames,
+      driveCount,
+      drives: this.series.map((s, idx) => ({
+        id: idx,
+        path: s.drive.node.userData.path || '' 
+      })),
+      positions
+    };
   }
 }

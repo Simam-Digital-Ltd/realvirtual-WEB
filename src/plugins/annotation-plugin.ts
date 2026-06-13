@@ -25,6 +25,8 @@ import type { LoadResult } from '../core/engine/rv-scene-loader';
 import type { UISlotEntry } from '../core/rv-ui-plugin';
 import type { Annotation, AnnotationPluginAPI } from '../core/types/plugin-types';
 import { AnnotationRenderer, ANNOTATION_LAYER } from './rv-annotation-renderer';
+import { db } from '../core/rv-firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -589,26 +591,43 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
     return Math.abs(hash).toString(36);
   }
 
-  private _save(): void {
+  private async _save(): Promise<void> {
     try {
       const key = LS_PREFIX + this._modelHash;
+      // Also save to localStorage as a fallback/cache
       const data = JSON.stringify(this._annotations);
-      localStorage.setItem(key, data);
+      try { localStorage.setItem(key, data); } catch (e) { /* ignore quota */ }
+      
+      // Save to Firestore
+      const docRef = doc(db, 'annotations', key);
+      await setDoc(docRef, { annotations: this._annotations, timestamp: Date.now() });
     } catch (e) {
-      // QuotaExceededError — gracefully ignore
-      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-        console.warn('[AnnotationPlugin] localStorage quota exceeded, annotations not saved');
-      }
+      console.warn('[AnnotationPlugin] Failed to save annotations', e);
     }
   }
 
-  private _load(): void {
+  private async _load(): Promise<void> {
     try {
       const key = LS_PREFIX + this._modelHash;
-      const data = localStorage.getItem(key);
-      if (!data) return;
+      let parsed: Annotation[] | null = null;
+      
+      try {
+        const docRef = doc(db, 'annotations', key);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists() && Array.isArray(docSnap.data().annotations)) {
+          parsed = docSnap.data().annotations;
+        }
+      } catch (e) {
+        console.warn('[AnnotationPlugin] Firestore load failed, falling back to localStorage', e);
+      }
 
-      const parsed = JSON.parse(data) as Annotation[];
+      if (!parsed) {
+        const data = localStorage.getItem(key);
+        if (data) {
+          parsed = JSON.parse(data) as Annotation[];
+        }
+      }
+
       if (!Array.isArray(parsed)) return;
 
       // Batch creation for performance with many annotations
@@ -616,6 +635,7 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
       let idx = 0;
 
       const processBatch = () => {
+        if (!parsed) return;
         const end = Math.min(idx + batchSize, parsed.length, MAX_ANNOTATIONS);
         for (; idx < end; idx++) {
           const ann = parsed[idx];

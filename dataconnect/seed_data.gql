@@ -1,0 +1,114 @@
+mutation SeedDatabase @transaction @auth(level: USER, insecureReason: "This is a seed mutation and is intended for internal use during development and testing, populating the database with initial data. It is not exposed to end-users.") {
+  digitalTwinModel_insertMany(data: [
+    {
+      id: "f47ac10b-58cc-4372-a567-0e02b2c3d4e5",
+      name: "RobotArmModel_V1",
+      version: "1.0",
+      modelDataUrl: "https://example.com/models/robot_arm_v1.json",
+      createdAt: "2023-01-01T10:00:00Z",
+      description: "First version of the robotic arm digital twin model.",
+      associatedRobotType: "RobotArm"
+    },
+    {
+      id: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+      name: "FactoryRobot_V2",
+      version: "2.0",
+      modelDataUrl: "https://example.com/models/factory_robot_v2.json",
+      createdAt: "2023-03-15T14:30:00Z",
+      description: "Second iteration of the factory automation robot model, with improved precision.",
+      associatedRobotType: "FactoryBot"
+    }
+  ])
+  user_insertMany(data: [
+    {
+      id: "b0c1d2e3-f4a5-6789-0123-456789abcdef",
+      displayName: "Alice Smith",
+      createdAt: "2023-01-05T09:15:00Z",
+      role: "Administrator",
+      email: "alice.smith@example.com",
+      photoUrl: "https://example.com/avatars/alice.jpg",
+      department: "Engineering"
+    },
+    {
+      id: "cdef0123-4567-89ab-cdef-0123456789ab",
+      displayName: "Bob Johnson",
+      createdAt: "2023-02-10T11:45:00Z",
+      role: "Engineer",
+      email: "bob.johnson@example.com",
+      photoUrl: "https://example.com/avatars/bob.jpg",
+      department: "Research"
+    }
+  ])
+  robot_insertMany(data: [
+    {
+      id: "d4e5f6a7-b8c9-0123-4567-890abcdef123",
+      name: "RoboArm-001",
+      model: "RobotArmModel_V1",
+      serialNumber: "RA-001-XYZ",
+      location: "Assembly Line 1",
+      createdAt: "2023-01-10T11:00:00Z",
+      manufacturer: "Robotics Inc.",
+      installationDate: "2023-01-09",
+      lastMaintenanceDate: "2023-09-01"
+    },
+    {
+      id: "e6f7a8b9-c0d1-2345-6789-0abcdef12345",
+      name: "FactoryBot-A",
+      model: "FactoryRobot_V2",
+      serialNumber: "FB-A-789",
+      location: "Warehouse Section C",
+      createdAt: "2023-03-20T16:00:00Z",
+      manufacturer: "Automation Corp.",
+      installationDate: "2023-03-18",
+      lastMaintenanceDate: "2023-08-15"
+    }
+  ])
+  robotEvent_insertMany(data: [
+    {
+      robotId: "d4e5f6a7-b8c9-0123-4567-890abcdef123",
+      timestamp: "2023-10-01T08:00:00Z",
+      eventType: "SensorReading",
+      data: "{ 'temperature': 25.5, 'pressure': 1012.3 }",
+      severity: "Info",
+      message: "Normal operating conditions."
+    },
+    {
+      robotId: "d4e5f6a7-b8c9-0123-4567-890abcdef123",
+      timestamp: "2023-10-01T09:15:00Z",
+      eventType: "Error",
+      data: "{ 'errorCode': 500, 'sensor': 'MotorX' }",
+      severity: "Critical",
+      message: "Motor X overheating detected."
+    },
+    {
+      robotId: "e6f7a8b9-c0d1-2345-6789-0abcdef12345",
+      timestamp: "2023-09-28T14:00:00Z",
+      eventType: "Maintenance",
+      data: "{ 'task': 'Lubrication', 'technician': 'Jane Doe' }",
+      severity: "Info",
+      message: "Routine maintenance completed."
+    }
+  ])
+  simulation_insertMany(data: [
+    {
+      robotId: "d4e5f6a7-b8c9-0123-4567-890abcdef123",
+      userId: "b0c1d2e3-f4a5-6789-0123-456789abcdef",
+      name: "ArmPathOptimization_Test1",
+      createdAt: "2023-10-05T10:00:00Z",
+      simulationData: "{\"pathAlgorithm\": \"A*\", \"obstacles\": [{\"x\":1,\"y\":1}]}",
+      status: "Completed",
+      description: "Initial test for optimizing robot arm movement paths.",
+      resultSummary: "Path optimized by 15%."
+    },
+    {
+      robotId: "e6f7a8b9-c0d1-2345-6789-0abcdef12345",
+      userId: "cdef0123-4567-89ab-cdef-0123456789ab",
+      name: "FactoryLayoutEfficiency_RunA",
+      createdAt: "2023-10-06T13:30:00Z",
+      simulationData: "{\"layoutVersion\": \"3\", \"robotCount\": 5}",
+      status: "Running",
+      description: "Simulating new factory layout for efficiency improvements.",
+      resultSummary: null
+    }
+  ])
+}

@@ -13,8 +13,20 @@ export const MOBILE_BREAKPOINT = 768;
  */
 let _cachedIsMobile: boolean | null = null;
 
+/** Detect if the browser is running on a VR/AR headset. */
+export function isHeadsetDevice(): boolean {
+  const ua = navigator.userAgent.toLowerCase();
+  return /oculus|quest|pico|vive|wolvic|magic leap/i.test(ua);
+}
+
 export function isMobileDevice(): boolean {
   if (_cachedIsMobile !== null) return _cachedIsMobile;
+
+  // VR Headsets are not "mobile" in terms of layout (they have high res, desktop-class browsing)
+  if (isHeadsetDevice()) {
+    _cachedIsMobile = false;
+    return false;
+  }
 
   // 1. Modern UA Client Hints (Chrome 89+, Edge, Opera — NOT Safari/Firefox)
   const uad = (navigator as unknown as { userAgentData?: { mobile?: boolean } }).userAgentData;
