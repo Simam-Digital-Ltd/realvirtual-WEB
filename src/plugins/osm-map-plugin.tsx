@@ -24,8 +24,143 @@ import { DataConnectService } from '../core/dataconnect-service';
 import { projectMapPoint, projectMapTrail } from './osm-map-overlay';
 import { WAKEFIELD_DEMO_PROFILE as DEMO_PROFILE } from './demo/demo-profile';
 
-// @ts-ignore - Loaded via CDN in index.html
-const OSMBuildings = (window as any).OSMBuildings;
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
+const GOOGLE_MAPS_MAP_ID = (import.meta.env.VITE_GOOGLE_MAPS_MAP_ID as string | undefined) || 'DEMO_MAP_ID';
+const GOOGLE_MAPS_SCRIPT_ID = 'rv-google-maps-sdk';
+
+type GoogleMapPoint = { lat: number; lng: number };
+
+let googleMapsPromise: Promise<void> | null = null;
+
+function loadGoogleMapsSdk(): Promise<void> {
+  const existingGoogle = (window as any).google;
+  if (existingGoogle?.maps?.Map) return Promise.resolve();
+  if (googleMapsPromise) return googleMapsPromise;
+  if (!GOOGLE_MAPS_API_KEY) return Promise.reject(new Error('Missing VITE_GOOGLE_MAPS_API_KEY'));
+
+  googleMapsPromise = new Promise((resolve, reject) => {
+    const existingScript = document.getElementById(GOOGLE_MAPS_SCRIPT_ID) as HTMLScriptElement | null;
+    if (existingScript) {
+      existingScript.addEventListener('load', () => resolve(), { once: true });
+      existingScript.addEventListener('error', () => reject(new Error('Google Maps SDK failed to load')), { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = GOOGLE_MAPS_SCRIPT_ID;
+    script.async = true;
+    script.defer = true;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}&v=weekly&libraries=marker&region=GB&language=en`;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Google Maps SDK failed to load'));
+    document.head.appendChild(script);
+  });
+
+  return googleMapsPromise;
+}
+
+class GoogleMapProjector {
+  private readonly map: any;
+  private readonly overlay: any;
+  private readonly container: HTMLElement;
+
+  constructor(map: any, container: HTMLElement) {
+    const googleApi = (window as any).google;
+    this.map = map;
+    this.container = container;
+    this.overlay = new googleApi.maps.OverlayView();
+    this.overlay.onAdd = () => undefined;
+    this.overlay.draw = () => undefined;
+    this.overlay.onRemove = () => undefined;
+    this.overlay.setMap(map);
+  }
+
+  project(lat: number, lng: number, alt = 0): { x: number; y: number; z: number } {
+    void this.map;
+    const projection = this.overlay.getProjection?.();
+    const googleApi = (window as any).google;
+    if (!projection || !googleApi?.maps?.LatLng) return { x: -1000, y: -1000, z: -1 };
+
+    const point = projection.fromLatLngToContainerPixel(new googleApi.maps.LatLng(lat, lng));
+    if (!point) return { x: -1000, y: -1000, z: -1 };
+
+    const y = point.y - alt * 0.35;
+    const visible = point.x >= -200 && point.y >= -200 && point.x <= this.container.clientWidth + 200 && point.y <= this.container.clientHeight + 200;
+    return { x: point.x, y, z: visible ? 1 : -1 };
+  }
+}
+
+class GoogleYardMap {
+  private readonly googleApi: any;
+  private readonly map: any;
+  private readonly projector: GoogleMapProjector;
+  private readonly listeners = new Set<() => void>();
+  private marker: any = null;
+
+  constructor(container: HTMLElement, center: GoogleMapPoint, zoom: number, rotation: number) {
+    this.googleApi = (window as any).google;
+    this.map = new this.googleApi.maps.Map(container, {
+      center,
+      zoom,
+      mapId: GOOGLE_MAPS_MAP_ID,
+      mapTypeId: 'satellite',
+      heading: rotation,
+      tilt: 45,
+      disableDefaultUI: true,
+      gestureHandling: 'greedy',
+      keyboardShortcuts: false,
+      clickableIcons: false,
+      internalUsageAttributionIds: ['gmp_git_agentskills_v1'],
+    });
+    this.projector = new GoogleMapProjector(this.map, container);
+    this.map.addListener('bounds_changed', () => this.emitChange());
+    this.map.addListener('zoom_changed', () => this.emitChange());
+    this.map.addListener('heading_changed', () => this.emitChange());
+    this.map.addListener('tilt_changed', () => this.emitChange());
+  }
+
+  on(event: string, cb: () => void): void {
+    if (event === 'change') this.listeners.add(cb);
+  }
+
+  project(lat: number, lng: number, alt = 0): { x: number; y: number; z: number } {
+    return this.projector.project(lat, lng, alt);
+  }
+
+  setPosition(point: { latitude: number; longitude: number }): void {
+    this.map.panTo({ lat: point.latitude, lng: point.longitude });
+    this.emitChange();
+  }
+
+  setZoom(zoom: number): void {
+    this.map.setZoom(zoom);
+    this.emitChange();
+  }
+
+  setDaytime(_time: string): void {
+    // Google Maps JS does not expose daytime control for satellite imagery.
+  }
+
+  addMarker(point: { latitude: number; longitude: number }, options: { color?: string } = {}): void {
+    const markerLib = this.googleApi.maps.marker;
+    if (markerLib?.AdvancedMarkerElement && markerLib?.PinElement) {
+      const pin = new markerLib.PinElement({ background: options.color || '#20a1b1', borderColor: '#ffffff', glyphText: 'W' });
+      this.marker = new markerLib.AdvancedMarkerElement({
+        map: this.map,
+        position: { lat: point.latitude, lng: point.longitude },
+        title: 'Wakefield Precision Foods WPF-41',
+      });
+      this.marker.append(pin);
+      return;
+    }
+  }
+
+  private emitChange(): void {
+    window.requestAnimationFrame(() => {
+      for (const cb of this.listeners) cb();
+    });
+  }
+}
 
 interface MapLabel {
   id: string;
@@ -653,39 +788,26 @@ export class OSMMapPlugin implements RVViewerPlugin {
 
   private _setupMap(): void {
     if (!this._container || this._osmb) return;
-    try {
-      this._osmb = new OSMBuildings({
-        container: 'map',
-        position: { latitude: this._latitude, longitude: this._longitude },
-        zoom: this._zoom, 
-        tilt: 30, // Lower tilt for better horizon stability
-        rotation: this._rotation,
-        minZoom: 12, // Lowered for further zoom out
-        maxZoom: 21, // Increased for closer inspection
-        effects: ['shadows'], 
-        fastMode: true, // Optimize for faster frame rates
-        attribution: '(c) OSM Buildings'
+
+    loadGoogleMapsSdk()
+      .then(() => {
+        if (!this._container || this._osmb) return;
+
+        this._osmb = new GoogleYardMap(
+          this._container,
+          { lat: this._latitude, lng: this._longitude },
+          this._zoom,
+          this._rotation
+        );
+
+        this._osmb.on('change', () => { this._updateLabels(); this._updateTrails(); });
+        this._osmb.addMarker({ latitude: 53.693, longitude: -1.503 }, { color: '#20a1b1' });
+        this._updateLabels();
+        this._updateTrails();
+      })
+      .catch(e => {
+        console.error('[OSMMapPlugin] Failed to initialize Google Maps:', e);
       });
-
-      // Google satellite-style base imagery. Keeps our existing overlay projection stable.
-      this._osmb.addMapTiles('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
-        attribution: 'Map imagery (c) Google',
-        subdomains: ['0', '1', '2', '3']
-      });
-
-      // 3D Buildings with optimized loading profile
-      this._osmb.addGeoJSONTiles('https://{s}.data.osmbuildings.org/0.2/59fcc2e8/tile/{z}/{x}/{y}.json', {
-        fixedZoom: 14 // Better balance for building visibility at distance
-      });
-
-
-      this._osmb.on('change', () => { this._updateLabels(); this._updateTrails(); });
-      
-      // Site HQ Marker
-      this._osmb.addMarker({ latitude: 53.693, longitude: -1.503 }, { color: '#20a1b1' });
-    } catch (e) {
-      console.error('[OSMMapPlugin] Failed to initialize OSM Buildings:', e);
-    }
   }
 
   private _rawTrails: Record<string, { name: string, points: { lat: number, lng: number }[] }> = {};
