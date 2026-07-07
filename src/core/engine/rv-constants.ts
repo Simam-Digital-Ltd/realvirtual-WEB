@@ -16,6 +16,9 @@ export const DRAG_THRESHOLD_PX = 8;
 /** Default device pixel ratio cap applied to the renderer to limit GPU load on HiDPI screens. */
 export const DEFAULT_DPR_CAP = 1.5;
 
+/** Three.js layer for measurement markers, lines, and distance labels. */
+export const MEASUREMENT_LAYER = 7;
+
 /**
  * Extract the last segment of a hierarchy path (the part after the last '/').
  * Returns the full string if there is no '/'.
