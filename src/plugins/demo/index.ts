@@ -15,3 +15,5 @@ export { TestAxesPlugin } from './test-axes-plugin';
 export { PerfTestPlugin } from './perf-test-plugin';
 export { MachineControlPlugin } from './machine-control-plugin';
 export { MaintenancePlugin } from './maintenance-plugin';
+export { WakefieldSceneDressingPlugin } from './wakefield-scene-dressing-plugin';
+export { WAKEFIELD_DEMO_PROFILE } from './demo-profile';

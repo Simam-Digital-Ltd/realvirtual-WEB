@@ -13,7 +13,8 @@ import {
   Stack,
   Divider,
   Fade,
-  Badge
+  Badge,
+  Button
 } from '@mui/material';
 import {
   BarChart,
@@ -32,13 +33,19 @@ import {
   Sensors,
   WbSunny,
   Timeline,
-  Thunderstorm
+  Thunderstorm,
+  Inventory2,
+  LocalShipping,
+  AcUnit,
+  Engineering,
+  PlayArrow
 } from '@mui/icons-material';
 import { Slider } from '@mui/material';
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { UISlotEntry } from '../core/rv-ui-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
+import { WAKEFIELD_DEMO_PROFILE as DEMO_PROFILE } from './demo/demo-profile';
 import { GeospatialService, type SiteMetrics, type SiteCondition, type TrafficStatus, type OperationalIntelligence, type ForecastItem } from '../core/geospatial-service';
 import { SiteManagerPlugin } from './site-manager-plugin';
 import { Chip } from '@mui/material';
@@ -67,7 +74,13 @@ export class SiteIntelligencePlugin implements RVViewerPlugin {
   slots: UISlotEntry[] = [
     {
       slot: 'overlay',
-      component: () => <SiteStatsPanel plugin={this} />
+      component: () => <DecisionHighlightsPanel plugin={this} />,
+      order: 32
+    },
+    {
+      slot: 'overlay',
+      component: () => <SiteStatsPanel plugin={this} />,
+      order: 82
     }
   ];
 
@@ -88,6 +101,205 @@ export class SiteIntelligencePlugin implements RVViewerPlugin {
   public getSiteManager(): SiteManagerPlugin | null {
     return this.viewer?.getPlugin<SiteManagerPlugin>('site-manager') || null;
   }
+
+  public hasSelectedSite(): boolean {
+    return !!this.getSiteManager()?.currentSite;
+  }
+
+  public openAsset(assetId: string): void {
+    this.viewer?.emit('wpf-asset-selected' as string, { assetId } as any);
+  }
+
+  public openMap(assetId?: string): void {
+    const mapPlugin = this.viewer?.getPlugin('osm-map') as unknown as { active?: boolean; toggle?: () => void; jumpTo?: (lat: number, lng: number, zoom?: number) => void } | undefined;
+    if (mapPlugin && !mapPlugin.active) mapPlugin.toggle?.();
+    mapPlugin?.jumpTo?.(DEMO_PROFILE.site.mapLatitude, DEMO_PROFILE.site.mapLongitude, DEMO_PROFILE.site.mapZoom);
+    if (assetId) this.openAsset(assetId);
+  }
+
+  public focusCell(path: string, assetId?: string): void {
+    this.viewer?.focusByPath(path);
+    this.viewer?.highlightByPath(path, true);
+    if (assetId) this.openAsset(assetId);
+  }
+
+  public enterMaintenance(assetId = 'robot-cell-a'): void {
+    this.focusCell('A4', assetId);
+    this.viewer?.emit('enter-maintenance' as string, undefined);
+  }
+}
+
+type DecisionSignal = {
+  id: string;
+  title: string;
+  detail: string;
+  metric: string;
+  color: string;
+  icon: React.ReactNode;
+  command: 'asset' | 'map' | 'cell' | 'maintenance';
+  assetId?: string;
+  path?: string;
+};
+
+const DECISION_SIGNALS: DecisionSignal[] = [
+  {
+    id: 'constraint',
+    title: `${DEMO_PROFILE.assets.robotCell} is the constraint`,
+    detail: `Tray former motor load is high enough to affect ${DEMO_PROFILE.assets.dock} dispatch in 12 min.`,
+    metric: '142% load',
+    color: '#ffa726',
+    icon: <Engineering sx={{ fontSize: 15 }} />,
+    command: 'maintenance',
+    assetId: 'robot-cell-a'
+  },
+  {
+    id: 'yard',
+    title: `Hold ${DEMO_PROFILE.assets.inboundVehicle} at gate`,
+    detail: 'Weighbridge buffer is cheaper than blocking the outbound bay.',
+    metric: '8 min hold',
+    color: '#4fc3f7',
+    icon: <LocalShipping sx={{ fontSize: 15 }} />,
+    command: 'map',
+    assetId: 'hgv-14'
+  },
+  {
+    id: 'dock',
+    title: `${DEMO_PROFILE.assets.dock} queue forming`,
+    detail: `Two vehicles are waiting; ${DEMO_PROFILE.assets.yardTug} can clear staged cold pallets first.`,
+    metric: '2 waiting',
+    color: '#ef5350',
+    icon: <Inventory2 sx={{ fontSize: 15 }} />,
+    command: 'cell',
+    assetId: 'dock-4',
+    path: 'ConveyorEntry2'
+  },
+  {
+    id: 'cold',
+    title: 'Cold chain stable',
+    detail: 'Zone A remains stable; keep chilled dispatch priority until queue clears.',
+    metric: `${DEMO_PROFILE.kpis.coldChain} ${DEMO_PROFILE.kpis.coldChainUnit}`,
+    color: '#26c6da',
+    icon: <AcUnit sx={{ fontSize: 15 }} />,
+    command: 'asset',
+    assetId: 'cold-store-b'
+  }
+];
+
+function DecisionHighlightsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [active, setActive] = useState(0);
+  const [hiddenBySitePanel, setHiddenBySitePanel] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setActive((index) => (index + 1) % DECISION_SIGNALS.length), 6500);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const updateVisibility = () => setHiddenBySitePanel(plugin.hasSelectedSite());
+    updateVisibility();
+    const timer = window.setInterval(updateVisibility, 1000);
+    return () => window.clearInterval(timer);
+  }, [plugin]);
+
+  const runCommand = (signal: DecisionSignal) => {
+    if (signal.command === 'map') {
+      plugin.openMap(signal.assetId);
+      return;
+    }
+    if (signal.command === 'cell' && signal.path) {
+      plugin.focusCell(signal.path, signal.assetId);
+      return;
+    }
+    if (signal.command === 'maintenance') {
+      plugin.enterMaintenance(signal.assetId);
+      return;
+    }
+    if (signal.assetId) plugin.openAsset(signal.assetId);
+  };
+
+  const primary = DECISION_SIGNALS[active];
+  if (hiddenBySitePanel) return null;
+
+  return (
+    <Paper elevation={6} sx={{
+      position: 'fixed',
+      right: 24,
+      top: 96,
+      width: collapsed ? 232 : 306,
+      display: { xs: 'none', lg: 'block' },
+      pointerEvents: 'auto',
+      zIndex: 980,
+      p: collapsed ? 1 : 1.15,
+      borderRadius: 2,
+      bgcolor: 'rgba(12, 15, 19, 0.76)',
+      backdropFilter: 'blur(16px)',
+      border: '1px solid rgba(255,255,255,0.08)',
+      boxShadow: '0 12px 28px rgba(0,0,0,0.38)'
+    }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: collapsed ? 0 : 0.85 }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ color: '#20a1b1', fontSize: 8.5, fontWeight: 900, letterSpacing: 1.1, textTransform: 'uppercase' }}>Decision highlights</Typography>
+          <Typography sx={{ color: '#fff', fontSize: 12.5, fontWeight: 900, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{DEMO_PROFILE.client.liveWatchLabel}</Typography>
+        </Box>
+        <IconButton size="small" onClick={() => setCollapsed((v) => !v)} sx={{ p: 0.2, color: 'rgba(255,255,255,0.58)' }}>
+          {collapsed ? <ExpandMore sx={{ fontSize: 17 }} /> : <ExpandLess sx={{ fontSize: 17 }} />}
+        </IconButton>
+      </Box>
+
+      {!collapsed && (
+        <Stack spacing={0.75}>
+          <Box onClick={() => runCommand(primary)} sx={{
+            p: 0.85,
+            borderRadius: 1.35,
+            bgcolor: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.075)',
+            borderLeft: `3px solid ${primary.color}`,
+            cursor: 'pointer',
+            '&:hover': { bgcolor: 'rgba(255,255,255,0.065)' }
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.35, color: primary.color }}>
+              {primary.icon}
+              <Typography sx={{ color: '#fff', fontSize: 10.5, fontWeight: 900, lineHeight: 1.15, flex: 1 }}>{primary.title}</Typography>
+              <Chip label={primary.metric} size="small" sx={{ height: 16, fontSize: 7.5, fontWeight: 900, bgcolor: `${primary.color}22`, color: primary.color, border: `1px solid ${primary.color}55` }} />
+            </Box>
+            <Typography sx={{ color: 'rgba(255,255,255,0.58)', fontSize: 9.2, lineHeight: 1.28 }}>{primary.detail}</Typography>
+          </Box>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0.45 }}>
+            {DECISION_SIGNALS.map((signal, index) => (
+              <Box key={signal.id} onClick={() => { setActive(index); runCommand(signal); }} sx={{
+                height: 27,
+                borderRadius: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: index === active ? signal.color : 'rgba(255,255,255,0.42)',
+                bgcolor: index === active ? `${signal.color}1f` : 'rgba(255,255,255,0.035)',
+                border: '1px solid',
+                borderColor: index === active ? `${signal.color}66` : 'rgba(255,255,255,0.06)',
+                cursor: 'pointer',
+                '& svg': { fontSize: 14 }
+              }}>
+                {signal.icon}
+              </Box>
+            ))}
+          </Box>
+
+          <Button size="small" startIcon={<PlayArrow sx={{ fontSize: 14 }} />} onClick={() => runCommand(primary)} sx={{
+            height: 25,
+            fontSize: 8.5,
+            fontWeight: 900,
+            color: '#071013',
+            bgcolor: primary.color,
+            '&:hover': { bgcolor: primary.color }
+          }}>
+            Open recommended action
+          </Button>
+        </Stack>
+      )}
+    </Paper>
+  );
 }
 
 function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
@@ -99,10 +311,10 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
   const [collapsed, setCollapsed] = useState(false);
   const [hour, setHour] = useState(new Date().getHours());
   const [alerts, setAlerts] = useState<string[]>([
-    'Logistics Hub A1: Expected arrival T-102 in 12m',
-    'Security Alert: Unauthorized perimeter access detected (Zone 4)',
-    'Personnel Update: Shift change in progress (14:00)',
-    'Weather Warning: High winds expected in 2 hours'
+    `Inbound ${DEMO_PROFILE.assets.inboundVehicle}: weighbridge slot in 12m`,
+    `Yard Alert: ${DEMO_PROFILE.assets.dock} queue forming`,
+    `Personnel: maintenance tech entering ${DEMO_PROFILE.assets.robotCell}`,
+    `Cold Chain: ${DEMO_PROFILE.kpis.coldChainStatus}, Zone B watch`
   ]);
   const [visible, setVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'personnel' | 'logistics'>('overview');
@@ -138,8 +350,8 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
       
       // Update mock logistics
       setLogistics([
-        { id: 'TRUCK-X1', driver: 'M. Ross', eta: '14:20', rounds: 4, dest: 'Dock B', loadPct: 65, shift: 'AM' },
-        { id: 'VAN-G22', driver: 'T. Vance', eta: '14:05', rounds: 8, dest: 'Main Gate', loadPct: 40, shift: 'AM' }
+        { id: DEMO_PROFILE.assets.inboundVehicle, driver: 'R. Taylor', eta: '14:20', rounds: 4, dest: 'Weighbridge', loadPct: 65, shift: 'AM' },
+        { id: DEMO_PROFILE.assets.yardTug, driver: 'S. Malik', eta: '14:05', rounds: 8, dest: DEMO_PROFILE.assets.dock, loadPct: 40, shift: 'AM' }
       ]);
     };
 
@@ -198,7 +410,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                 SIMAM INTELLIGENCE
               </Typography>
               <Typography variant="h6" sx={{ color: '#fff', fontWeight: 800, fontSize: 16 }}>
-                WAKEFIELD COMMAND
+                {DEMO_PROFILE.client.commandLabel}
               </Typography>
             </Box>
             <IconButton size="small" onClick={() => setCollapsed(!collapsed)} sx={{ color: 'rgba(255,255,255,0.7)' }}>
@@ -310,7 +522,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                           <Box sx={{ my: 0.5 }}>
                             {f.condition.includes('Rain') ? <WaterDrop sx={{ fontSize: 14, color: '#4fc3f7' }} /> : <WbSunny sx={{ fontSize: 14, color: '#ffd54f' }} />}
                           </Box>
-                          <Typography sx={{ color: '#fff', fontSize: 10, fontWeight: 900 }}>{Math.round(f.temp)}°</Typography>
+                          <Typography sx={{ color: '#fff', fontSize: 10, fontWeight: 900 }}>{Math.round(f.temp)}C</Typography>
                         </Box>
                       ))}
                     </Box>
@@ -339,10 +551,10 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                 <Stack spacing={1.5}>
                   <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 900, fontSize: 9, letterSpacing: 1 }}>ACTIVE SITE PERSONNEL</Typography>
                   {[
-                    { name: 'John Doe', role: 'Lead Technician', zone: 'Sector A', status: 'Active' },
-                    { name: 'Jane Smith', role: 'Floor Operator', zone: 'Docking 4', status: 'Active' },
-                    { name: 'Sarah Connor', role: 'Safety Engineer', zone: 'Storage B', status: 'Maintenance' },
-                    { name: 'David Miller', role: 'Security Ops', zone: 'Perimeter', status: 'Patrol' }
+                    { name: DEMO_PROFILE.assets.maintenanceTech, role: 'Maintenance Tech', zone: DEMO_PROFILE.assets.robotCell, status: 'Active' },
+                    { name: 'OP-11', role: 'Line Operator', zone: 'Packing', status: 'Active' },
+                    { name: 'QA-02', role: 'Quality Lead', zone: DEMO_PROFILE.assets.coldStore, status: 'Watch' },
+                    { name: 'SEC-01', role: 'Security Ops', zone: 'Gatehouse', status: 'Patrol' }
                   ].map((p, i) => (
                     <Box key={i} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
                       <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
@@ -396,7 +608,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Box sx={{ flexGrow: 1 }}>
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
-                            <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 8, fontWeight: 800 }}>LOAD CARACITY</Typography>
+                            <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 8, fontWeight: 800 }}>LOAD CAPACITY</Typography>
                             <Typography sx={{ color: '#fff', fontSize: 8, fontWeight: 900 }}>{l.loadPct}%</Typography>
                           </Box>
                           <LinearProgress 

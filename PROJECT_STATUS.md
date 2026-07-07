@@ -1,7 +1,7 @@
 # Simam Intelligence Suite: Project Status & Roadmap
 
 **Current Version:** 2.5.0-simam-pre
-**Last Updated:** April 18, 2026
+**Last Updated:** July 2, 2026
 
 ---
 
@@ -58,5 +58,19 @@ Planned features and architectural improvements.
 ## 📝 Activity Log
 *Quick notes on recent sessions.*
 
+- **2026-07-02**: Completed Wakefield Phase 5 scene expansion: enlarged warehouse floor, visual replica cells, racks, staged pallets, QC hold, and dispatch/cold-chain context.
 - **2026-04-18**: Implemented "Global-to-Local" site tracking and the "Factory Time Machine" (Historian) powered by Firebase. Unified navigation context across sites and assets with pulsing highlights.
 - **2026-04-18 (Earlier)**: Project recap and status initialization. Identified transition to "Simam Intelligence Suite" as the focus.
+
+---
+
+## Wakefield Demo Phases
+
+- [x] **Phase 1: Wakefield/Simam bespoke wrapper** - branded cockpit copy, KPI labels, client-safe attribution to realvirtual WEB.
+- [x] **Phase 2: Map credibility pass** - projected map labels, simulated vehicles/workers, and stable overlay positioning.
+- [x] **Phase 3: Guided presenter script** - 2-3 minute demo strip with factory, yard, dock, action, and recovery beats.
+- [x] **Phase 4: Operator UI polish** - compact cockpit, cleaner alerts, asset drawer, decision highlights, and UI restore control.
+- [x] **Phase 5: Expanded factory scene** - larger warehouse floor, visual replica cells, racks, staging buffers, QC hold, dispatch, and cold-chain areas.
+- [ ] **Phase 6: Practical operator tools** - measurement mode, asset checklist, acknowledge/export event log.
+- [ ] **Phase 7: Real-data demo depth** - derive OEE/run-hours from simulation/historian data instead of static literals.
+- [ ] **Phase 8: Client handover pack** - presenter reset mode, deployment checklist, and one-page demo notes.

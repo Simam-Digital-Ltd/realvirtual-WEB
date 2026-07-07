@@ -18,6 +18,7 @@ import { DemoHMIPlugin } from '../../demo/demo-hmi-plugin';
 import { TestAxesPlugin } from '../../demo/test-axes-plugin';
 import { MachineControlPlugin } from '../../demo/machine-control-plugin';
 import { MaintenancePlugin } from '../../demo/maintenance-plugin';
+import { WakefieldSceneDressingPlugin } from '../../demo/wakefield-scene-dressing-plugin';
 
 // Optional feature plugins
 import { WebXRPlugin } from '../../webxr-plugin';
@@ -39,6 +40,7 @@ export function registerModelPlugins(viewer: RVViewer): void {
     new TestAxesPlugin(),
     new MachineControlPlugin(),
     new MaintenancePlugin(),
+    new WakefieldSceneDressingPlugin(),
     // Optional features
     new WebXRPlugin(),
     new MultiuserPlugin(),

@@ -56,7 +56,7 @@ export function MessagePanel() {
           right: 8,
           top: 0,
           bottom: 0,
-          width: 300,
+          width: 286,
           zIndex: 1200,
           pointerEvents: 'none',
           display: 'flex',
@@ -103,7 +103,7 @@ export function MessagePanel() {
             onClick={() => setExpandedIdx(isOpen ? -1 : i)}
             sx={{
               pointerEvents: 'auto',
-              width: 300,
+              width: 286,
               transform: isOpen ? 'translateX(0)' : 'translateX(calc(100% - 36px))',
               transition: 'transform 0.25s ease',
               cursor: 'pointer',

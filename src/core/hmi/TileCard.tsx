@@ -65,7 +65,8 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
       onMouseLeave={handleMouseLeave}
       onClick={handleClick}
       sx={{
-        p: 1.5,
+        px: 1.15,
+        py: 1,
         borderLeft: `3px solid ${color}`,
         cursor: (componentPath || onAction) ? 'pointer' : 'default',
         pointerEvents: 'auto',
@@ -73,28 +74,28 @@ export function TileCard({ title, subtitle, severity, icon, timestamp, component
         transition: 'background-color 0.15s',
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.8 }}>
         <Box sx={{ color, mt: 0.25 }}>
           {iconMap[icon] || <Speed />}
         </Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
+          <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.25, fontSize: 12.5 }}>
             {title}
           </Typography>
-          <Typography variant="caption" component="div" sx={{ color: 'text.secondary', mt: 0.25 }}>
+          <Typography variant="caption" component="div" sx={{ color: 'text.secondary', mt: 0.2, fontSize: 10.5, lineHeight: 1.25 }}>
             {subtitle}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}>
-          <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap', fontSize: 10 }}>
             {timestamp}
           </Typography>
           <Box sx={{ display: 'flex', gap: 0.25 }}>
             <IconButton size="small" sx={{ p: 0.25 }} onClick={(e) => { e.stopPropagation(); if (componentPath) { viewer.focusByPath(componentPath); viewer.highlightByPath(componentPath, true); } }}>
-              <OpenInNew sx={{ fontSize: 14 }} />
+              <OpenInNew sx={{ fontSize: 13 }} />
             </IconButton>
             <IconButton size="small" sx={{ p: 0.25 }} onClick={(e) => { e.stopPropagation(); onDismiss?.(); }}>
-              <Close sx={{ fontSize: 14 }} />
+              <Close sx={{ fontSize: 13 }} />
             </IconButton>
           </Box>
         </Box>

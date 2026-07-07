@@ -2,6 +2,7 @@
 // Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
@@ -20,6 +21,8 @@ import {
   SiteMetrics, SiteCondition 
 } from '../core/geospatial-service';
 import { DataConnectService } from '../core/dataconnect-service';
+import { projectMapPoint, projectMapTrail } from './osm-map-overlay';
+import { WAKEFIELD_DEMO_PROFILE as DEMO_PROFILE } from './demo/demo-profile';
 
 // @ts-ignore - Loaded via CDN in index.html
 const OSMBuildings = (window as any).OSMBuildings;
@@ -117,6 +120,36 @@ const AlertBanner: React.FC<{
   );
 };
 
+function normalizeAssetId(id: string): string {
+  const key = id.toLowerCase();
+  if (key === 'loading-dock-b') return 'dock-4';
+  if (key === 'wakefield-factory') return 'robot-cell-a';
+  if (key === 'w1') return 'mt-03';
+  if (key === 'w4') return 'cold-store-b';
+  return key;
+}
+
+function emitAssetDetail(viewer: RVViewer, id: string): void {
+  viewer.emit('wpf-asset-selected' as string, { assetId: normalizeAssetId(id) } as any);
+}
+
+const SimulatedBadge: React.FC<{ label: string }> = ({ label }) => (
+  <Chip
+    label={`${label} SIMULATED`}
+    size="small"
+    sx={{
+      height: 18,
+      fontSize: 8,
+      fontWeight: 900,
+      letterSpacing: 0.6,
+      bgcolor: 'rgba(255, 213, 79, 0.16)',
+      color: '#ffd54f',
+      border: '1px solid rgba(255, 213, 79, 0.42)',
+      pointerEvents: 'none',
+    }}
+  />
+);
+
 
 /**
  * OSMMapLabels Component
@@ -128,6 +161,7 @@ const OSMMapLabels: React.FC<UISlotProps> = ({ viewer }) => {
   const [workers, setWorkers] = useState<SiteWorker[]>([]);
   const [logistics, setLogistics] = useState<LogisticsAsset[]>([]);
   const [active, setActive] = useState(false);
+  const [, setProjectionFrame] = useState(0);
 
   useEffect(() => {
     const handleLabels = (e: any) => setLabels(e.labels || []);
@@ -151,16 +185,39 @@ const OSMMapLabels: React.FC<UISlotProps> = ({ viewer }) => {
     };
   }, [viewer]);
 
-  const projectPoint = (lat: number, lng: number) => {
+  useEffect(() => {
+    if (!active) return;
+
+    let rafId = 0;
+    const tick = () => {
+      setProjectionFrame(frame => (frame + 1) % 100000);
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [active]);
+
+  const projectPoint = (lat: number, lng: number, alt = 0) => {
     const plugin = viewer.getPlugin('osm-map') as any;
-    if (!plugin?._osmb) return { x: -1000, y: -1000, z: -1 };
-    return plugin._osmb.project(lat, lng, 0);
+    if (!plugin?._osmb) return { x: -1000, y: -1000, visible: false };
+    return projectMapPoint(plugin._osmb, lat, lng, alt);
   };
 
   if (!active) return null;
+  const mapPlugin = viewer.getPlugin('osm-map') as OSMMapPlugin | undefined;
+  const mapContainer = mapPlugin?.mapContainer;
+  if (!mapContainer) return null;
 
-  return (
-    <Box sx={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 1050 }}>
+  return createPortal(
+    <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 20 }}>
+      {(workers.length > 0 || logistics.length > 0) && (
+        <Box sx={{ position: 'absolute', left: 20, bottom: 24, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          {workers.length > 0 && <SimulatedBadge label="Personnel" />}
+          {logistics.length > 0 && <SimulatedBadge label="Logistics" />}
+        </Box>
+      )}
+
       {/* Ghost Paths (SVG Overlay) */}
       <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0 }}>
         <defs>
@@ -210,15 +267,18 @@ const OSMMapLabels: React.FC<UISlotProps> = ({ viewer }) => {
       {/* Logistics Asset Markers */}
       {logistics.map(asset => {
         const pos = projectPoint(asset.lat, asset.lng);
-        if (pos.z <= 0) return null;
+        if (!pos.visible) return null;
         return (
           <Box
             key={asset.id}
             sx={{
               position: 'absolute', left: pos.x, top: pos.y,
               transform: 'translate(-50%, -100%)',
-              transition: 'all 0.5s linear'
+              transition: 'opacity 0.15s ease',
+              pointerEvents: 'auto',
+              cursor: 'pointer'
             }}
+            onClick={() => emitAssetDetail(viewer, asset.id)}
           >
             <Box sx={{
               bgcolor: 'rgba(32, 161, 177, 0.95)', color: '#fff',
@@ -228,6 +288,11 @@ const OSMMapLabels: React.FC<UISlotProps> = ({ viewer }) => {
             }}>
               <NearMe sx={{ fontSize: 12, transform: 'rotate(45deg)', color: '#4fc3f7' }} />
               <Typography sx={{ fontSize: 10, fontWeight: 900, letterSpacing: 0.5 }}>{asset.id}</Typography>
+              <Chip
+                label="SIM"
+                size="small"
+                sx={{ height: 14, fontSize: 8, fontWeight: 900, bgcolor: 'rgba(255,213,79,0.18)', color: '#ffd54f' }}
+              />
             </Box>
             <Box sx={{ height: 12, width: 2, bgcolor: 'rgba(255,255,255,0.5)', mx: 'auto', boxShadow: '0 0 10px rgba(0,0,0,0.5)' }} />
           </Box>
@@ -237,17 +302,20 @@ const OSMMapLabels: React.FC<UISlotProps> = ({ viewer }) => {
       {/* Site Worker Markers */}
       {workers.map(worker => {
         const pos = projectPoint(worker.lat, worker.lng);
-        if (pos.z <= 0) return null;
+        if (!pos.visible) return null;
         return (
           <Box
             key={worker.id}
             sx={{
               position: 'absolute', left: pos.x, top: pos.y,
               transform: 'translate(-50%, -50%)',
-              transition: 'all 1s linear'
+              transition: 'opacity 0.15s ease',
+              pointerEvents: 'auto',
+              cursor: 'pointer'
             }}
+            onClick={() => emitAssetDetail(viewer, worker.name)}
           >
-            <Tooltip title={`${worker.name} (${worker.role})`}>
+            <Tooltip title={`${worker.name} (${worker.role}) - simulated location`}>
               <Box sx={{
                 width: 12, height: 12, borderRadius: '50%',
                 bgcolor: worker.role === 'Security' ? '#ff5252' : '#00e676',
@@ -266,15 +334,20 @@ const OSMMapLabels: React.FC<UISlotProps> = ({ viewer }) => {
       })}
 
       {/* Coordinate Labels */}
-      {labels.map(label => (
-        label.visible && (
+      {labels.map(label => {
+        const pos = projectPoint(label.lat, label.lng, label.alt);
+        return (
+        pos.visible && (
           <Box
             key={label.id}
             sx={{
-              position: 'absolute', left: label.x, top: label.y,
+              position: 'absolute', left: pos.x, top: pos.y,
               transform: 'translate(-50%, -100%) translateY(-20px)',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+              pointerEvents: 'auto',
+              cursor: 'pointer'
             }}
+            onClick={() => emitAssetDetail(viewer, label.id)}
           >
             <Box sx={{
               background: 'rgba(13, 15, 20, 0.9)', backdropFilter: 'blur(12px)',
@@ -286,7 +359,7 @@ const OSMMapLabels: React.FC<UISlotProps> = ({ viewer }) => {
               <Box>
                 <Typography sx={{ color: '#fff', fontSize: 13, fontWeight: 800, letterSpacing: '0.5px' }}>{label.name}</Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography sx={{ color: 'rgba(32, 161, 177, 0.8)', fontSize: 10, fontWeight: 700 }}>SIMAM GOODS HQ</Typography>
+                  <Typography sx={{ color: 'rgba(32, 161, 177, 0.8)', fontSize: 10, fontWeight: 700 }}>{DEMO_PROFILE.client.mapSiteLabel}</Typography>
                   {label.status && (
                     <Chip 
                       label={label.status.toUpperCase()} 
@@ -304,8 +377,10 @@ const OSMMapLabels: React.FC<UISlotProps> = ({ viewer }) => {
             <Box sx={{ width: '2px', height: '40px', background: 'linear-gradient(to bottom, #20a1b1, transparent)' }} />
           </Box>
         )
-      ))}
-    </Box>
+        );
+      })}
+    </Box>,
+    mapContainer
   );
 };
 
@@ -325,7 +400,7 @@ const OSMMapToggle: React.FC<UISlotProps> = ({ viewer }) => {
 
   const jumpToWakefield = () => {
     const plugin = viewer.getPlugin('osm-map') as OSMMapPlugin;
-    if (plugin) plugin.jumpTo(53.693, -1.503, 18);
+    if (plugin) plugin.jumpTo(DEMO_PROFILE.site.mapLatitude, DEMO_PROFILE.site.mapLongitude, DEMO_PROFILE.site.mapZoom);
   };
 
   return (
@@ -343,7 +418,7 @@ const OSMMapToggle: React.FC<UISlotProps> = ({ viewer }) => {
         </IconButton>
       </Tooltip>
       {active && (
-        <Tooltip title="Jump to Wakefield Demo" placement="right">
+        <Tooltip title="Jump to WPF-41 Site" placement="right">
           <IconButton onClick={jumpToWakefield} sx={{ bgcolor: 'rgba(0,0,0,0.4)', color: '#fff', backdropFilter: 'blur(4px)', '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' } }}>
             <NearMe />
           </IconButton>
@@ -367,26 +442,71 @@ export class OSMMapPlugin implements RVViewerPlugin {
   private _container: HTMLElement | null = null;
   private _appContainer: HTMLElement | null = null;
 
+  get mapContainer(): HTMLElement | null {
+    return this._container;
+  }
+
   private _labels: MapLabel[] = [
-    { id: 'wakefield-factory', name: 'Morrisons Wakefield 41', lat: 53.6931, lng: -1.5034, alt: 25, x: 0, y: 0, visible: true },
-    { id: 'north-gate', name: 'North Access Gate', lat: 53.696, lng: -1.508, alt: 10, x: 0, y: 0, visible: true },
-    { id: 'loading-dock-b', name: 'Loading Dock B', lat: 53.692, lng: -1.502, alt: 10, x: 0, y: 0, visible: true }
+    { id: 'wakefield-factory', name: DEMO_PROFILE.client.siteName, lat: DEMO_PROFILE.site.latitude, lng: DEMO_PROFILE.site.longitude, alt: 25, x: 0, y: 0, visible: true },
+    { id: 'north-gate', name: 'Gatehouse & Weighbridge', lat: 53.696, lng: -1.508, alt: 10, x: 0, y: 0, visible: true },
+    { id: 'loading-dock-b', name: DEMO_PROFILE.assets.dockLabel, lat: 53.692, lng: -1.502, alt: 10, x: 0, y: 0, visible: true }
   ];
 
   private _workers: SiteWorker[] = [
-    { id: 'w1', name: 'John Doe', lat: 53.6931, lng: -1.5032, role: 'Technician', status: 'Active' },
-    { id: 'w2', name: 'Jane Smith', lat: 53.6925, lng: -1.5025, role: 'Operator', status: 'Active' },
-    { id: 'w3', name: 'Mike Ross', lat: 53.6938, lng: -1.5045, role: 'Security', status: 'Active' },
-    { id: 'w4', name: 'Sarah Connor', lat: 53.6942, lng: -1.5052, role: 'Technician', status: 'Active' },
-    { id: 'w5', name: 'David Miller', lat: 53.6922, lng: -1.5018, role: 'Operator', status: 'Active' },
-    { id: 'w6', name: 'Elena Fisher', lat: 53.6918, lng: -1.5012, role: 'Security', status: 'Active' }
+    { id: 'w1', name: 'MT-03', lat: 53.6931, lng: -1.5032, role: 'Technician', status: 'Active' },
+    { id: 'w2', name: 'OP-11', lat: 53.6925, lng: -1.5025, role: 'Operator', status: 'Active' },
+    { id: 'w3', name: 'SEC-01', lat: 53.6938, lng: -1.5045, role: 'Security', status: 'Active' },
+    { id: 'w4', name: 'QA-02', lat: 53.6942, lng: -1.5052, role: 'Technician', status: 'Active' },
+    { id: 'w5', name: 'FL-07', lat: 53.6922, lng: -1.5018, role: 'Operator', status: 'Active' },
+    { id: 'w6', name: 'SEC-02', lat: 53.6918, lng: -1.5012, role: 'Security', status: 'Active' }
   ];
 
+  private _workerRoutes = [
+    [
+      { lat: 53.6931, lng: -1.5032 },
+      { lat: 53.6934, lng: -1.5038 },
+      { lat: 53.6930, lng: -1.5041 },
+      { lat: 53.6928, lng: -1.5035 }
+    ],
+    [
+      { lat: 53.6925, lng: -1.5025 },
+      { lat: 53.6921, lng: -1.5021 },
+      { lat: 53.6924, lng: -1.5017 },
+      { lat: 53.6928, lng: -1.5022 }
+    ],
+    [
+      { lat: 53.6938, lng: -1.5045 },
+      { lat: 53.6945, lng: -1.5050 },
+      { lat: 53.6941, lng: -1.5057 },
+      { lat: 53.6935, lng: -1.5051 }
+    ],
+    [
+      { lat: 53.6942, lng: -1.5052 },
+      { lat: 53.6947, lng: -1.5044 },
+      { lat: 53.6940, lng: -1.5039 },
+      { lat: 53.6937, lng: -1.5048 }
+    ],
+    [
+      { lat: 53.6922, lng: -1.5018 },
+      { lat: 53.6918, lng: -1.5013 },
+      { lat: 53.6921, lng: -1.5008 },
+      { lat: 53.6925, lng: -1.5014 }
+    ],
+    [
+      { lat: 53.6918, lng: -1.5012 },
+      { lat: 53.6914, lng: -1.5018 },
+      { lat: 53.6919, lng: -1.5025 },
+      { lat: 53.6923, lng: -1.5018 }
+    ]
+  ];
+
+  private _workerProgress = [0, 0.7, 1.3, 2.0, 0.4, 1.6];
+
   private _logistics: LogisticsAsset[] = [
-    { id: 'T-102', type: 'Truck', lat: 53.695, lng: -1.508, destination: 'A650 North', loadPct: 85, driver: 'Robert T.', rounds: 3, shift: 'AM', startTime: '06:00' },
-    { id: 'T-204', type: 'Truck', lat: 53.691, lng: -1.501, destination: 'Factory B', loadPct: 40, driver: 'Susan M.', rounds: 5, shift: 'AM', startTime: '06:15' },
-    { id: 'T-305', type: 'Truck', lat: 53.698, lng: -1.512, destination: 'Wakefield HQ', loadPct: 10, driver: 'Gary K.', rounds: 2, shift: 'AM', startTime: '07:00' },
-    { id: 'V-001', type: 'Delivery Van', lat: 53.694, lng: -1.505, destination: 'Dock 4', loadPct: 60, driver: 'Anna S.', rounds: 8, shift: 'AM', startTime: '08:30' }
+    { id: DEMO_PROFILE.assets.inboundVehicle, type: 'Truck', lat: 53.695, lng: -1.508, destination: 'A650 Northbound', loadPct: 85, driver: 'R. Taylor', rounds: 3, shift: 'AM', startTime: '06:00' },
+    { id: DEMO_PROFILE.assets.yardTug, type: 'Truck', lat: 53.691, lng: -1.501, destination: DEMO_PROFILE.assets.coldStore, loadPct: 40, driver: 'S. Malik', rounds: 5, shift: 'AM', startTime: '06:15' },
+    { id: 'HGV-27', type: 'Truck', lat: 53.698, lng: -1.512, destination: 'WPF Dispatch', loadPct: 10, driver: 'G. Khan', rounds: 2, shift: 'AM', startTime: '07:00' },
+    { id: 'VAN-06', type: 'Delivery Van', lat: 53.694, lng: -1.505, destination: DEMO_PROFILE.assets.dock, loadPct: 60, driver: 'A. Shah', rounds: 8, shift: 'AM', startTime: '08:30' }
   ];
 
   private _latitude = 53.6931;
@@ -454,35 +574,34 @@ export class OSMMapPlugin implements RVViewerPlugin {
   private _startMockSimulation(): void {
     if (this._simTimer) return;
     this._simTimer = setInterval(() => {
-      // Mock worker drift
-      this._workers.forEach(w => {
-        w.lat += (Math.random() - 0.5) * 0.00008;
-        w.lng += (Math.random() - 0.5) * 0.00008;
+      // Simulated personnel follow bounded patrol routes instead of random GPS drift.
+      this._workers.forEach((w, i) => {
+        const route = this._workerRoutes[i % this._workerRoutes.length];
+        this._workerProgress[i] = this._advanceRoute(this._workerProgress[i], route, 0.01);
+        const pos = this._interpolateRoute(route, this._workerProgress[i]);
+        w.lat = pos.lat;
+        w.lng = pos.lng;
       });
 
       // Mock truck movement following routes
       this._logistics.forEach((l, i) => {
         const route = this._truckRoutes[i % this._truckRoutes.length];
-        this._truckProgress[i] += 0.003; // Slightly slower, more realistic
-        if (this._truckProgress[i] >= route.length - 1) {
-          this._truckProgress[i] = 0;
-          l.rounds++; // Increment rounds completed
-          l.loadPct = Math.floor(Math.random() * 100); // New load for new round
+        const previousProgress = this._truckProgress[i];
+        this._truckProgress[i] = this._advanceRoute(this._truckProgress[i], route, 0.003);
+        if (this._truckProgress[i] < previousProgress) {
+          l.rounds++;
+          l.loadPct = 35 + ((l.rounds * 17 + i * 11) % 60);
         }
 
-        const idx = Math.floor(this._truckProgress[i]);
-        const alpha = this._truckProgress[i] - idx;
-        const p1 = route[idx];
-        const p2 = route[idx + 1];
-
-        l.lat = p1.lat + (p2.lat - p1.lat) * alpha;
-        l.lng = p1.lng + (p2.lng - p1.lng) * alpha;
+        const pos = this._interpolateRoute(route, this._truckProgress[i]);
+        l.lat = pos.lat;
+        l.lng = pos.lng;
       });
 
       // Update dynamic labels (e.g. Loading Dock Status)
       const dockB = this._labels.find(l => l.id === 'loading-dock-b');
       if (dockB) {
-        const truckCount = this._logistics.filter(l => l.destination === 'Dock 4').length;
+        const truckCount = this._logistics.filter(l => l.destination === DEMO_PROFILE.assets.dock).length;
         dockB.status = `${truckCount} Trucks Active`;
       }
 
@@ -491,6 +610,26 @@ export class OSMMapPlugin implements RVViewerPlugin {
       this._updateLabels();
       this._updateTrails();
     }, 100);
+  }
+
+  private _advanceRoute(progress: number, route: Array<{ lat: number; lng: number }>, step: number): number {
+    if (route.length < 2) return 0;
+    const max = route.length - 1;
+    const next = progress + step;
+    return next >= max ? next - max : next;
+  }
+
+  private _interpolateRoute(route: Array<{ lat: number; lng: number }>, progress: number): { lat: number; lng: number } {
+    const maxSegment = Math.max(0, route.length - 2);
+    const idx = Math.min(Math.floor(progress), maxSegment);
+    const alpha = progress - idx;
+    const p1 = route[idx];
+    const p2 = route[idx + 1] ?? route[0];
+
+    return {
+      lat: p1.lat + (p2.lat - p1.lat) * alpha,
+      lng: p1.lng + (p2.lng - p1.lng) * alpha
+    };
   }
 
   private _stopMockSimulation(): void {
@@ -525,12 +664,13 @@ export class OSMMapPlugin implements RVViewerPlugin {
         maxZoom: 21, // Increased for closer inspection
         effects: ['shadows'], 
         fastMode: true, // Optimize for faster frame rates
-        attribution: '© OSM Buildings'
+        attribution: '(c) OSM Buildings'
       });
 
-      // Realistic Satellite Imagery (Esri World Imagery)
-      this._osmb.addMapTiles('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+      // Google satellite-style base imagery. Keeps our existing overlay projection stable.
+      this._osmb.addMapTiles('https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+        attribution: 'Map imagery (c) Google',
+        subdomains: ['0', '1', '2', '3']
       });
 
       // 3D Buildings with optimized loading profile
@@ -538,13 +678,6 @@ export class OSMMapPlugin implements RVViewerPlugin {
         fixedZoom: 14 // Better balance for building visibility at distance
       });
 
-      // Set Realistic Industrial Style for Buildings
-      this._osmb.style({
-        color: 'rgba(210, 215, 220, 0.9)', // Slightly darker concrete
-        roofColor: 'rgba(160, 165, 170, 0.95)',
-        outlineColor: 'rgba(0, 0, 0, 0.15)',
-        highlightColor: '#20a1b1'
-      });
 
       this._osmb.on('change', () => { this._updateLabels(); this._updateTrails(); });
       
@@ -565,7 +698,7 @@ export class OSMMapPlugin implements RVViewerPlugin {
   private _updateTrails(): void {
     if (!this._osmb || !this._active) return;
     const trails: RobotTrail[] = Object.entries(this._rawTrails).map(([id, data]) => {
-      const points = data.points.map(p => this._osmb.project(p.lat, p.lng, 0)).filter(p => p.z > 0);
+      const points = projectMapTrail(this._osmb, data.points);
       return { id, name: data.name, points, visible: points.length > 1 };
     });
     this._viewer?.emit('osm-trails-updated' as any, { trails });
@@ -574,8 +707,8 @@ export class OSMMapPlugin implements RVViewerPlugin {
   private _updateLabels(): void {
     if (!this._osmb || !this._active) return;
     const updatedLabels = this._labels.map(label => {
-      const pos = this._osmb.project(label.lat, label.lng, label.alt);
-      return { ...label, x: pos.x, y: pos.y, visible: pos.z > 0 };
+      const pos = projectMapPoint(this._osmb, label.lat, label.lng, label.alt);
+      return { ...label, x: pos.x, y: pos.y, visible: pos.visible };
     });
     this._viewer?.emit('osm-labels-updated' as any, { labels: updatedLabels });
   }

@@ -15,9 +15,9 @@ import { WelcomeModal } from './WelcomeModal';
 /* Logo URL: use BASE_URL so it resolves correctly under sub-folder deploys (e.g. Bunny CDN /demo/) */
 const logoUrl = `${import.meta.env.BASE_URL}logo.png`;
 
-// ── Logo Badge (always visible, independent of ButtonPanel) ─────────────
+// -- Logo Badge (always visible, independent of ButtonPanel) -------------
 
-/** Logo + connection status badge — always visible at top-left. */
+/** Logo + connection status badge - always visible at top-left. */
 const WELCOME_DISMISSED_KEY = 'rv-welcome-dismissed';
 
 export function LogoBadge() {
@@ -47,10 +47,10 @@ export function LogoBadge() {
         }}
         onClick={() => setAboutOpen(true)}
       >
-        <img src={logoUrl} alt="realvirtual" style={{ height: 18, width: 18 }} />
+        <img src={logoUrl} alt="Simam Digital Twin" style={{ height: 18, width: 18 }} />
         {!isMobile && (
           <Typography sx={{ fontSize: 12, fontWeight: 500, letterSpacing: 0.5, color: 'text.primary' }}>
-            realvirtual
+            Simam
           </Typography>
         )}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -78,7 +78,7 @@ export function LogoBadge() {
   );
 }
 
-// ── Button Panel (slot-driven button group) ─────────────────────────────
+// -- Button Panel (slot-driven button group) -----------------------------
 
 /** Slot-driven button group sidebar. */
 export function ButtonPanel() {
