@@ -319,6 +319,20 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
   const [visible, setVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'personnel' | 'logistics'>('overview');
   const [logistics, setLogistics] = useState<any[]>([]);
+  const [scenario, setScenario] = useState<'normal' | 'dock4-blocked'>('normal');
+
+  useEffect(() => {
+    const handler = (payload?: { scenario?: 'normal' | 'dock4-blocked' }) => {
+      if (!payload?.scenario) return;
+      setScenario(payload.scenario);
+      if (payload.scenario === 'dock4-blocked') {
+        setAlerts(prev => [`Scenario: Dock 4 blocked - route YT-02 to temporary bay`, `Outbound queue: 4 vehicles, dispatch at risk`, ...prev].slice(0, 6));
+        setActiveTab('logistics');
+      }
+    };
+    plugin['viewer']?.on('wpf-scenario' as string, handler as any);
+    return () => plugin['viewer']?.off('wpf-scenario' as string, handler as any);
+  }, [plugin]);
 
   // Sync visibility with site selection
   useEffect(() => {
@@ -350,15 +364,15 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
       
       // Update mock logistics
       setLogistics([
-        { id: DEMO_PROFILE.assets.inboundVehicle, driver: 'R. Taylor', eta: '14:20', rounds: 4, dest: 'Weighbridge', loadPct: 65, shift: 'AM' },
-        { id: DEMO_PROFILE.assets.yardTug, driver: 'S. Malik', eta: '14:05', rounds: 8, dest: DEMO_PROFILE.assets.dock, loadPct: 40, shift: 'AM' }
+        { id: DEMO_PROFILE.assets.inboundVehicle, driver: 'R. Taylor', eta: scenario === 'dock4-blocked' ? 'HOLD' : '14:20', rounds: 4, dest: scenario === 'dock4-blocked' ? 'Gate hold' : 'Weighbridge', loadPct: 65, shift: 'AM' },
+        { id: DEMO_PROFILE.assets.yardTug, driver: 'S. Malik', eta: scenario === 'dock4-blocked' ? 'NOW' : '14:05', rounds: 8, dest: scenario === 'dock4-blocked' ? 'Temporary bay' : DEMO_PROFILE.assets.dock, loadPct: scenario === 'dock4-blocked' ? 72 : 40, shift: 'AM' }
       ]);
     };
 
     update();
     const timer = setInterval(update, 5000);
     return () => clearInterval(timer);
-  }, [visible]);
+  }, [visible, scenario]);
 
   const handleHourChange = (_: any, value: number | number[]) => {
     const v = value as number;
@@ -410,7 +424,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                 SIMAM INTELLIGENCE
               </Typography>
               <Typography variant="h6" sx={{ color: '#fff', fontWeight: 800, fontSize: 16 }}>
-                {DEMO_PROFILE.client.commandLabel}
+                {scenario === 'dock4-blocked' ? 'Dock 4 Recovery Plan' : DEMO_PROFILE.client.commandLabel}
               </Typography>
             </Box>
             <IconButton size="small" onClick={() => setCollapsed(!collapsed)} sx={{ color: 'rgba(255,255,255,0.7)' }}>

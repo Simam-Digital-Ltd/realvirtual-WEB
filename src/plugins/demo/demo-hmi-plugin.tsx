@@ -657,6 +657,7 @@ function GuidedDemoStrip({ viewer }: UISlotProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [scenario, setScenario] = useState<'normal' | 'dock4-blocked'>('normal');
 
   const runStepAction = (index: number) => {
     const step = DEMO_STEPS[index];
@@ -725,6 +726,19 @@ function GuidedDemoStrip({ viewer }: UISlotProps) {
     return () => window.clearInterval(timer);
   }, [activeStep, playing]);
 
+  useEffect(() => {
+    const startHandler = () => startDemo();
+    const scenarioHandler = (payload?: { scenario?: 'normal' | 'dock4-blocked' }) => {
+      if (payload?.scenario) setScenario(payload.scenario);
+    };
+    viewer.on('wpf-start-demo' as string, startHandler as any);
+    viewer.on('wpf-scenario' as string, scenarioHandler as any);
+    return () => {
+      viewer.off('wpf-start-demo' as string, startHandler as any);
+      viewer.off('wpf-scenario' as string, scenarioHandler as any);
+    };
+  }, [viewer, activeStep, playing]);
+
   const step = DEMO_STEPS[activeStep];
   const totalDuration = DEMO_STEPS.reduce((sum, item) => sum + item.durationSec, 0);
   const completedDuration = DEMO_STEPS.slice(0, activeStep).reduce((sum, item) => sum + item.durationSec, 0) + elapsed;
@@ -764,7 +778,9 @@ function GuidedDemoStrip({ viewer }: UISlotProps) {
           </Box>
           <Typography sx={{ color: '#fff', fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{step.title}</Typography>
           <Typography sx={{ color: '#20a1b1', fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', mb: 0.35 }}>{step.note}</Typography>
-          <Typography sx={{ color: 'rgba(255,255,255,0.66)', fontSize: 10.5, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{step.script}</Typography>
+          <Typography sx={{ color: 'rgba(255,255,255,0.66)', fontSize: 10.5, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+            {scenario === 'dock4-blocked' && activeStep >= 2 ? `${step.script} Live scenario: Dock 4 is blocked, so the narrator is now using a recovery story with HGV-14 held and YT-02 rerouted.` : step.script}
+          </Typography>
         </Box>
 
         <Stack spacing={0.6} sx={{ width: 176 }}>
