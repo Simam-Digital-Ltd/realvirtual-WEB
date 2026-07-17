@@ -50,7 +50,7 @@ function loadGoogleMapsSdk(): Promise<void> {
     script.id = GOOGLE_MAPS_SCRIPT_ID;
     script.async = true;
     script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}&v=weekly&libraries=marker&region=GB&language=en`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}&v=weekly&libraries=marker&loading=async&region=GB&language=en`;
     script.onload = () => resolve();
     script.onerror = () => reject(new Error('Google Maps SDK failed to load'));
     document.head.appendChild(script);
@@ -104,14 +104,15 @@ class GoogleYardMap {
       zoom,
       mapId: GOOGLE_MAPS_MAP_ID,
       mapTypeId: 'satellite',
-      heading: rotation,
-      tilt: 45,
+      heading: 0,
+      tilt: 0,
       disableDefaultUI: true,
       gestureHandling: 'greedy',
       keyboardShortcuts: false,
       clickableIcons: false,
       internalUsageAttributionIds: ['gmp_git_agentskills_v1'],
     });
+    void rotation;
     this.projector = new GoogleMapProjector(this.map, container);
     this.map.addListener('bounds_changed', () => this.emitChange());
     this.map.addListener('zoom_changed', () => this.emitChange());
@@ -129,6 +130,15 @@ class GoogleYardMap {
 
   setPosition(point: { latitude: number; longitude: number }): void {
     this.map.panTo({ lat: point.latitude, lng: point.longitude });
+    this.emitChange();
+  }
+
+  refresh(): void {
+    const center = this.map.getCenter?.();
+    this.googleApi.maps.event.trigger(this.map, 'resize');
+    if (center) this.map.setCenter(center);
+    this.map.setTilt?.(0);
+    this.map.setHeading?.(0);
     this.emitChange();
   }
 
@@ -572,7 +582,7 @@ export class OSMMapPlugin implements RVViewerPlugin {
   ];
 
   private _viewer: RVViewer | null = null;
-  private _osmb: any = null;
+  private _osmb: (GoogleYardMap & { refresh?: () => void }) | null = null;
   private _active = false;
   private _container: HTMLElement | null = null;
   private _appContainer: HTMLElement | null = null;
@@ -840,6 +850,7 @@ export class OSMMapPlugin implements RVViewerPlugin {
       this._container.style.opacity = '1'; 
       this._container.style.pointerEvents = 'auto'; 
       this._container.style.display = 'block';
+      window.setTimeout(() => this._osmb?.refresh?.(), 50);
     }
     if (this._appContainer) {
       this._appContainer.style.opacity = '0';
