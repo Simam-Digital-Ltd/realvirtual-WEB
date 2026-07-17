@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { APIProvider, AdvancedMarker, Map, Pin, useMap } from '@vis.gl/react-google-maps';
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
@@ -26,49 +27,22 @@ import { WAKEFIELD_DEMO_PROFILE as DEMO_PROFILE } from './demo/demo-profile';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 const GOOGLE_MAPS_MAP_ID = (import.meta.env.VITE_GOOGLE_MAPS_MAP_ID as string | undefined) || 'DEMO_MAP_ID';
-const GOOGLE_MAPS_SCRIPT_ID = 'rv-google-maps-sdk';
+const GOOGLE_MAPS_LANGUAGE = 'en';
+const GOOGLE_MAPS_REGION = 'GB';
 
 type GoogleMapPoint = { lat: number; lng: number };
 
-let googleMapsPromise: Promise<void> | null = null;
-
-function loadGoogleMapsSdk(): Promise<void> {
-  const existingGoogle = (window as any).google;
-  if (existingGoogle?.maps?.Map) return Promise.resolve();
-  if (googleMapsPromise) return googleMapsPromise;
-  if (!GOOGLE_MAPS_API_KEY) return Promise.reject(new Error('Missing VITE_GOOGLE_MAPS_API_KEY'));
-
-  googleMapsPromise = new Promise((resolve, reject) => {
-    const existingScript = document.getElementById(GOOGLE_MAPS_SCRIPT_ID) as HTMLScriptElement | null;
-    if (existingScript) {
-      existingScript.addEventListener('load', () => resolve(), { once: true });
-      existingScript.addEventListener('error', () => reject(new Error('Google Maps SDK failed to load')), { once: true });
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.id = GOOGLE_MAPS_SCRIPT_ID;
-    script.async = true;
-    script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}&v=weekly&libraries=marker&loading=async&region=GB&language=en`;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Google Maps SDK failed to load'));
-    document.head.appendChild(script);
-  });
-
-  return googleMapsPromise;
-}
-
-class GoogleMapProjector {
-  private readonly map: any;
-  private readonly overlay: any;
+class ReactMapProjector {
+  private readonly googleApi: typeof google;
+  private readonly map: google.maps.Map;
+  private readonly overlay: google.maps.OverlayView;
   private readonly container: HTMLElement;
 
-  constructor(map: any, container: HTMLElement) {
-    const googleApi = (window as any).google;
+  constructor(map: google.maps.Map, container: HTMLElement) {
+    this.googleApi = window.google;
     this.map = map;
     this.container = container;
-    this.overlay = new googleApi.maps.OverlayView();
+    this.overlay = new this.googleApi.maps.OverlayView();
     this.overlay.onAdd = () => undefined;
     this.overlay.draw = () => undefined;
     this.overlay.onRemove = () => undefined;
@@ -78,10 +52,9 @@ class GoogleMapProjector {
   project(lat: number, lng: number, alt = 0): { x: number; y: number; z: number } {
     void this.map;
     const projection = this.overlay.getProjection?.();
-    const googleApi = (window as any).google;
-    if (!projection || !googleApi?.maps?.LatLng) return { x: -1000, y: -1000, z: -1 };
+    if (!projection) return { x: -1000, y: -1000, z: -1 };
 
-    const point = projection.fromLatLngToContainerPixel(new googleApi.maps.LatLng(lat, lng));
+    const point = projection.fromLatLngToContainerPixel(new this.googleApi.maps.LatLng(lat, lng));
     if (!point) return { x: -1000, y: -1000, z: -1 };
 
     const y = point.y - alt * 0.35;
@@ -90,34 +63,16 @@ class GoogleMapProjector {
   }
 }
 
-class GoogleYardMap {
-  private readonly googleApi: any;
-  private readonly map: any;
-  private readonly projector: GoogleMapProjector;
+class ReactYardMapBridge {
+  private readonly map: google.maps.Map;
+  private readonly googleApi: typeof google;
+  private readonly projector: ReactMapProjector;
   private readonly listeners = new Set<() => void>();
-  private marker: any = null;
 
-  constructor(container: HTMLElement, center: GoogleMapPoint, zoom: number, rotation: number) {
-    this.googleApi = (window as any).google;
-    this.map = new this.googleApi.maps.Map(container, {
-      center,
-      zoom,
-      mapId: GOOGLE_MAPS_MAP_ID,
-      mapTypeId: 'satellite',
-      heading: 0,
-      tilt: 0,
-      disableDefaultUI: true,
-      gestureHandling: 'greedy',
-      keyboardShortcuts: false,
-      clickableIcons: false,
-      internalUsageAttributionIds: ['gmp_git_agentskills_v1'],
-    });
-    void rotation;
-    this.projector = new GoogleMapProjector(this.map, container);
-    this.map.addListener('bounds_changed', () => this.emitChange());
-    this.map.addListener('zoom_changed', () => this.emitChange());
-    this.map.addListener('heading_changed', () => this.emitChange());
-    this.map.addListener('tilt_changed', () => this.emitChange());
+  constructor(map: google.maps.Map, container: HTMLElement) {
+    this.map = map;
+    this.googleApi = window.google;
+    this.projector = new ReactMapProjector(map, container);
   }
 
   on(event: string, cb: () => void): void {
@@ -133,15 +88,6 @@ class GoogleYardMap {
     this.emitChange();
   }
 
-  refresh(): void {
-    const center = this.map.getCenter?.();
-    this.googleApi.maps.event.trigger(this.map, 'resize');
-    if (center) this.map.setCenter(center);
-    this.map.setTilt?.(0);
-    this.map.setHeading?.(0);
-    this.emitChange();
-  }
-
   setZoom(zoom: number): void {
     this.map.setZoom(zoom);
     this.emitChange();
@@ -151,18 +97,13 @@ class GoogleYardMap {
     // Google Maps JS does not expose daytime control for satellite imagery.
   }
 
-  addMarker(point: { latitude: number; longitude: number }, options: { color?: string } = {}): void {
-    const markerLib = this.googleApi.maps.marker;
-    if (markerLib?.AdvancedMarkerElement && markerLib?.PinElement) {
-      const pin = new markerLib.PinElement({ background: options.color || '#20a1b1', borderColor: '#ffffff', glyphText: 'W' });
-      this.marker = new markerLib.AdvancedMarkerElement({
-        map: this.map,
-        position: { lat: point.latitude, lng: point.longitude },
-        title: 'Wakefield Precision Foods WPF-41',
-      });
-      this.marker.append(pin);
-      return;
-    }
+  refresh(): void {
+    const center = this.map.getCenter?.();
+    this.googleApi.maps.event.trigger(this.map, 'resize');
+    if (center) this.map.setCenter(center);
+    this.map.setTilt?.(0);
+    this.map.setHeading?.(0);
+    this.emitChange();
   }
 
   private emitChange(): void {
@@ -529,6 +470,76 @@ const OSMMapLabels: React.FC<UISlotProps> = ({ viewer }) => {
   );
 };
 
+
+const GoogleMapBinder: React.FC<{ plugin: OSMMapPlugin }> = ({ plugin }) => {
+  const map = useMap('wpf-yard-map');
+
+  useEffect(() => {
+    if (!map) return;
+    plugin.bindReactMap(map);
+  }, [map, plugin]);
+
+  return null;
+};
+
+const GoogleYardMapPortal: React.FC<UISlotProps> = ({ viewer }) => {
+  const [active, setActive] = useState(false);
+  const mapPlugin = viewer.getPlugin('osm-map') as OSMMapPlugin | undefined;
+  const mapContainer = mapPlugin?.mapContainer;
+
+  useEffect(() => {
+    const handleToggle = (e: any) => setActive(!!e.active);
+    viewer.on('osm-map-toggled' as any, handleToggle);
+    return () => viewer.off('osm-map-toggled' as any, handleToggle);
+  }, [viewer]);
+
+  useEffect(() => {
+    if (active) window.setTimeout(() => mapPlugin?.refreshMap(), 50);
+  }, [active, mapPlugin]);
+
+  if (!mapPlugin || !mapContainer) return null;
+
+  if (!GOOGLE_MAPS_API_KEY) {
+    return createPortal(
+      <Box sx={{ position: 'absolute', inset: 0, display: active ? 'grid' : 'none', placeItems: 'center', bgcolor: '#050607', color: '#fff', zIndex: 1 }}>
+        <Paper sx={{ p: 2, bgcolor: 'rgba(12,15,19,0.92)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)' }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 900 }}>Google Maps API key missing</Typography>
+          <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.62)' }}>Set VITE_GOOGLE_MAPS_API_KEY before building.</Typography>
+        </Paper>
+      </Box>,
+      mapContainer,
+    );
+  }
+
+  return createPortal(
+    <Box sx={{ position: 'absolute', inset: 0, zIndex: 1, display: active ? 'block' : 'none', '& .gm-style': { fontFamily: 'Roboto, Arial, sans-serif' } }}>
+      <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={['marker']} version="weekly" language={GOOGLE_MAPS_LANGUAGE} region={GOOGLE_MAPS_REGION}>
+        <Map
+          id="wpf-yard-map"
+          mapId={GOOGLE_MAPS_MAP_ID}
+          defaultCenter={{ lat: mapPlugin.latitude, lng: mapPlugin.longitude }}
+          defaultZoom={mapPlugin.zoom}
+          mapTypeId="satellite"
+          tilt={0}
+          heading={0}
+          disableDefaultUI
+          gestureHandling="greedy"
+          clickableIcons={false}
+          internalUsageAttributionIds={['gmp_git_agentskills_v1']}
+          onCameraChanged={() => mapPlugin.refreshMapProjection()}
+          style={{ width: '100%', height: '100%' }}
+        >
+          <AdvancedMarker position={{ lat: DEMO_PROFILE.site.mapLatitude, lng: DEMO_PROFILE.site.mapLongitude }}>
+            <Pin background="#20a1b1" borderColor="#ffffff" glyphColor="#071013" glyph="W" />
+          </AdvancedMarker>
+          <GoogleMapBinder plugin={mapPlugin} />
+        </Map>
+      </APIProvider>
+    </Box>,
+    mapContainer,
+  );
+};
+
 const OSMMapToggle: React.FC<UISlotProps> = ({ viewer }) => {
   const [active, setActive] = useState(false);
 
@@ -578,17 +589,40 @@ export class OSMMapPlugin implements RVViewerPlugin {
   readonly order = 1000;
   readonly slots: UISlotEntry[] = [
     { slot: 'button-group', order: 100, component: OSMMapToggle },
+    { slot: 'overlay', order: 8, component: GoogleYardMapPortal },
     { slot: 'overlay', order: 10, component: OSMMapLabels }
   ];
 
   private _viewer: RVViewer | null = null;
-  private _osmb: (GoogleYardMap & { refresh?: () => void }) | null = null;
+  private _osmb: ReactYardMapBridge | null = null;
   private _active = false;
   private _container: HTMLElement | null = null;
   private _appContainer: HTMLElement | null = null;
 
   get mapContainer(): HTMLElement | null {
     return this._container;
+  }
+
+  get latitude(): number { return this._latitude; }
+  get longitude(): number { return this._longitude; }
+  get zoom(): number { return this._zoom; }
+
+  bindReactMap(map: google.maps.Map): void {
+    if (!this._container) return;
+    if (!this._osmb) {
+      this._osmb = new ReactYardMapBridge(map, this._container);
+      this._osmb.on('change', () => { this._updateLabels(); this._updateTrails(); });
+    }
+    this.refreshMap();
+  }
+
+  refreshMap(): void {
+    this._osmb?.refresh();
+  }
+
+  refreshMapProjection(): void {
+    this._updateLabels();
+    this._updateTrails();
   }
 
   private _labels: MapLabel[] = [
@@ -670,7 +704,7 @@ export class OSMMapPlugin implements RVViewerPlugin {
       if (siteData.lng) this._longitude = parseFloat(siteData.lng);
       if (siteData.rot) this._rotation = parseFloat(siteData.rot);
     }
-    this._setupMap();
+    this._viewer?.emit('osm-map-ready' as any, undefined);
   }
 
   toggle(): void {
@@ -795,30 +829,6 @@ export class OSMMapPlugin implements RVViewerPlugin {
     }
   }
 
-
-  private _setupMap(): void {
-    if (!this._container || this._osmb) return;
-
-    loadGoogleMapsSdk()
-      .then(() => {
-        if (!this._container || this._osmb) return;
-
-        this._osmb = new GoogleYardMap(
-          this._container,
-          { lat: this._latitude, lng: this._longitude },
-          this._zoom,
-          this._rotation
-        );
-
-        this._osmb.on('change', () => { this._updateLabels(); this._updateTrails(); });
-        this._osmb.addMarker({ latitude: 53.693, longitude: -1.503 }, { color: '#20a1b1' });
-        this._updateLabels();
-        this._updateTrails();
-      })
-      .catch(e => {
-        console.error('[OSMMapPlugin] Failed to initialize Google Maps:', e);
-      });
-  }
 
   private _rawTrails: Record<string, { name: string, points: { lat: number, lng: number }[] }> = {};
   
