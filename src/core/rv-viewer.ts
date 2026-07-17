@@ -1318,7 +1318,9 @@ export class RVViewer extends EventEmitter<ViewerEvents> {
     const tryLoadPlugin = async (pluginUrl: string): Promise<void> => {
       try {
         const resp = await fetch(pluginUrl, { method: 'HEAD' });
-        if (!resp.ok) return; // not found — skip silently
+        if (!resp.ok) return;
+        const contentType = resp.headers.get('content-type') || '';
+        if (!contentType.includes('javascript') && !contentType.includes('ecmascript')) return;
         const mod = await import(/* @vite-ignore */ pluginUrl);
         if (typeof mod.default === 'function') mod.default(this);
       } catch { /* network error or load failure — skip silently */ }

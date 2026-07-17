@@ -2,7 +2,7 @@
 // Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
 
 import { collection, onSnapshot, query } from "firebase/firestore";
-import { db } from "../core/rv-firebase";
+import { db, firestoreEnabled } from "../core/rv-firebase";
 import type { RVViewerPlugin } from "../core/rv-plugin";
 import type { RVViewer } from "../core/rv-viewer";
 import type { LoadResult } from "../core/engine/rv-scene-loader";
@@ -76,6 +76,8 @@ export class SiteManagerPlugin implements RVViewerPlugin {
 
   private _subscribeToSites(): void {
     if (this._unsubscribe) return;
+
+    if (!firestoreEnabled || !db) return;
 
     debug('plugins', 'Subscribing to Firestore sites...');
     const q = query(collection(db, "sites"));

@@ -4,7 +4,7 @@
 
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getDataConnect } from "firebase/data-connect";
 import { connectorConfig } from "../dataconnect-generated";
@@ -25,7 +25,8 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize Services
 export const analytics = getAnalytics(app);
-export const db = getFirestore(app);
+export const firestoreEnabled = import.meta.env.VITE_ENABLE_FIRESTORE === 'true';
+export const db: Firestore | null = firestoreEnabled ? getFirestore(app) : null;
 export const storage = getStorage(app);
 
 // Data Connect

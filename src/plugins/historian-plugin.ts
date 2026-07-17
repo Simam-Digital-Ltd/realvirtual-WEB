@@ -3,7 +3,7 @@
 
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db, storage } from "../core/rv-firebase";
+import { db, firestoreEnabled, storage } from "../core/rv-firebase";
 import type { RVViewerPlugin } from "../core/rv-plugin";
 import type { RVViewer } from "../core/rv-viewer";
 import type { LoadResult } from "../core/engine/rv-scene-loader";
@@ -105,17 +105,18 @@ export class HistorianPlugin implements RVViewerPlugin {
       const storageRef = ref(storage, filename);
       const snapshot = await uploadBytes(storageRef, blob);
       const downloadUrl = await getDownloadURL(snapshot.ref);
-
-      // ── Save to Firestore (Legacy/Redundant) ──
-      await addDoc(collection(db, "event_logs"), {
-        label,
-        siteId: this._viewer.scene.userData?.site?.id || 'default',
-        modelUrl: this._viewer.currentModelUrl,
-        storagePath: filename,
-        downloadUrl,
-        timestamp: serverTimestamp(),
-        durationSeconds: recording.numberFrames * recording.fixedDeltaTime
-      });
+      const firestore = db;
+      if (firestoreEnabled && firestore) {
+        await addDoc(collection(firestore, "event_logs"), {
+          label,
+          siteId: this._viewer.scene.userData?.site?.id || 'default',
+          modelUrl: this._viewer.currentModelUrl,
+          storagePath: filename,
+          downloadUrl,
+          timestamp: serverTimestamp(),
+          durationSeconds: recording.numberFrames * recording.fixedDeltaTime
+        });
+      }
 
       // ── Save to Data Connect (SQL) ──
       // Using dummy IDs from seed data for demonstration

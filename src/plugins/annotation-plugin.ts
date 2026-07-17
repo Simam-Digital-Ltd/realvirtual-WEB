@@ -25,7 +25,7 @@ import type { LoadResult } from '../core/engine/rv-scene-loader';
 import type { UISlotEntry } from '../core/rv-ui-plugin';
 import type { Annotation, AnnotationPluginAPI } from '../core/types/plugin-types';
 import { AnnotationRenderer, ANNOTATION_LAYER } from './rv-annotation-renderer';
-import { db } from '../core/rv-firebase';
+import { db, firestoreEnabled } from '../core/rv-firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -599,10 +599,11 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
       // Also save to localStorage as a fallback/cache
       const data = JSON.stringify(this._annotations);
       try { localStorage.setItem(key, data); } catch (e) { /* ignore quota */ }
-      
-      // Save to Firestore
-      const docRef = doc(db, 'annotations', key);
-      await setDoc(docRef, { annotations: this._annotations, timestamp: Date.now() });
+      const firestore = db;
+      if (firestoreEnabled && firestore) {
+        const docRef = doc(firestore, 'annotations', key);
+        await setDoc(docRef, { annotations: this._annotations, timestamp: Date.now() });
+      }
     } catch (e) {
       console.warn('[AnnotationPlugin] Failed to save annotations', e);
     }
@@ -612,15 +613,17 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
     try {
       const key = LS_PREFIX + this._modelHash;
       let parsed: Annotation[] | null = null;
-      
-      try {
-        const docRef = doc(db, 'annotations', key);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists() && Array.isArray(docSnap.data().annotations)) {
-          parsed = docSnap.data().annotations;
+      const firestore = db;
+      if (firestoreEnabled && firestore) {
+        try {
+          const docRef = doc(firestore, 'annotations', key);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists() && Array.isArray(docSnap.data().annotations)) {
+            parsed = docSnap.data().annotations;
+          }
+        } catch (e) {
+          console.warn('[AnnotationPlugin] Firestore load failed, falling back to localStorage', e);
         }
-      } catch (e) {
-        console.warn('[AnnotationPlugin] Firestore load failed, falling back to localStorage', e);
       }
 
       if (!parsed) {
