@@ -10,7 +10,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Speed, Sensors, Warning, Build, PrecisionManufacturing, LocalShipping, Inventory2, AcUnit, Route, PlayArrow, Pause, SkipNext, RestartAlt, ExpandLess, ExpandMore, Close } from '@mui/icons-material';
-import { Box, Button, Chip, IconButton, LinearProgress, Paper, Stack, Typography } from '@mui/material';
+import { Box, Button, Chip, IconButton, LinearProgress, Paper, Stack, Typography, Modal } from '@mui/material';
 import type { RVViewerPlugin } from '../../core/rv-plugin';
 import type { UISlotEntry, UISlotProps } from '../../core/rv-ui-plugin';
 
@@ -587,6 +587,89 @@ function AssetDetailDrawer({ viewer }: UISlotProps) {
   );
 }
 
+// --- First Run Onboarding -----------------------------------------------
+
+const ONBOARDING_KEY = 'wpf-41-onboarding-seen';
+
+function OnboardingOverlay({ viewer }: UISlotProps) {
+  const [open, setOpen] = useState(() => localStorage.getItem(ONBOARDING_KEY) !== '1');
+  const [step, setStep] = useState(0);
+
+  const close = () => {
+    localStorage.setItem(ONBOARDING_KEY, '1');
+    setOpen(false);
+  };
+
+  const startDemo = () => {
+    close();
+    viewer.emit('wpf-start-demo' as string, undefined);
+  };
+
+  const openMap = () => {
+    const mapPlugin = viewer.getPlugin('osm-map') as { active?: boolean; toggle?: () => void; jumpTo?: (lat: number, lng: number, zoom?: number) => void } | undefined;
+    if (mapPlugin && !mapPlugin.active) mapPlugin.toggle?.();
+    mapPlugin?.jumpTo?.(DEMO_PROFILE.site.mapLatitude, DEMO_PROFILE.site.mapLongitude, DEMO_PROFILE.site.mapZoom);
+    close();
+  };
+
+  const steps = [
+    {
+      kicker: '1 / 3',
+      title: 'Wakefield WPF-41 Digital Twin',
+      body: 'This demo connects the factory cell, warehouse floor, dispatch dock, cold store and yard map into one operating cockpit.',
+    },
+    {
+      kicker: '2 / 3',
+      title: 'Use the scene like an operations story',
+      body: 'Start with Robot Cell A, follow the forklift lanes to Dock 4, then use the map layer to explain how factory constraints affect vehicles and staff.',
+    },
+    {
+      kicker: '3 / 3',
+      title: 'Let the copilot drive the walkthrough',
+      body: 'Open Ops Copilot for bottleneck summaries, scenario planning, Dock 4 recovery and shift brief generation for clients.',
+    },
+  ];
+  const current = steps[step];
+
+  return (
+    <Modal open={open} onClose={close}>
+      <Paper sx={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+        width: 520, maxWidth: 'calc(100vw - 32px)', p: 2.2, borderRadius: 2,
+        bgcolor: 'rgba(12,15,19,0.94)', color: '#fff', border: '1px solid rgba(32,161,177,0.34)',
+        boxShadow: '0 28px 90px rgba(0,0,0,0.68)', pointerEvents: 'auto', outline: 'none',
+      }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mb: 1.5 }}>
+          <Box>
+            <Chip label={current.kicker} size="small" sx={{ height: 20, mb: 1, bgcolor: 'rgba(32,161,177,0.18)', color: '#20a1b1', fontSize: 9, fontWeight: 900 }} />
+            <Typography sx={{ fontSize: 22, fontWeight: 950, letterSpacing: 0 }}>{current.title}</Typography>
+          </Box>
+          <IconButton onClick={close} sx={{ color: 'rgba(255,255,255,0.62)', alignSelf: 'flex-start' }}><Close fontSize="small" /></IconButton>
+        </Box>
+        <Typography sx={{ color: 'rgba(255,255,255,0.72)', fontSize: 13, lineHeight: 1.55, mb: 2 }}>{current.body}</Typography>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0.75, mb: 2 }}>
+          {['Factory cell', 'Warehouse floor', 'Yard impact'].map((label, index) => (
+            <Box key={label} sx={{ p: 1, borderRadius: 1, bgcolor: index === step ? 'rgba(32,161,177,0.16)' : 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <Typography sx={{ color: index === step ? '#20a1b1' : 'rgba(255,255,255,0.62)', fontSize: 10, fontWeight: 900 }}>{label}</Typography>
+            </Box>
+          ))}
+        </Box>
+        <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between' }}>
+          <Button variant="outlined" onClick={openMap} sx={{ color: '#20a1b1', borderColor: 'rgba(32,161,177,0.45)', fontSize: 11, fontWeight: 900 }}>Open map</Button>
+          <Stack direction="row" spacing={1}>
+            {step > 0 && <Button onClick={() => setStep(step - 1)} sx={{ color: 'rgba(255,255,255,0.72)', fontSize: 11, fontWeight: 900 }}>Back</Button>}
+            {step < steps.length - 1 ? (
+              <Button variant="contained" onClick={() => setStep(step + 1)} sx={{ bgcolor: '#20a1b1', color: '#071013', fontSize: 11, fontWeight: 900, '&:hover': { bgcolor: '#2db8ca' } }}>Next</Button>
+            ) : (
+              <Button variant="contained" onClick={startDemo} sx={{ bgcolor: '#20a1b1', color: '#071013', fontSize: 11, fontWeight: 900, '&:hover': { bgcolor: '#2db8ca' } }}>Start walkthrough</Button>
+            )}
+          </Stack>
+        </Stack>
+      </Paper>
+    </Modal>
+  );
+}
+
 // --- Guided Demo Strip --------------------------------------------------
 
 type DemoStepAction = 'focus' | 'map' | 'maintenance' | 'none';
@@ -868,6 +951,7 @@ export class DemoHMIPlugin implements RVViewerPlugin {
 
     // Bespoke cockpit overlay
     { slot: 'overlay', component: WakefieldOpsCockpit, order: 35 },
+    { slot: 'overlay', component: OnboardingOverlay, order: 38 },
     { slot: 'overlay', component: GuidedDemoStrip, order: 45 },
     { slot: 'overlay', component: AssetDetailDrawer, order: 55 },
 
