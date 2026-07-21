@@ -13,16 +13,15 @@ import {
   Divider, CircularProgress, Badge, Chip 
 } from '@mui/material';
 import { 
-  Map as MapIcon, MapOutlined, Factory as FactoryIcon, NearMe,
+  Map as MapIcon, MapOutlined, NearMe,
   WbSunny, Thunderstorm, Traffic, Visibility, Timeline, Warning,
-  Schedule
+  Schedule, LocalShipping, Badge as BadgeIcon, Warehouse
 } from '@mui/icons-material';
 import { 
   GeospatialService, WeatherData, FloodAlert, TrafficStatus, 
   SiteMetrics, SiteCondition 
 } from '../core/geospatial-service';
 import { DataConnectService } from '../core/dataconnect-service';
-import { projectMapPoint, projectMapTrail } from './osm-map-overlay';
 import { WAKEFIELD_DEMO_PROFILE as DEMO_PROFILE } from './demo/demo-profile';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
@@ -31,6 +30,7 @@ const GOOGLE_MAPS_LANGUAGE = 'en';
 const GOOGLE_MAPS_REGION = 'GB';
 
 type GoogleMapPoint = { lat: number; lng: number };
+type YardZone = { id: string; name: string; kind: 'factory' | 'dock' | 'cold' | 'gate'; status: string; position: GoogleMapPoint; accent: string };
 
 class ReactMapProjector {
   private readonly googleApi: typeof google;
@@ -237,239 +237,91 @@ const SimulatedBadge: React.FC<{ label: string }> = ({ label }) => (
 );
 
 
-/**
- * OSMMapLabels Component
- * Renders labels, workers, logistics assets, and multi-asset ghost paths.
- */
-const OSMMapLabels: React.FC<UISlotProps> = ({ viewer }) => {
-  const [labels, setLabels] = useState<MapLabel[]>([]);
-  const [trails, setTrails] = useState<RobotTrail[]>([]);
-  const [workers, setWorkers] = useState<SiteWorker[]>([]);
-  const [logistics, setLogistics] = useState<LogisticsAsset[]>([]);
-  const [active, setActive] = useState(false);
-  const [, setProjectionFrame] = useState(0);
+const YardMapLinework: React.FC<{ plugin: OSMMapPlugin; logistics: LogisticsAsset[] }> = ({ plugin, logistics }) => {
+  const map = useMap('wpf-yard-map');
 
   useEffect(() => {
-    const handleLabels = (e: any) => setLabels(e.labels || []);
-    const handleTrails = (e: any) => setTrails(e.trails || []);
-    const handleWorkers = (e: any) => setWorkers(e.workers || []);
-    const handleLogistics = (e: any) => setLogistics(e.logistics || []);
-    const handleToggle = (e: any) => setActive(e.active);
-    
-    viewer.on('osm-labels-updated' as any, handleLabels);
-    viewer.on('osm-trails-updated' as any, handleTrails);
-    viewer.on('osm-workers-updated' as any, handleWorkers);
-    viewer.on('osm-logistics-updated' as any, handleLogistics);
-    viewer.on('osm-map-toggled' as any, handleToggle);
-    
-    return () => {
-      viewer.off('osm-labels-updated' as any, handleLabels);
-      viewer.off('osm-trails-updated' as any, handleTrails);
-      viewer.off('osm-workers-updated' as any, handleWorkers);
-      viewer.off('osm-logistics-updated' as any, handleLogistics);
-      viewer.off('osm-map-toggled' as any, handleToggle);
-    };
-  }, [viewer]);
+    if (!map || !window.google) return undefined;
+    const googleApi = window.google;
+    const boundary = new googleApi.maps.Polygon({ paths: plugin.siteBoundary, strokeColor: '#20c7d9', strokeOpacity: 0.75, strokeWeight: 2, fillColor: '#20c7d9', fillOpacity: 0.12, map });
+    const yard = new googleApi.maps.Polygon({ paths: plugin.yardBoundary, strokeColor: '#f9a825', strokeOpacity: 0.9, strokeWeight: 2, fillColor: '#f9a825', fillOpacity: 0.16, map });
+    const inbound = new googleApi.maps.Polyline({ path: plugin.inboundRoute, strokeColor: '#8bd67f', strokeOpacity: 0.9, strokeWeight: 4, map });
+    const dispatch = new googleApi.maps.Polyline({ path: plugin.dispatchRoute, strokeColor: '#20c7d9', strokeOpacity: 0.9, strokeWeight: 4, map });
+    const queue = new googleApi.maps.Polyline({ path: logistics.map(asset => ({ lat: asset.lat, lng: asset.lng })), strokeColor: '#ffd54f', strokeOpacity: 0.55, strokeWeight: 2, map });
+    return () => { boundary.setMap(null); yard.setMap(null); inbound.setMap(null); dispatch.setMap(null); queue.setMap(null); };
+  }, [map, plugin, logistics]);
 
-  useEffect(() => {
-    if (!active) return;
-
-    let rafId = 0;
-    const tick = () => {
-      setProjectionFrame(frame => (frame + 1) % 100000);
-      rafId = requestAnimationFrame(tick);
-    };
-
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
-  }, [active]);
-
-  const projectPoint = (lat: number, lng: number, alt = 0) => {
-    const plugin = viewer.getPlugin('osm-map') as any;
-    if (!plugin?._osmb) return { x: -1000, y: -1000, visible: false };
-    return projectMapPoint(plugin._osmb, lat, lng, alt);
-  };
-
-  if (!active) return null;
-  const mapPlugin = viewer.getPlugin('osm-map') as OSMMapPlugin | undefined;
-  const mapContainer = mapPlugin?.mapContainer;
-  if (!mapContainer) return null;
-
-  return createPortal(
-    <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 20 }}>
-      {(workers.length > 0 || logistics.length > 0) && (
-        <Box sx={{ position: 'absolute', left: 20, bottom: 24, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          {workers.length > 0 && <SimulatedBadge label="Personnel" />}
-          {logistics.length > 0 && <SimulatedBadge label="Logistics" />}
-        </Box>
-      )}
-
-      {/* Ghost Paths (SVG Overlay) */}
-      <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0 }}>
-        <defs>
-          <linearGradient id="trailGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="rgba(32, 161, 177, 0)" />
-            <stop offset="100%" stopColor="rgba(32, 161, 177, 0.8)" />
-          </linearGradient>
-          <filter id="glow">
-            <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-            <feMerge>
-                <feMergeNode in="coloredBlur"/>
-                <feMergeNode in="SourceGraphic"/>
-            </feMerge>
-          </filter>
-        </defs>
-        {trails.map(trail => (
-          trail.visible && (
-            <g key={trail.id}>
-              <path
-                d={`M ${trail.points.map(p => `${p.x},${p.y}`).join(' L ')}`}
-                fill="none"
-                stroke={trail.color || "#20a1b1"}
-                strokeWidth="4"
-                opacity="0.15"
-                style={{ filter: 'url(#glow)' }}
-              />
-              <path
-                d={`M ${trail.points.map(p => `${p.x},${p.y}`).join(' L ')}`}
-                fill="none"
-                stroke="url(#trailGrad)"
-                strokeWidth="2"
-                strokeDasharray="12,6"
-                opacity="0.8"
-              >
-                <animate 
-                  attributeName="stroke-dashoffset" 
-                  from="100" to="0" 
-                  dur="4s" 
-                  repeatCount="indefinite" 
-                />
-              </path>
-            </g>
-          )
-        ))}
-      </svg>
-
-      {/* Logistics Asset Markers */}
-      {logistics.map(asset => {
-        const pos = projectPoint(asset.lat, asset.lng);
-        if (!pos.visible) return null;
-        return (
-          <Box
-            key={asset.id}
-            sx={{
-              position: 'absolute', left: pos.x, top: pos.y,
-              transform: 'translate(-50%, -100%)',
-              transition: 'opacity 0.15s ease',
-              pointerEvents: 'auto',
-              cursor: 'pointer'
-            }}
-            onClick={() => emitAssetDetail(viewer, asset.id)}
-          >
-            <Box sx={{
-              bgcolor: 'rgba(32, 161, 177, 0.95)', color: '#fff',
-              px: 1, py: 0.5, borderRadius: '6px', border: '1px solid rgba(255,255,255,0.3)',
-              display: 'flex', alignItems: 'center', gap: 1, boxShadow: '0 8px 20px rgba(0,0,0,0.5)',
-              backdropFilter: 'blur(4px)'
-            }}>
-              <NearMe sx={{ fontSize: 12, transform: 'rotate(45deg)', color: '#4fc3f7' }} />
-              <Typography sx={{ fontSize: 10, fontWeight: 900, letterSpacing: 0.5 }}>{asset.id}</Typography>
-              <Chip
-                label="SIM"
-                size="small"
-                sx={{ height: 14, fontSize: 8, fontWeight: 900, bgcolor: 'rgba(255,213,79,0.18)', color: '#ffd54f' }}
-              />
-            </Box>
-            <Box sx={{ height: 12, width: 2, bgcolor: 'rgba(255,255,255,0.5)', mx: 'auto', boxShadow: '0 0 10px rgba(0,0,0,0.5)' }} />
-          </Box>
-        );
-      })}
-
-      {/* Site Worker Markers */}
-      {workers.map(worker => {
-        const pos = projectPoint(worker.lat, worker.lng);
-        if (!pos.visible) return null;
-        return (
-          <Box
-            key={worker.id}
-            sx={{
-              position: 'absolute', left: pos.x, top: pos.y,
-              transform: 'translate(-50%, -50%)',
-              transition: 'opacity 0.15s ease',
-              pointerEvents: 'auto',
-              cursor: 'pointer'
-            }}
-            onClick={() => emitAssetDetail(viewer, worker.name)}
-          >
-            <Tooltip title={`${worker.name} (${worker.role}) - simulated location`}>
-              <Box sx={{
-                width: 12, height: 12, borderRadius: '50%',
-                bgcolor: worker.role === 'Security' ? '#ff5252' : '#00e676',
-                border: '2px solid #fff', boxShadow: '0 0 10px currentColor'
-              }}>
-                <Box sx={{
-                  width: '100%', height: '100%', borderRadius: '50%',
-                  animation: 'pulse 2s infinite',
-                  '@keyframes pulse': { '0%': { transform: 'scale(1)', opacity: 1 }, '100%': { transform: 'scale(3)', opacity: 0 } },
-                  bgcolor: 'inherit'
-                }} />
-              </Box>
-            </Tooltip>
-          </Box>
-        );
-      })}
-
-      {/* Coordinate Labels */}
-      {labels.map(label => {
-        const pos = projectPoint(label.lat, label.lng, label.alt);
-        return (
-        pos.visible && (
-          <Box
-            key={label.id}
-            sx={{
-              position: 'absolute', left: pos.x, top: pos.y,
-              transform: 'translate(-50%, -100%) translateY(-20px)',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
-              pointerEvents: 'auto',
-              cursor: 'pointer'
-            }}
-            onClick={() => emitAssetDetail(viewer, label.id)}
-          >
-            <Box sx={{
-              background: 'rgba(13, 15, 20, 0.9)', backdropFilter: 'blur(12px)',
-              border: '1px solid rgba(32, 161, 177, 0.4)', borderRadius: '12px', 
-              padding: '10px 20px', boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
-              display: 'flex', alignItems: 'center', gap: 1.5
-            }}>
-              <FactoryIcon sx={{ color: '#20a1b1', fontSize: 22 }} />
-              <Box>
-                <Typography sx={{ color: '#fff', fontSize: 13, fontWeight: 800, letterSpacing: '0.5px' }}>{label.name}</Typography>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography sx={{ color: 'rgba(32, 161, 177, 0.8)', fontSize: 10, fontWeight: 700 }}>{DEMO_PROFILE.client.mapSiteLabel}</Typography>
-                  {label.status && (
-                    <Chip 
-                      label={label.status.toUpperCase()} 
-                      size="small" 
-                      sx={{ 
-                        height: 14, fontSize: 8, fontWeight: 900, 
-                        bgcolor: 'rgba(255, 213, 79, 0.2)', color: '#ffd54f',
-                        border: '1px solid rgba(255, 213, 79, 0.4)'
-                      }} 
-                    />
-                  )}
-                </Box>
-              </Box>
-            </Box>
-            <Box sx={{ width: '2px', height: '40px', background: 'linear-gradient(to bottom, #20a1b1, transparent)' }} />
-          </Box>
-        )
-        );
-      })}
-    </Box>,
-    mapContainer
-  );
+  return null;
 };
 
+const YardPin: React.FC<{ label: string; sub?: string; accent: string; tone?: 'dark' | 'cyan' | 'amber'; onClick?: () => void }> = ({ label, sub, accent, tone = 'dark', onClick }) => (
+  <Box onClick={onClick} sx={{ transform: 'translate(-50%, -100%)', cursor: onClick ? 'pointer' : 'default', bgcolor: tone === 'cyan' ? 'rgba(5, 36, 43, 0.94)' : tone === 'amber' ? 'rgba(48, 34, 9, 0.94)' : 'rgba(8, 12, 17, 0.94)', color: '#fff', border: '1px solid ' + accent, borderRadius: '8px', minWidth: 150, px: 1.3, py: 0.9, boxShadow: '0 10px 24px rgba(0,0,0,0.45)', backdropFilter: 'blur(10px)', pointerEvents: 'auto' }}>
+    <Typography sx={{ fontSize: 12, lineHeight: 1.1, fontWeight: 900 }}>{label}</Typography>
+    {sub && <Typography sx={{ mt: 0.35, fontSize: 9.5, fontWeight: 800, color: accent }}>{sub}</Typography>}
+  </Box>
+);
+
+const YardMapMarkers: React.FC<{ viewer: RVViewer; plugin: OSMMapPlugin; workers: SiteWorker[]; logistics: LogisticsAsset[] }> = ({ viewer, plugin, workers, logistics }) => (
+  <>
+    {plugin.zones.map(zone => (
+      <AdvancedMarker key={zone.id} position={zone.position}>
+        <YardPin label={zone.name} sub={zone.status} accent={zone.accent} tone={zone.kind === 'dock' ? 'amber' : 'cyan'} onClick={() => emitAssetDetail(viewer, zone.id)} />
+      </AdvancedMarker>
+    ))}
+    {logistics.map(asset => (
+      <AdvancedMarker key={asset.id} position={{ lat: asset.lat, lng: asset.lng }}>
+        <Box onClick={() => emitAssetDetail(viewer, asset.id)} sx={{ transform: 'translate(-50%, -50%)', pointerEvents: 'auto', cursor: 'pointer' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.7, px: 1, py: 0.55, bgcolor: 'rgba(0, 151, 177, 0.96)', color: '#fff', border: '1px solid rgba(255,255,255,0.45)', borderRadius: '7px', boxShadow: '0 8px 18px rgba(0,0,0,0.38)' }}>
+            <LocalShipping sx={{ fontSize: 14 }} />
+            <Typography sx={{ fontSize: 10, fontWeight: 900 }}>{asset.id}</Typography>
+            <Chip label={asset.loadPct + '%'} size="small" sx={{ height: 15, fontSize: 8, bgcolor: 'rgba(255,255,255,0.16)', color: '#fff', fontWeight: 900 }} />
+          </Box>
+        </Box>
+      </AdvancedMarker>
+    ))}
+    {workers.map(worker => (
+      <AdvancedMarker key={worker.id} position={{ lat: worker.lat, lng: worker.lng }}>
+        <Tooltip title={worker.name + ' - ' + worker.role + ' - simulated GPS'}>
+          <Box onClick={() => emitAssetDetail(viewer, worker.name)} sx={{ width: 22, height: 22, borderRadius: '50%', display: 'grid', placeItems: 'center', bgcolor: worker.role === 'Security' ? '#ff5252' : '#00c853', border: '2px solid white', boxShadow: '0 0 0 5px rgba(255,255,255,0.16), 0 8px 18px rgba(0,0,0,0.36)', pointerEvents: 'auto', cursor: 'pointer' }}>
+            <BadgeIcon sx={{ fontSize: 12, color: '#071013' }} />
+          </Box>
+        </Tooltip>
+      </AdvancedMarker>
+    ))}
+  </>
+);
+
+const YardMapDashboard: React.FC<{ active: boolean; workers: SiteWorker[]; logistics: LogisticsAsset[] }> = ({ active, workers, logistics }) => (
+  <Box sx={{ position: 'absolute', left: 64, top: 112, width: 308, zIndex: 5, display: active ? 'block' : 'none', pointerEvents: 'auto' }}>
+    <Paper sx={{ bgcolor: 'rgba(7, 12, 16, 0.88)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 18px 42px rgba(0,0,0,0.42)', backdropFilter: 'blur(14px)' }}>
+      <Box sx={{ p: 1.4, borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+        <Typography sx={{ fontSize: 10, color: '#20c7d9', fontWeight: 900, letterSpacing: 1 }}>{DEMO_PROFILE.client.siteCode} YARD CONTROL</Typography>
+        <Typography sx={{ fontSize: 16, fontWeight: 900, mt: 0.2 }}>Wakefield 41 Site Map</Typography>
+        <Typography sx={{ fontSize: 10.5, color: 'rgba(255,255,255,0.62)', mt: 0.4 }}>Prototype location: Wakefield 41 Industrial Estate, Telford Way / Kenmore Road.</Typography>
+      </Box>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0.8, p: 1.2 }}>
+        {[['Inbound', '1 held'], ['Dock 4', '2 queue'], ['Team', String(workers.length) + ' live']].map(([label, value]) => (
+          <Box key={label} sx={{ bgcolor: 'rgba(255,255,255,0.07)', borderRadius: '6px', p: 0.9 }}>
+            <Typography sx={{ fontSize: 9, color: 'rgba(255,255,255,0.52)', fontWeight: 800 }}>{label}</Typography>
+            <Typography sx={{ fontSize: 13, color: label === 'Dock 4' ? '#ffd54f' : '#20c7d9', fontWeight: 900 }}>{value}</Typography>
+          </Box>
+        ))}
+      </Box>
+      <Box sx={{ px: 1.2, pb: 1.2 }}>
+        <Box sx={{ display: 'flex', gap: 0.7, mb: 1 }}>
+          <Chip icon={<Warehouse sx={{ fontSize: 12 }} />} label="Site boundary" size="small" sx={{ color: '#20c7d9', borderColor: 'rgba(32,199,217,0.45)' }} variant="outlined" />
+          <Chip label="Simulated GPS" size="small" sx={{ color: '#ffd54f', borderColor: 'rgba(255,213,79,0.45)' }} variant="outlined" />
+        </Box>
+        {logistics.slice(0, 3).map(asset => (
+          <Box key={asset.id} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, py: 0.7, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <Typography sx={{ fontSize: 11, fontWeight: 900 }}>{asset.id}</Typography>
+            <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>{asset.destination}</Typography>
+          </Box>
+        ))}
+      </Box>
+    </Paper>
+  </Box>
+);
 
 const GoogleMapBinder: React.FC<{ plugin: OSMMapPlugin }> = ({ plugin }) => {
   const map = useMap('wpf-yard-map');
@@ -484,14 +336,28 @@ const GoogleMapBinder: React.FC<{ plugin: OSMMapPlugin }> = ({ plugin }) => {
 
 const GoogleYardMapPortal: React.FC<UISlotProps> = ({ viewer }) => {
   const [active, setActive] = useState(false);
+  const [workers, setWorkers] = useState<SiteWorker[]>([]);
+  const [logistics, setLogistics] = useState<LogisticsAsset[]>([]);
   const mapPlugin = viewer.getPlugin('osm-map') as OSMMapPlugin | undefined;
   const mapContainer = mapPlugin?.mapContainer;
 
   useEffect(() => {
     const handleToggle = (e: any) => setActive(!!e.active);
+    const handleWorkers = (e: any) => setWorkers(e.workers || []);
+    const handleLogistics = (e: any) => setLogistics(e.logistics || []);
     viewer.on('osm-map-toggled' as any, handleToggle);
-    return () => viewer.off('osm-map-toggled' as any, handleToggle);
-  }, [viewer]);
+    viewer.on('osm-workers-updated' as any, handleWorkers);
+    viewer.on('osm-logistics-updated' as any, handleLogistics);
+    if (mapPlugin) {
+      setWorkers(mapPlugin.workers);
+      setLogistics(mapPlugin.logistics);
+    }
+    return () => {
+      viewer.off('osm-map-toggled' as any, handleToggle);
+      viewer.off('osm-workers-updated' as any, handleWorkers);
+      viewer.off('osm-logistics-updated' as any, handleLogistics);
+    };
+  }, [viewer, mapPlugin]);
 
   useEffect(() => {
     if (active) window.setTimeout(() => mapPlugin?.refreshMap(), 50);
@@ -529,12 +395,12 @@ const GoogleYardMapPortal: React.FC<UISlotProps> = ({ viewer }) => {
           onCameraChanged={() => mapPlugin.refreshMapProjection()}
           style={{ width: '100%', height: '100%' }}
         >
-          <AdvancedMarker position={{ lat: DEMO_PROFILE.site.mapLatitude, lng: DEMO_PROFILE.site.mapLongitude }}>
-            <Pin background="#20a1b1" borderColor="#ffffff" glyphColor="#071013" glyph="W" />
-          </AdvancedMarker>
+          <YardMapLinework plugin={mapPlugin} logistics={logistics} />
+          <YardMapMarkers viewer={viewer} plugin={mapPlugin} workers={workers} logistics={logistics} />
           <GoogleMapBinder plugin={mapPlugin} />
         </Map>
       </APIProvider>
+      <YardMapDashboard active={active} workers={workers} logistics={logistics} />
     </Box>,
     mapContainer,
   );
@@ -589,8 +455,7 @@ export class OSMMapPlugin implements RVViewerPlugin {
   readonly order = 1000;
   readonly slots: UISlotEntry[] = [
     { slot: 'button-group', order: 100, component: OSMMapToggle },
-    { slot: 'overlay', order: 8, component: GoogleYardMapPortal },
-    { slot: 'overlay', order: 10, component: OSMMapLabels }
+    { slot: 'overlay', order: 8, component: GoogleYardMapPortal }
   ];
 
   private _viewer: RVViewer | null = null;
@@ -606,6 +471,42 @@ export class OSMMapPlugin implements RVViewerPlugin {
   get latitude(): number { return this._latitude; }
   get longitude(): number { return this._longitude; }
   get zoom(): number { return this._zoom; }
+  get workers(): SiteWorker[] { return [...this._workers]; }
+  get logistics(): LogisticsAsset[] { return [...this._logistics]; }
+
+  readonly siteBoundary: GoogleMapPoint[] = [
+    { lat: 53.69485, lng: -1.50635 },
+    { lat: 53.69445, lng: -1.50055 },
+    { lat: 53.69155, lng: -1.50095 },
+    { lat: 53.69135, lng: -1.50625 },
+  ];
+
+  readonly yardBoundary: GoogleMapPoint[] = [
+    { lat: 53.69325, lng: -1.5029 },
+    { lat: 53.69285, lng: -1.50155 },
+    { lat: 53.69195, lng: -1.50195 },
+    { lat: 53.69222, lng: -1.50325 },
+  ];
+
+  readonly inboundRoute: GoogleMapPoint[] = [
+    { lat: 53.6952, lng: -1.5079 },
+    { lat: 53.6944, lng: -1.5062 },
+    { lat: 53.69325, lng: -1.5038 },
+    { lat: 53.69265, lng: -1.5025 },
+  ];
+
+  readonly dispatchRoute: GoogleMapPoint[] = [
+    { lat: 53.69315, lng: -1.50335 },
+    { lat: 53.6925, lng: -1.50225 },
+    { lat: 53.69165, lng: -1.50105 },
+  ];
+
+  readonly zones: YardZone[] = [
+    { id: 'wakefield-factory', name: DEMO_PROFILE.client.siteName, kind: 'factory', status: 'Packing live', position: { lat: 53.6931, lng: -1.5034 }, accent: '#20c7d9' },
+    { id: 'north-gate', name: 'Gatehouse', kind: 'gate', status: 'HGV-14 held', position: { lat: 53.69435, lng: -1.5061 }, accent: '#8bd67f' },
+    { id: 'loading-dock-b', name: DEMO_PROFILE.assets.dockLabel, kind: 'dock', status: '2 waiting', position: { lat: 53.69225, lng: -1.50215 }, accent: '#ffd54f' },
+    { id: 'cold-store-b', name: DEMO_PROFILE.assets.coldStore, kind: 'cold', status: '2.4 C stable', position: { lat: 53.69275, lng: -1.50155 }, accent: '#20c7d9' },
+  ];
 
   bindReactMap(map: google.maps.Map): void {
     if (!this._container) return;
@@ -837,23 +738,9 @@ export class OSMMapPlugin implements RVViewerPlugin {
     this._updateTrails();
   }
 
-  private _updateTrails(): void {
-    if (!this._osmb || !this._active) return;
-    const trails: RobotTrail[] = Object.entries(this._rawTrails).map(([id, data]) => {
-      const points = projectMapTrail(this._osmb, data.points);
-      return { id, name: data.name, points, visible: points.length > 1 };
-    });
-    this._viewer?.emit('osm-trails-updated' as any, { trails });
-  }
+  private _updateTrails(): void { }
 
-  private _updateLabels(): void {
-    if (!this._osmb || !this._active) return;
-    const updatedLabels = this._labels.map(label => {
-      const pos = projectMapPoint(this._osmb, label.lat, label.lng, label.alt);
-      return { ...label, x: pos.x, y: pos.y, visible: pos.visible };
-    });
-    this._viewer?.emit('osm-labels-updated' as any, { labels: updatedLabels });
-  }
+  private _updateLabels(): void { }
 
   private _show(): void {
     if (this._container) { 
