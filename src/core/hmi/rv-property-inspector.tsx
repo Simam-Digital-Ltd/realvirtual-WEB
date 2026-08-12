@@ -275,19 +275,19 @@ function LayoutTransformSection({ viewer, nodePath, locked, onToggleLock }: Layo
 
   const fieldRowSx = { display: 'flex', alignItems: 'center', px: 1, py: 0.25 };
   const labelSx = { fontSize: 10, color: locked ? 'text.disabled' : 'text.secondary', width: 52, flexShrink: 0, cursor: 'default' };
-  const resetBtnSx = { p: 0.15, color: 'text.disabled', flexShrink: 0, '&:hover': { color: '#ffa726' } };
+  const resetBtnSx = { p: 0.15, color: 'text.disabled', flexShrink: 0, '&:hover': { color: '#D9A441' } };
 
   return (
     <Box sx={{ borderBottom: '1px solid rgba(255, 255, 255, 0.06)' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', px: 1, py: 0.5, bgcolor: 'rgba(100, 181, 246, 0.08)', borderBottom: '2px solid rgba(100, 181, 246, 0.2)' }}>
-        <Typography sx={{ fontSize: 10, fontWeight: 700, color: '#64b5f6', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
+        <Typography sx={{ fontSize: 10, fontWeight: 700, color: '#3FB8C4', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
           Transform
         </Typography>
         <Tooltip title={locked ? 'Unlock object' : 'Lock object'}>
           <IconButton
             size="small"
             onClick={onToggleLock}
-            sx={{ p: 0.25, color: locked ? '#ffa726' : 'text.secondary', '&:hover': { color: locked ? '#ffb74d' : 'text.primary' } }}
+            sx={{ p: 0.25, color: locked ? '#D9A441' : 'text.secondary', '&:hover': { color: locked ? '#D9A441' : 'text.primary' } }}
           >
             {locked ? <Lock sx={{ fontSize: 14 }} /> : <LockOpen sx={{ fontSize: 14 }} />}
           </IconButton>
@@ -470,7 +470,7 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
       leftOffset={state.panelWidth + 16}
       toolbar={
         <Tooltip title={consumedOnly ? 'Showing active fields only \u2014 click to show all' : 'Click to show only active fields'}>
-          <IconButton size="small" onClick={toggleConsumedOnly} sx={{ color: consumedOnly ? '#66bb6a' : 'text.secondary', p: 0.25 }}>
+          <IconButton size="small" onClick={toggleConsumedOnly} sx={{ color: consumedOnly ? '#5FB37A' : 'text.secondary', p: 0.25 }}>
             <FilterList sx={{ fontSize: 14 }} />
           </IconButton>
         </Tooltip>
@@ -527,7 +527,7 @@ export function PropertyInspector({ viewer }: PropertyInspectorProps) {
                 sx={{
                   fontSize: 10,
                   textTransform: 'none',
-                  color: '#ffa726',
+                  color: '#D9A441',
                   py: 0,
                   px: 0.5,
                   minWidth: 0,

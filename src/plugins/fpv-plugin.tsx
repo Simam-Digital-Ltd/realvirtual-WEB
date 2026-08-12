@@ -413,7 +413,7 @@ export class FpvPlugin implements RVViewerPlugin {
 
     this._overlay.innerHTML = `
       <div style="text-align: center; max-width: 400px;">
-        <div style="font-size: 36px; margin-bottom: 16px;">&#127918;</div>
+        <div style="font-size: 36px; margin-bottom: 16px;">&#5FB37A;</div>
         <div style="font-size: 20px; font-weight: 600; margin-bottom: 8px;">Click to Enter</div>
         <div style="font-size: 16px; margin-bottom: 24px;">First-Person View</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; color: rgba(255,255,255,0.8);">

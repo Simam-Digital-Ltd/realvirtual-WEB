@@ -99,14 +99,14 @@ export function PhysicsTab() {
           Status
         </Typography>
         <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-          <StatRow label="Engine" value={enabled ? 'Rapier.js (WASM)' : 'Kinematic'} color={enabled ? '#66bb6a' : '#4fc3f7'} />
+          <StatRow label="Engine" value={enabled ? 'Rapier.js (WASM)' : 'Kinematic'} color={enabled ? '#5FB37A' : '#3FB8C4'} />
           <StatRow label="MU Bodies" value="—" />
           <StatRow label="Conveyors" value="—" />
         </Box>
       </Box>
 
       {reloading && (
-        <Typography variant="caption" sx={{ color: '#ffa726', fontStyle: 'italic' }}>
+        <Typography variant="caption" sx={{ color: '#D9A441', fontStyle: 'italic' }}>
           Reloading model to apply physics settings...
         </Typography>
       )}

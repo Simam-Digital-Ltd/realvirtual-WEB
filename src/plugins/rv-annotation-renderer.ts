@@ -402,7 +402,7 @@ export class AnnotationRenderer {
 
   /** Live preview of the local user's in-progress polyline (before it is committed). */
   updateDrawingProgress(points: [number, number, number][]): void {
-    this.updateTempDrawing(AnnotationRenderer.LOCAL_PREVIEW_ID, points, '#FF5722');
+    this.updateTempDrawing(AnnotationRenderer.LOCAL_PREVIEW_ID, points, '#D9A441');
   }
 
   /** Clear the local in-progress polyline preview (after commit or cancel). */

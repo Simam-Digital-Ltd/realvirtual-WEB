@@ -123,24 +123,24 @@ export function classifyField(componentType: string, fieldName: string): FieldSt
 // ── Badge color map (shared between hierarchy browser and inspector) ──────
 
 export const BADGE_COLORS: Record<string, string> = {
-  Drive: '#4fc3f7',
-  TransportSurface: '#ffa726',
-  Sensor: '#66bb6a',
-  Source: '#ab47bc',
-  Sink: '#ef5350',
-  MU: '#78909c',
-  DrivesRecorder: '#7e57c2',
-  ReplayRecording: '#26a69a',
-  Metadata: '#ffb74d',
-  RuntimeMetadata: '#ffb74d',
+  Drive: '#3FB8C4',
+  TransportSurface: '#D9A441',
+  Sensor: '#5FB37A',
+  Source: '#8B7BC7',
+  Sink: '#D9534F',
+  MU: '#8A97A8',
+  DrivesRecorder: '#8B7BC7',
+  ReplayRecording: '#3FB8C4',
+  Metadata: '#D9A441',
+  RuntimeMetadata: '#D9A441',
 };
 
 export function componentColor(type: string): string {
   if (type.startsWith('LogicStep_')) return '#8d6e63';
-  if (type.startsWith('PLCInput')) return '#ef5350';
-  if (type.startsWith('PLCOutput')) return '#66bb6a';
-  if (type.startsWith('Drive_')) return '#29b6f6';
-  return BADGE_COLORS[type] ?? '#90a4ae';
+  if (type.startsWith('PLCInput')) return '#D9534F';
+  if (type.startsWith('PLCOutput')) return '#5FB37A';
+  if (type.startsWith('Drive_')) return '#3FB8C4';
+  return BADGE_COLORS[type] ?? '#8A97A8';
 }
 
 // ── Format display value for read-only fields ─────────────────────────────
@@ -207,21 +207,21 @@ export function formatSensorStatus(signalStore: SignalStore | null, path: string
 
 /** Get color for a signal reference chip — gray when off, component color when on. */
 export function getRefSignalColor(shortType: string, signalStore: SignalStore | null, path: string): string {
-  if (!signalStore) return '#808080';
+  if (!signalStore) return '#8A97A8';
   const value = signalStore.getByPath(path);
-  if (value === undefined) return '#808080';
+  if (value === undefined) return '#8A97A8';
   const isBool = shortType.includes('Bool');
-  if (isBool) return value === true ? componentColor(shortType) : '#808080';
-  if (typeof value === 'number' && value === 0) return '#808080';
+  if (isBool) return value === true ? componentColor(shortType) : '#8A97A8';
+  if (typeof value === 'number' && value === 0) return '#8A97A8';
   return componentColor(shortType);
 }
 
 /** Get color for a sensor reference chip — gray when not occupied, green when occupied. */
 export function getSensorRefColor(signalStore: SignalStore | null, path: string): string {
-  if (!signalStore) return '#808080';
+  if (!signalStore) return '#8A97A8';
   const value = signalStore.getByPath(path);
-  if (value === undefined) return '#808080';
-  return value === true ? (BADGE_COLORS['Sensor'] ?? '#66bb6a') : '#808080';
+  if (value === undefined) return '#8A97A8';
+  return value === true ? (BADGE_COLORS['Sensor'] ?? '#5FB37A') : '#8A97A8';
 }
 
 // ── Signal component type detection (the component itself, not a ref) ─────
@@ -237,13 +237,13 @@ export function getSignalHeaderColor(componentType: string, signalValue: string)
   const isBool = componentType.includes('Bool');
   if (isBool) {
     if (signalValue === 'true') {
-      return componentType.startsWith('PLCInput') ? '#ef5350' : '#66bb6a';
+      return componentType.startsWith('PLCInput') ? '#D9534F' : '#5FB37A';
     }
-    return '#808080';
+    return '#8A97A8';
   }
   const num = parseFloat(signalValue);
-  if (!isNaN(num) && num === 0) return '#808080';
-  if (signalValue === '' || signalValue === '\u2014') return '#808080';
+  if (!isNaN(num) && num === 0) return '#8A97A8';
+  if (signalValue === '' || signalValue === '\u2014') return '#8A97A8';
   return componentColor(componentType);
 }
 

@@ -65,7 +65,7 @@ export function PumpTooltipContent({ data, viewer }: TooltipContentProps<PumpToo
   if (!pumpData) return null;
 
   const isRunning = pumpData.flowRate > 0;
-  const statusColor = isRunning ? '#27AE60' : '#9B9B9B';
+  const statusColor = isRunning ? '#5FB37A' : '#8A97A8';
   const statusText = isRunning ? 'Running' : 'Stopped';
 
   return (
@@ -80,7 +80,7 @@ export function PumpTooltipContent({ data, viewer }: TooltipContentProps<PumpToo
         }} />
         <Typography
           variant="subtitle2"
-          sx={{ color: '#4fc3f7', fontWeight: 700, fontSize: 13, lineHeight: 1.2 }}
+          sx={{ color: '#3FB8C4', fontWeight: 700, fontSize: 13, lineHeight: 1.2 }}
         >
           {data.nodePath.split('/').pop() ?? 'Pump'}
         </Typography>

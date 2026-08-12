@@ -82,7 +82,7 @@ const AlarmStatusPill: React.FC<UISlotProps> = ({ viewer }) => {
           }}
         >
           <Badge badgeContent={activeAlarms.length} color="error">
-            <ShieldAlert color="#ff5252" size={20} />
+            <ShieldAlert color="#D9534F" size={20} />
           </Badge>
         </IconButton>
       </Tooltip>
@@ -99,7 +99,7 @@ const AlarmStatusPill: React.FC<UISlotProps> = ({ viewer }) => {
         }}
       >
         <Box sx={{ p: 2, bgcolor: 'rgba(211, 47, 47, 0.1)', borderBottom: '1px solid rgba(211, 47, 47, 0.2)' }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#ff5252', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#D9534F', display: 'flex', alignItems: 'center', gap: 1 }}>
             <AlertCircle size={16} /> Active Faults
           </Typography>
         </Box>
@@ -119,7 +119,7 @@ const AlarmStatusPill: React.FC<UISlotProps> = ({ viewer }) => {
                 primaryTypographyProps={{ fontSize: '0.85rem', fontWeight: 600 }}
                 secondaryTypographyProps={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}
               />
-              <MapPin size={14} color="#20a1b1" />
+              <MapPin size={14} color="#3FB8C4" />
             </ListItemButton>
           ))}
         </List>

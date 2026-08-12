@@ -352,7 +352,7 @@ export function BottomBar() {
             title="Toggle Groups panel"
             onClick={() => viewer.toggleGroupsOverlay()}
             sx={{
-              color: viewer.groupsOverlayOpen ? '#4fc3f7' : 'inherit',
+              color: viewer.groupsOverlayOpen ? '#3FB8C4' : 'inherit',
             }}
           >
             <Layers fontSize="small" />
@@ -440,7 +440,7 @@ function FpvBarButton() {
       color="inherit"
       title="First-Person View (F)"
       onClick={handleClick}
-      sx={{ color: active ? '#4fc3f7' : 'inherit' }}
+      sx={{ color: active ? '#3FB8C4' : 'inherit' }}
     >
       <DirectionsWalk fontSize="small" />
     </IconButton>

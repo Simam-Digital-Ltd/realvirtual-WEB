@@ -39,9 +39,9 @@ function Row({ label, value }: { label: string; value: string }) {
 
 /** ISA-101 fill-level color: green=normal, yellow=warning, red=alarm. */
 function getLevelColor(fraction: number): string {
-  if (fraction < 0.1 || fraction > 0.95) return '#D0021B'; // alarm red
-  if (fraction < 0.2 || fraction > 0.9) return '#F5A623';  // warning yellow
-  return '#27AE60'; // normal green
+  if (fraction < 0.1 || fraction > 0.95) return '#D9534F'; // alarm red
+  if (fraction < 0.2 || fraction > 0.9) return '#D9A441';  // warning yellow
+  return '#5FB37A'; // normal green
 }
 
 /** Mini fill-level bar component. */
@@ -114,7 +114,7 @@ export function TankTooltipContent({ data, viewer }: TooltipContentProps<TankToo
     <>
       <Typography
         variant="subtitle2"
-        sx={{ color: '#4fc3f7', fontWeight: 700, fontSize: 13, lineHeight: 1.2 }}
+        sx={{ color: '#3FB8C4', fontWeight: 700, fontSize: 13, lineHeight: 1.2 }}
       >
         {data.nodePath.split('/').pop() ?? 'Tank'}
       </Typography>

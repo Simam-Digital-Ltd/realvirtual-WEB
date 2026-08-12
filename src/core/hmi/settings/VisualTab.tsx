@@ -203,7 +203,7 @@ export function VisualTab() {
         </Box>
         {antialiasMismatch && (
           <Box sx={{ mt: 0.5 }}>
-            <Typography variant="caption" sx={{ color: '#ffb74d', display: 'block', mb: 0.5, fontSize: 11 }}>
+            <Typography variant="caption" sx={{ color: '#D9A441', display: 'block', mb: 0.5, fontSize: 11 }}>
               Antialiasing change requires page reload
             </Typography>
             <Button
@@ -211,7 +211,7 @@ export function VisualTab() {
               variant="outlined"
               onClick={() => window.location.reload()}
               startIcon={<RestartAlt />}
-              sx={{ fontSize: 11, textTransform: 'none', borderColor: '#ffb74d', color: '#ffb74d' }}
+              sx={{ fontSize: 11, textTransform: 'none', borderColor: '#D9A441', color: '#D9A441' }}
             >
               Reload now
             </Button>

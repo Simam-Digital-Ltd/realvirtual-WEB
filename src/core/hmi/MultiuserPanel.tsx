@@ -201,7 +201,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.75 }}>
         {isConnected
-          ? <Wifi sx={{ fontSize: 14, color: '#66bb6a', mr: 0.5 }} />
+          ? <Wifi sx={{ fontSize: 14, color: '#5FB37A', mr: 0.5 }} />
           : <WifiOff sx={{ fontSize: 14, color: 'rgba(255,255,255,0.35)', mr: 0.5 }} />}
         <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)', flexGrow: 1 }}>
           Multiuser
@@ -242,7 +242,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
             startIcon={<Share sx={{ fontSize: 14 }} />}
             sx={{
               fontSize: 12, textTransform: 'none', mt: 0.25, py: 0.75,
-              bgcolor: '#1565c0', '&:hover': { bgcolor: '#1976d2' },
+              bgcolor: '#3FB8C4', '&:hover': { bgcolor: '#3FB8C4' },
               '&.Mui-disabled': { bgcolor: 'rgba(21,101,192,0.3)', color: 'rgba(255,255,255,0.3)' },
             }}
           >
@@ -252,7 +252,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
           {mu.statusMessage && (
             <Typography sx={{
               fontSize: 10, mt: 0.25, textAlign: 'center',
-              color: mu.status === 'error' ? '#ef5350' : 'rgba(255,255,255,0.45)',
+              color: mu.status === 'error' ? '#D9534F' : 'rgba(255,255,255,0.45)',
             }}>
               {mu.statusMessage}
             </Typography>
@@ -294,7 +294,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
                     fontSize: 11, textTransform: 'none',
                     borderColor: 'rgba(255,255,255,0.15)',
                     color: 'rgba(255,255,255,0.65)',
-                    '&:hover': { borderColor: '#4fc3f7', color: '#4fc3f7', bgcolor: 'rgba(79,195,247,0.06)' },
+                    '&:hover': { borderColor: '#3FB8C4', color: '#3FB8C4', bgcolor: 'rgba(79,195,247,0.06)' },
                   }}
                 >
                   {mu.status === 'connecting' ? 'Connecting…' : 'Connect Direct'}
@@ -310,8 +310,8 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
         <Box>
           {/* Local player */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.3 }}>
-            <PersonOutline sx={{ fontSize: 12, color: '#2196F3' }} />
-            <Typography sx={{ fontSize: 11, color: '#2196F3', flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <PersonOutline sx={{ fontSize: 12, color: '#3FB8C4' }} />
+            <Typography sx={{ fontSize: 11, color: '#3FB8C4', flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {mu.localName} (You)
             </Typography>
             <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', flexShrink: 0 }}>
@@ -340,7 +340,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
               fontSize: 11, textTransform: 'none', mb: 0.5,
               borderColor: 'rgba(255,255,255,0.15)',
               color: 'rgba(255,255,255,0.65)',
-              '&:hover': { borderColor: '#4fc3f7', color: '#4fc3f7', bgcolor: 'rgba(79,195,247,0.06)' },
+              '&:hover': { borderColor: '#3FB8C4', color: '#3FB8C4', bgcolor: 'rgba(79,195,247,0.06)' },
             }}
           >
             {copied ? 'Link Copied!' : 'Share Session Link'}
@@ -353,7 +353,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
               fontSize: 11, textTransform: 'none',
               borderColor: 'rgba(255,255,255,0.15)',
               color: 'rgba(255,255,255,0.65)',
-              '&:hover': { borderColor: '#ef5350', color: '#ef5350', bgcolor: 'rgba(239,83,80,0.06)' },
+              '&:hover': { borderColor: '#D9534F', color: '#D9534F', bgcolor: 'rgba(239,83,80,0.06)' },
             }}
           >
             Disconnect

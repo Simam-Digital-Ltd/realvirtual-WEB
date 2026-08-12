@@ -29,8 +29,8 @@ const PhysicsToggle: React.FC<UISlotProps> = ({ viewer }) => {
         onClick={toggle}
         sx={{ 
           bgcolor: active ? 'rgba(32, 161, 177, 0.2)' : 'rgba(0,0,0,0.3)',
-          border: `1px solid ${active ? '#20a1b1' : 'rgba(255,255,255,0.1)'}`,
-          color: active ? '#20a1b1' : 'rgba(255,255,255,0.5)',
+          border: `1px solid ${active ? '#3FB8C4' : 'rgba(255,255,255,0.1)'}`,
+          color: active ? '#3FB8C4' : 'rgba(255,255,255,0.5)',
           '&:hover': { bgcolor: active ? 'rgba(32, 161, 177, 0.3)' : 'rgba(255,255,255,0.1)' }
         }}
       >

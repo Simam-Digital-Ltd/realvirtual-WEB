@@ -188,7 +188,7 @@ export function ChartPanel({
   open,
   onClose,
   title,
-  titleColor = '#4fc3f7',
+  titleColor = '#3FB8C4',
   subtitle,
   defaultWidth = 700,
   defaultHeight = 340,

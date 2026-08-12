@@ -24,9 +24,9 @@ interface CycleTimeChartProps {
 function dotColor(ms: number, takt: number): string {
   const s = ms / 1000;
   const taktS = takt / 1000;
-  if (s <= taktS * 1.05) return '#22c55e';    // Green: within ±5% of takt
-  if (s <= taktS * 1.20) return '#f59e0b';    // Amber: +5% to +20%
-  return '#ef4444';                             // Red: >+20%
+  if (s <= taktS * 1.05) return '#5FB37A';    // Green: within ±5% of takt
+  if (s <= taktS * 1.20) return '#D9A441';    // Amber: +5% to +20%
+  return '#D9534F';                             // Red: >+20%
 }
 
 export function CycleTimeChart({ open, onClose }: CycleTimeChartProps) {
@@ -123,10 +123,10 @@ export function CycleTimeChart({ open, onClose }: CycleTimeChartProps) {
               markLine: {
                 silent: true,
                 symbol: 'none',
-                lineStyle: { type: 'dashed', color: '#60a5fa', width: 1.5 },
+                lineStyle: { type: 'dashed', color: '#3FB8C4', width: 1.5 },
                 label: {
                   formatter: `Takt: ${taktS.toFixed(1)}s`,
-                  color: '#60a5fa',
+                  color: '#3FB8C4',
                   fontSize: 10,
                 },
                 data: [{ yAxis: takt }],
@@ -139,8 +139,8 @@ export function CycleTimeChart({ open, onClose }: CycleTimeChartProps) {
               data: ma.map((v) => Math.round(v)),
               smooth: true,
               symbol: 'none',
-              lineStyle: { color: '#a78bfa', width: 2 },
-              itemStyle: { color: '#a78bfa' },
+              lineStyle: { color: '#8B7BC7', width: 2 },
+              itemStyle: { color: '#8B7BC7' },
             },
           ],
         },
@@ -155,7 +155,7 @@ export function CycleTimeChart({ open, onClose }: CycleTimeChartProps) {
       open={open}
       onClose={onClose}
       title="Cycle Time"
-      titleColor="#ffa726"
+      titleColor="#D9A441"
       subtitle="Last 100 Cycles"
       defaultWidth={700}
       defaultHeight={340}

@@ -273,9 +273,9 @@ function signalBadgeColor(type: string, signalStore: SignalStore | null, path: s
 
   if (isBoolSignal(type)) {
     if (value === true) {
-      return type.startsWith('PLCInput') ? '#ef5350' : '#66bb6a';
+      return type.startsWith('PLCInput') ? '#D9534F' : '#5FB37A';
     }
-    return '#808080';
+    return '#8A97A8';
   }
   return componentColor(type);
 }

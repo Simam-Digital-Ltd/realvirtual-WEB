@@ -86,7 +86,7 @@ export function FieldRow({ fieldName, value, status, isOverridden, onEdit, onRes
             <IconButton
               size="small"
               onClick={(e) => { e.stopPropagation(); onReset(); }}
-              sx={{ p: 0, color: '#4fc3f7' }}
+              sx={{ p: 0, color: '#3FB8C4' }}
               title="Reset to default"
             >
               <Circle sx={{ fontSize: 7 }} />

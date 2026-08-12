@@ -17,6 +17,99 @@ const INTERFACE_OPTIONS: { value: InterfaceType; label: string; available: boole
   { value: 'keba', label: 'KEBA', available: false },
 ];
 
+/** Max signals rendered in the live monitor (keeps the panel readable). */
+const MONITOR_LIMIT = 12;
+
+/**
+ * LiveSignalMonitor — streams the actual signal values arriving from the PLC.
+ *
+ * A connection state of "connected" only proves a socket opened; showing real
+ * names and ticking values is what proves the link is carrying live process data.
+ */
+function LiveSignalMonitor() {
+  const viewer = useViewer();
+  const manager = viewer.getPlugin<InterfaceManager>('interface-manager');
+  const [rows, setRows] = useState<{ name: string; direction: string; value: string }[]>([]);
+
+  useEffect(() => {
+    const read = () => {
+      const active = manager?.getActive();
+      const store = viewer.signalStore;
+      if (!active || !store) {
+        setRows([]);
+        return;
+      }
+      const next = active.discoveredSignals.slice(0, MONITOR_LIMIT).map((sig) => {
+        const raw = store.get(sig.name);
+        return {
+          name: sig.name,
+          direction: sig.direction,
+          value:
+            raw === undefined ? '--'
+              : typeof raw === 'boolean' ? (raw ? 'TRUE' : 'FALSE')
+              : typeof raw === 'number' ? (Number.isInteger(raw) ? String(raw) : raw.toFixed(2))
+              : String(raw),
+        };
+      });
+      setRows((prev) => {
+        // Avoid re-rendering when nothing actually changed.
+        if (prev.length === next.length && prev.every((p, i) => p.value === next[i].value && p.name === next[i].name)) {
+          return prev;
+        }
+        return next;
+      });
+    };
+    read();
+    const interval = setInterval(read, 250);
+    return () => clearInterval(interval);
+  }, [manager, viewer]);
+
+  if (rows.length === 0) {
+    return (
+      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          Connected, but no signals discovered yet.
+        </Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
+      <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
+        Live Signals
+      </Typography>
+      <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.25, maxHeight: 220, overflowY: 'auto' }}>
+        {rows.map((row) => (
+          <Box
+            key={row.name}
+            sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.3, borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+          >
+            <Box
+              sx={{
+                width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                bgcolor: row.direction === 'input' ? '#3FB8C4' : '#5FB37A',
+              }}
+            />
+            <Typography
+              sx={{ fontSize: 11, fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              title={row.name}
+            >
+              {row.name}
+            </Typography>
+            <Typography sx={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: '#D9A441', flexShrink: 0 }}>
+              {row.value}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
+      <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 9, mt: 0.5, display: 'block' }}>
+        Blue = PLC input (written by viewer) · Green = PLC output (read by viewer)
+      </Typography>
+    </Box>
+  );
+}
+
 export function InterfacesTab() {
   const viewer = useViewer();
   const manager = viewer.getPlugin<InterfaceManager>('interface-manager');
@@ -79,9 +172,9 @@ export function InterfacesTab() {
     setSignalCount(0);
   };
 
-  const stateColor = connectionState === 'connected' ? '#66bb6a'
-    : connectionState === 'connecting' ? '#ffa726'
-    : connectionState === 'error' ? '#ef5350'
+  const stateColor = connectionState === 'connected' ? '#5FB37A'
+    : connectionState === 'connecting' ? '#D9A441'
+    : connectionState === 'error' ? '#D9534F'
     : 'rgba(255,255,255,0.5)';
 
   return (
@@ -267,8 +360,11 @@ export function InterfacesTab() {
         </Box>
       )}
 
+      {/* Live signal monitor — proof the link is actually carrying data */}
+      {showSettings && isConnected && <LiveSignalMonitor />}
+
       {!manager && (
-        <Typography variant="caption" sx={{ color: '#ef5350' }}>
+        <Typography variant="caption" sx={{ color: '#D9534F' }}>
           InterfaceManager not registered. Add it to the viewer plugins in main.ts.
         </Typography>
       )}

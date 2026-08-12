@@ -364,7 +364,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     roundRect(ctx, 1, 1, 510, 378, 16);
     ctx.stroke();
 
-    const accent = mode === 'ar' ? '#81c784' : '#4fc3f7';
+    const accent = mode === 'ar' ? '#5FB37A' : '#3FB8C4';
 
     ctx.fillStyle = accent;
     ctx.font = 'bold 28px system-ui, sans-serif';
@@ -984,7 +984,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.instructionEl.textContent = 'Point at a surface \u00b7 Tap to place';
     this.instructionEl.style.cssText = 'position:fixed;bottom:32px;left:50%;transform:translateX(-50%);'
       + 'z-index:10001;padding:12px 24px;border-radius:16px;background:rgba(0,0,0,0.7);'
-      + 'color:#81c784;font:bold 15px system-ui,sans-serif;white-space:nowrap;pointer-events:none;';
+      + 'color:#5FB37A;font:bold 15px system-ui,sans-serif;white-space:nowrap;pointer-events:none;';
     overlay.appendChild(this.instructionEl);
 
     // Place mode toggle (bottom-center) — hidden until model is placed
@@ -1014,7 +1014,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.scaleBadge = document.createElement('div');
     this.scaleBadge.style.cssText = 'pointer-events:none;position:fixed;bottom:76px;left:50%;'
       + 'transform:translateX(-50%);z-index:10001;padding:4px 12px;border-radius:12px;'
-      + 'background:rgba(0,0,0,0.6);color:#81c784;font:bold 12px system-ui,sans-serif;display:none;';
+      + 'background:rgba(0,0,0,0.6);color:#5FB37A;font:bold 12px system-ui,sans-serif;display:none;';
     this.updateScaleBadge();
     overlay.appendChild(this.scaleBadge);
 

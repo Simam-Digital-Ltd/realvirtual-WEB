@@ -86,8 +86,8 @@ export function CameraBar() {
                 sx={{
                   minWidth: 48,
                   fontWeight: hasBookmark ? 700 : 400,
-                  color: isSaved ? '#66bb6a' : hasBookmark ? '#4fc3f7' : undefined,
-                  borderColor: isSaved ? '#66bb6a' : hasBookmark ? 'rgba(79,195,247,0.4)' : undefined,
+                  color: isSaved ? '#5FB37A' : hasBookmark ? '#3FB8C4' : undefined,
+                  borderColor: isSaved ? '#5FB37A' : hasBookmark ? 'rgba(79,195,247,0.4)' : undefined,
                   bgcolor: isSaved ? 'rgba(102,187,106,0.15)' : undefined,
                   transition: 'all 0.2s',
                 }}

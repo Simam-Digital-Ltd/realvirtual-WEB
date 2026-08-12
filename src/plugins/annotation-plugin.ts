@@ -33,7 +33,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 const MAX_ANNOTATIONS = 500;
 const MAX_TEXT_LENGTH = 200;
 const LS_PREFIX = 'rv-annotations-';
-const DEFAULT_COLOR = '#FF5722';
+const DEFAULT_COLOR = '#D9A441';
 
 // ── External subscribers for React re-render ───────────────────────────
 
@@ -221,7 +221,7 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
     this._viewer.markRenderDirty();
   }
 
-  addDrawing(points: [number, number, number][], lineColor = '#FF5722', lineWidth = 2): Annotation {
+  addDrawing(points: [number, number, number][], lineColor = '#D9A441', lineWidth = 2): Annotation {
     if (this._annotations.length >= MAX_ANNOTATIONS) {
       console.warn(`[AnnotationPlugin] Max annotations (${MAX_ANNOTATIONS}) reached`);
       return this._annotations[this._annotations.length - 1];

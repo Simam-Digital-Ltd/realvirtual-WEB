@@ -54,7 +54,7 @@ export function LogoBadge() {
           </Typography>
         )}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <Circle sx={{ fontSize: 6, color: '#66bb6a' }} />
+          <Circle sx={{ fontSize: 6, color: '#5FB37A' }} />
           {!isMobile && (
             <Typography sx={{ fontSize: 10, fontWeight: 500, color: 'rgba(102,187,106,0.85)', letterSpacing: 0.3 }}>
               online
@@ -63,7 +63,7 @@ export function LogoBadge() {
         </Box>
         {mcp.connected && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, ml: 1 }}>
-            <Circle sx={{ fontSize: 6, color: '#66bb6a' }} />
+            <Circle sx={{ fontSize: 6, color: '#5FB37A' }} />
             {!isMobile && (
               <Typography sx={{ fontSize: 10, fontWeight: 500, color: 'rgba(102,187,106,0.85)', letterSpacing: 0.3 }}>
                 ai

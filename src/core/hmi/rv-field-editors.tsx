@@ -164,7 +164,7 @@ export function StringEditor({ value, onChange }: { value: string; onChange: (v:
 
 // ── Axis colors ──────────────────────────────────────────────────────────
 
-const AXIS_COLORS = { x: '#ef5350', y: '#66bb6a', z: '#4fc3f7' } as const;
+const AXIS_COLORS = { x: '#D9534F', y: '#5FB37A', z: '#3FB8C4' } as const;
 
 /**
  * DragLabel — Unity-style draggable axis label.

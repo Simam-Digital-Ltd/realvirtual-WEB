@@ -9,7 +9,7 @@
  * and sorted by ContextMenuStore.open() — this component only renders.
  *
  * - Header shows the target node name (last path segment)
- * - Items with `danger: true` get red text (#ef5350)
+ * - Items with `danger: true` get red text (#D9534F)
  * - Items with `dividerBefore: true` get a <Divider /> above them
  * - Click handler: call item.action(target), then store.close()
  * - MUI handles close-on-click-outside and Escape natively
@@ -98,7 +98,7 @@ export function ContextMenuLayer() {
           key={item.id}
           onClick={() => handleItemClick(item, snap.target!)}
           sx={{
-            color: item.danger ? '#ef5350' : 'text.primary',
+            color: item.danger ? '#D9534F' : 'text.primary',
             '&:hover': {
               bgcolor: item.danger ? 'rgba(239, 83, 80, 0.12)' : 'rgba(255,255,255,0.06)',
             },

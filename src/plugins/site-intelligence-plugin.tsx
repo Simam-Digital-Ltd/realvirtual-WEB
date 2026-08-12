@@ -147,7 +147,7 @@ const DECISION_SIGNALS: DecisionSignal[] = [
     title: `${DEMO_PROFILE.assets.robotCell} is the constraint`,
     detail: `Tray former motor load is high enough to affect ${DEMO_PROFILE.assets.dock} dispatch in 12 min.`,
     metric: '142% load',
-    color: '#ffa726',
+    color: '#D9A441',
     icon: <Engineering sx={{ fontSize: 15 }} />,
     command: 'maintenance',
     assetId: 'robot-cell-a'
@@ -157,7 +157,7 @@ const DECISION_SIGNALS: DecisionSignal[] = [
     title: `Hold ${DEMO_PROFILE.assets.inboundVehicle} at gate`,
     detail: 'Weighbridge buffer is cheaper than blocking the outbound bay.',
     metric: '8 min hold',
-    color: '#4fc3f7',
+    color: '#3FB8C4',
     icon: <LocalShipping sx={{ fontSize: 15 }} />,
     command: 'map',
     assetId: 'hgv-14'
@@ -167,7 +167,7 @@ const DECISION_SIGNALS: DecisionSignal[] = [
     title: `${DEMO_PROFILE.assets.dock} queue forming`,
     detail: `Two vehicles are waiting; ${DEMO_PROFILE.assets.yardTug} can clear staged cold pallets first.`,
     metric: '2 waiting',
-    color: '#ef5350',
+    color: '#D9534F',
     icon: <Inventory2 sx={{ fontSize: 15 }} />,
     command: 'cell',
     assetId: 'dock-4',
@@ -178,7 +178,7 @@ const DECISION_SIGNALS: DecisionSignal[] = [
     title: 'Cold chain stable',
     detail: 'Zone A remains stable; keep chilled dispatch priority until queue clears.',
     metric: `${DEMO_PROFILE.kpis.coldChain} ${DEMO_PROFILE.kpis.coldChainUnit}`,
-    color: '#26c6da',
+    color: '#3FB8C4',
     icon: <AcUnit sx={{ fontSize: 15 }} />,
     command: 'asset',
     assetId: 'cold-store-b'
@@ -239,7 +239,7 @@ function DecisionHighlightsPanel({ plugin }: { plugin: SiteIntelligencePlugin })
     }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: collapsed ? 0 : 0.85 }}>
         <Box sx={{ minWidth: 0 }}>
-          <Typography sx={{ color: '#20a1b1', fontSize: 8.5, fontWeight: 900, letterSpacing: 1.1, textTransform: 'uppercase' }}>Decision highlights</Typography>
+          <Typography sx={{ color: '#3FB8C4', fontSize: 8.5, fontWeight: 900, letterSpacing: 1.1, textTransform: 'uppercase' }}>Decision highlights</Typography>
           <Typography sx={{ color: '#fff', fontSize: 12.5, fontWeight: 900, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{DEMO_PROFILE.client.liveWatchLabel}</Typography>
         </Box>
         <IconButton size="small" onClick={() => setCollapsed((v) => !v)} sx={{ p: 0.2, color: 'rgba(255,255,255,0.58)' }}>
@@ -382,7 +382,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
 
   if (!visible) return null;
 
-  const statusColor = condition?.status === 'Optimal' ? '#81c784' : (condition?.status === 'Caution' ? '#ffd54f' : '#e57373');
+  const statusColor = condition?.status === 'Optimal' ? '#5FB37A' : (condition?.status === 'Caution' ? '#D9A441' : '#D9534F');
 
   return (
     <Fade in={visible}>
@@ -420,7 +420,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
             background: 'rgba(255, 255, 255, 0.03)'
           }}>
             <Box>
-              <Typography variant="overline" sx={{ color: '#20a1b1', fontWeight: 900, letterSpacing: 2, display: 'block', lineHeight: 1, fontSize: 10 }}>
+              <Typography variant="overline" sx={{ color: '#3FB8C4', fontWeight: 900, letterSpacing: 2, display: 'block', lineHeight: 1, fontSize: 10 }}>
                 SIMAM INTELLIGENCE
               </Typography>
               <Typography variant="h6" sx={{ color: '#fff', fontWeight: 800, fontSize: 16 }}>
@@ -444,9 +444,9 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                   sx={{
                     fontSize: 9, fontWeight: 800,
                     bgcolor: activeTab === t ? 'rgba(32, 161, 177, 0.3)' : 'transparent',
-                    color: activeTab === t ? '#20a1b1' : 'rgba(255,255,255,0.4)',
+                    color: activeTab === t ? '#3FB8C4' : 'rgba(255,255,255,0.4)',
                     border: '1px solid',
-                    borderColor: activeTab === t ? '#20a1b1' : 'rgba(255,255,255,0.1)',
+                    borderColor: activeTab === t ? '#3FB8C4' : 'rgba(255,255,255,0.1)',
                     '&:hover': { bgcolor: 'rgba(255,255,255,0.05)' }
                   }}
                 />
@@ -479,10 +479,10 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                   }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, alignItems: 'center' }}>
                       <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                        <AccessTime sx={{ fontSize: 14, color: '#20a1b1' }} />
+                        <AccessTime sx={{ fontSize: 14, color: '#3FB8C4' }} />
                         <Typography variant="caption" sx={{ color: '#fff', fontWeight: 800, fontSize: 10 }}>{opIntel?.shiftName.toUpperCase()} SHIFT</Typography>
                       </Box>
-                      <Typography variant="caption" sx={{ color: '#20a1b1', fontWeight: 900, fontSize: 10 }}>{opIntel?.shiftProgress}%</Typography>
+                      <Typography variant="caption" sx={{ color: '#3FB8C4', fontWeight: 900, fontSize: 10 }}>{opIntel?.shiftProgress}%</Typography>
                     </Box>
                     <LinearProgress 
                       variant="determinate" 
@@ -490,7 +490,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                       sx={{ 
                         height: 6, borderRadius: 3, 
                         bgcolor: 'rgba(32, 161, 177, 0.1)',
-                        '& .MuiLinearProgress-bar': { bgcolor: '#20a1b1', borderRadius: 3 }
+                        '& .MuiLinearProgress-bar': { bgcolor: '#3FB8C4', borderRadius: 3 }
                       }} 
                     />
                   </Box>
@@ -502,7 +502,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                       label="PERSONNEL"
                       value={metrics?.workerCount || 0}
                       sub="LIVE ON-SITE"
-                      color="#00e676"
+                      color="#5FB37A"
                       trend={[30, 45, 35, 55, 60, 40, 50]}
                     />
                     <MetricCard
@@ -510,7 +510,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                       label="THROUGHPUT"
                       value={metrics?.throughput || 0}
                       sub="UNITS / HR"
-                      color="#4fc3f7"
+                      color="#3FB8C4"
                       trend={[1100, 1150, 1200, 1250, 1180, 1220, 1280]}
                     />
                   </Box>
@@ -518,9 +518,9 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                   {/* Safety & Intelligence Badges */}
                   <Box sx={{ display: 'flex', gap: 1 }}>
                     <Box sx={{ flex: 1, p: 1.2, borderRadius: 2, bgcolor: 'rgba(129, 199, 132, 0.1)', border: '1px solid rgba(129, 199, 132, 0.2)', display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <HealthAndSafety sx={{ color: '#81c784', fontSize: 16 }} />
+                      <HealthAndSafety sx={{ color: '#5FB37A', fontSize: 16 }} />
                       <Box>
-                        <Typography sx={{ color: '#81c784', fontSize: 9, fontWeight: 900, lineHeight: 1 }}>SAFETY MILESTONE</Typography>
+                        <Typography sx={{ color: '#5FB37A', fontSize: 9, fontWeight: 900, lineHeight: 1 }}>SAFETY MILESTONE</Typography>
                         <Typography sx={{ color: '#fff', fontSize: 10, fontWeight: 700 }}>{opIntel?.safetyMilestone}</Typography>
                       </Box>
                     </Box>
@@ -534,7 +534,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                         <Box key={i} sx={{ textAlign: 'center', minWidth: 45 }}>
                           <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 8, fontWeight: 700 }}>{f.time}</Typography>
                           <Box sx={{ my: 0.5 }}>
-                            {f.condition.includes('Rain') ? <WaterDrop sx={{ fontSize: 14, color: '#4fc3f7' }} /> : <WbSunny sx={{ fontSize: 14, color: '#ffd54f' }} />}
+                            {f.condition.includes('Rain') ? <WaterDrop sx={{ fontSize: 14, color: '#3FB8C4' }} /> : <WbSunny sx={{ fontSize: 14, color: '#D9A441' }} />}
                           </Box>
                           <Typography sx={{ color: '#fff', fontSize: 10, fontWeight: 900 }}>{Math.round(f.temp)}C</Typography>
                         </Box>
@@ -546,13 +546,13 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                   <Box sx={{ px: 0.5 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                       <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 700, fontSize: 9, letterSpacing: 1 }}>SHADOW ENGINE (LIVE)</Typography>
-                      <Typography variant="caption" sx={{ fontWeight: 800, fontSize: 10, color: '#20a1b1' }}>{hour}:00</Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 800, fontSize: 10, color: '#3FB8C4' }}>{hour}:00</Typography>
                     </Box>
                     <Slider
                       value={hour} min={0} max={23} step={1}
                       onChange={handleHourChange}
                       sx={{
-                        color: '#20a1b1', height: 4, py: 1,
+                        color: '#3FB8C4', height: 4, py: 1,
                         '& .MuiSlider-thumb': { width: 14, height: 14, border: '2px solid #fff' },
                         '& .MuiSlider-rail': { opacity: 0.1 }
                       }}
@@ -573,7 +573,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                     <Box key={i} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
                       <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
                         <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: 'rgba(32, 161, 177, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(32, 161, 177, 0.4)' }}>
-                          <Typography sx={{ color: '#20a1b1', fontSize: 12, fontWeight: 900 }}>{p.name[0]}</Typography>
+                          <Typography sx={{ color: '#3FB8C4', fontSize: 12, fontWeight: 900 }}>{p.name[0]}</Typography>
                         </Box>
                         <Box>
                           <Typography sx={{ color: '#fff', fontSize: 11, fontWeight: 800 }}>{p.name}</Typography>
@@ -581,8 +581,8 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                         </Box>
                       </Box>
                       <Box sx={{ textAlign: 'right' }}>
-                        <Typography sx={{ color: '#20a1b1', fontSize: 9, fontWeight: 800 }}>{p.zone}</Typography>
-                        <Typography sx={{ color: '#81c784', fontSize: 8, fontWeight: 700 }}>{p.status.toUpperCase()}</Typography>
+                        <Typography sx={{ color: '#3FB8C4', fontSize: 9, fontWeight: 800 }}>{p.zone}</Typography>
+                        <Typography sx={{ color: '#5FB37A', fontSize: 8, fontWeight: 700 }}>{p.status.toUpperCase()}</Typography>
                       </Box>
                     </Box>
                   ))}
@@ -593,7 +593,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                 <Stack spacing={1.5}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 900, fontSize: 9, letterSpacing: 1 }}>LOGISTICS FLEET STATUS</Typography>
-                    <Chip label="ACTIVE SHIFT: AM" size="small" sx={{ height: 16, fontSize: 8, fontWeight: 900, bgcolor: 'rgba(32, 161, 177, 0.2)', color: '#20a1b1', border: '1px solid rgba(32, 161, 177, 0.4)' }} />
+                    <Chip label="ACTIVE SHIFT: AM" size="small" sx={{ height: 16, fontSize: 8, fontWeight: 900, bgcolor: 'rgba(32, 161, 177, 0.2)', color: '#3FB8C4', border: '1px solid rgba(32, 161, 177, 0.4)' }} />
                   </Box>
                   {logistics.length > 0 ? logistics.map((l: any, i: number) => (
                     <Box key={i} sx={{ 
@@ -609,14 +609,14 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                           <Typography sx={{ color: 'rgba(255,255,255,0.4)', fontSize: 9, fontWeight: 700 }}>Driver: {l.driver || 'Unassigned'}</Typography>
                         </Box>
                         <Box sx={{ textAlign: 'right' }}>
-                          <Typography sx={{ color: '#20a1b1', fontSize: 10, fontWeight: 800 }}>ETA: {l.eta || 'Calculating...'}</Typography>
+                          <Typography sx={{ color: '#3FB8C4', fontSize: 10, fontWeight: 800 }}>ETA: {l.eta || 'Calculating...'}</Typography>
                           <Typography sx={{ color: 'rgba(255,255,255,0.3)', fontSize: 8, fontWeight: 700 }}>Rounds: {l.rounds || 0}</Typography>
                         </Box>
                       </Box>
                       
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                         <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: 9, fontWeight: 700 }}>DEST: {l.dest || l.destination}</Typography>
-                        <Typography sx={{ color: '#81c784', fontSize: 8, fontWeight: 900 }}>SHIFT: {l.shift || 'AM'}</Typography>
+                        <Typography sx={{ color: '#5FB37A', fontSize: 8, fontWeight: 900 }}>SHIFT: {l.shift || 'AM'}</Typography>
                       </Box>
 
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -632,7 +632,7 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                               height: 3, borderRadius: 1, 
                               bgcolor: 'rgba(255,255,255,0.05)', 
                               '& .MuiLinearProgress-bar': { 
-                                bgcolor: l.loadPct > 80 ? '#ff5252' : '#20a1b1',
+                                bgcolor: l.loadPct > 80 ? '#D9534F' : '#3FB8C4',
                                 transition: 'transform 0.4s linear'
                               } 
                             }} 
@@ -660,13 +660,13 @@ function SiteStatsPanel({ plugin }: { plugin: SiteIntelligencePlugin }) {
                 p: 1.5,
                 background: 'rgba(13, 15, 20, 0.8)',
                 backdropFilter: 'blur(12px)',
-                borderLeft: `4px solid ${alert.includes('Security') ? '#ff5252' : '#20a1b1'}`,
+                borderLeft: `4px solid ${alert.includes('Security') ? '#D9534F' : '#3FB8C4'}`,
                 borderRadius: '4px 12px 12px 4px',
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 boxShadow: '0 8px 16px rgba(0,0,0,0.4)'
               }}>
                 <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
-                  <NotificationsActive sx={{ color: alert.includes('Security') ? '#ff5252' : '#20a1b1', fontSize: 16 }} />
+                  <NotificationsActive sx={{ color: alert.includes('Security') ? '#D9534F' : '#3FB8C4', fontSize: 16 }} />
                   <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.9)', fontWeight: 600, fontSize: 11 }}>{alert}</Typography>
                 </Box>
                 <IconButton size="small" onClick={() => setAlerts(prev => prev.filter((_, i) => i !== idx))} sx={{ color: 'rgba(255,255,255,0.3)', p: 0.25 }}>

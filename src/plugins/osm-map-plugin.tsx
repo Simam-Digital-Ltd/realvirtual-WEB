@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { APIProvider, AdvancedMarker, Map, Pin, useMap } from '@vis.gl/react-google-maps';
+import { APIProvider, AdvancedMarker, Map, Pin, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
@@ -15,7 +15,8 @@ import {
 import { 
   Map as MapIcon, MapOutlined, NearMe,
   WbSunny, Thunderstorm, Traffic, Visibility, Timeline, Warning,
-  Schedule, LocalShipping, Badge as BadgeIcon, Warehouse
+  Schedule, LocalShipping, Badge as BadgeIcon, Warehouse,
+  Search, Layers, Route as RouteIcon, AccessTime
 } from '@mui/icons-material';
 import { 
   GeospatialService, WeatherData, FloodAlert, TrafficStatus, 
@@ -153,6 +154,12 @@ interface LogisticsAsset {
   rounds: number;
   shift: 'AM' | 'PM' | 'Night';
   startTime: string;
+  /** Real geocoded destination — when present the vehicle is routed along the road network. */
+  destLat?: number;
+  destLng?: number;
+  /** Live values populated from the Google Directions leg once a route resolves. */
+  etaText?: string;
+  distanceText?: string;
 }
 
 /**
@@ -190,13 +197,13 @@ const AlertBanner: React.FC<{
             p: '6px 12px', borderRadius: '4px',
             bgcolor: alert.severity === 'error' ? 'rgba(255, 82, 82, 0.15)' : 
                      alert.severity === 'warning' ? 'rgba(255, 152, 0, 0.15)' : 'rgba(32, 161, 177, 0.15)',
-            borderLeft: `3px solid ${alert.severity === 'error' ? '#ff5252' : 
-                                   alert.severity === 'warning' ? '#ff9800' : '#20a1b1'}`,
+            borderLeft: `3px solid ${alert.severity === 'error' ? '#D9534F' : 
+                                   alert.severity === 'warning' ? '#D9A441' : '#3FB8C4'}`,
             display: 'flex', alignItems: 'center', gap: 1
           }}
         >
-          <Warning sx={{ fontSize: 14, color: alert.severity === 'error' ? '#ff5252' : 
-                                               alert.severity === 'warning' ? '#ff9800' : '#20a1b1' }} />
+          <Warning sx={{ fontSize: 14, color: alert.severity === 'error' ? '#D9534F' : 
+                                               alert.severity === 'warning' ? '#D9A441' : '#3FB8C4' }} />
           <Typography sx={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.2px', color: '#fff' }}>
             {alert.msg}
           </Typography>
@@ -229,7 +236,7 @@ const SimulatedBadge: React.FC<{ label: string }> = ({ label }) => (
       fontWeight: 900,
       letterSpacing: 0.6,
       bgcolor: 'rgba(255, 213, 79, 0.16)',
-      color: '#ffd54f',
+      color: '#D9A441',
       border: '1px solid rgba(255, 213, 79, 0.42)',
       pointerEvents: 'none',
     }}
@@ -243,11 +250,11 @@ const YardMapLinework: React.FC<{ plugin: OSMMapPlugin; logistics: LogisticsAsse
   useEffect(() => {
     if (!map || !window.google) return undefined;
     const googleApi = window.google;
-    const boundary = new googleApi.maps.Polygon({ paths: plugin.siteBoundary, strokeColor: '#20c7d9', strokeOpacity: 0.75, strokeWeight: 2, fillColor: '#20c7d9', fillOpacity: 0.12, map });
-    const yard = new googleApi.maps.Polygon({ paths: plugin.yardBoundary, strokeColor: '#f9a825', strokeOpacity: 0.9, strokeWeight: 2, fillColor: '#f9a825', fillOpacity: 0.16, map });
-    const inbound = new googleApi.maps.Polyline({ path: plugin.inboundRoute, strokeColor: '#8bd67f', strokeOpacity: 0.9, strokeWeight: 4, map });
-    const dispatch = new googleApi.maps.Polyline({ path: plugin.dispatchRoute, strokeColor: '#20c7d9', strokeOpacity: 0.9, strokeWeight: 4, map });
-    const queue = new googleApi.maps.Polyline({ path: logistics.map(asset => ({ lat: asset.lat, lng: asset.lng })), strokeColor: '#ffd54f', strokeOpacity: 0.55, strokeWeight: 2, map });
+    const boundary = new googleApi.maps.Polygon({ paths: plugin.siteBoundary, strokeColor: '#3FB8C4', strokeOpacity: 0.75, strokeWeight: 2, fillColor: '#3FB8C4', fillOpacity: 0.12, map });
+    const yard = new googleApi.maps.Polygon({ paths: plugin.yardBoundary, strokeColor: '#D9A441', strokeOpacity: 0.9, strokeWeight: 2, fillColor: '#D9A441', fillOpacity: 0.16, map });
+    const inbound = new googleApi.maps.Polyline({ path: plugin.inboundRoute, strokeColor: '#5FB37A', strokeOpacity: 0.9, strokeWeight: 4, map });
+    const dispatch = new googleApi.maps.Polyline({ path: plugin.dispatchRoute, strokeColor: '#3FB8C4', strokeOpacity: 0.9, strokeWeight: 4, map });
+    const queue = new googleApi.maps.Polyline({ path: logistics.map(asset => ({ lat: asset.lat, lng: asset.lng })), strokeColor: '#D9A441', strokeOpacity: 0.55, strokeWeight: 2, map });
     return () => { boundary.setMap(null); yard.setMap(null); inbound.setMap(null); dispatch.setMap(null); queue.setMap(null); };
   }, [map, plugin, logistics]);
 
@@ -275,6 +282,12 @@ const YardMapMarkers: React.FC<{ viewer: RVViewer; plugin: OSMMapPlugin; workers
             <LocalShipping sx={{ fontSize: 14 }} />
             <Typography sx={{ fontSize: 10, fontWeight: 900 }}>{asset.id}</Typography>
             <Chip label={asset.loadPct + '%'} size="small" sx={{ height: 15, fontSize: 8, bgcolor: 'rgba(255,255,255,0.16)', color: '#fff', fontWeight: 900 }} />
+            {asset.etaText && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3, pl: 0.3 }}>
+                <AccessTime sx={{ fontSize: 11 }} />
+                <Typography sx={{ fontSize: 9, fontWeight: 900 }}>{asset.etaText}</Typography>
+              </Box>
+            )}
           </Box>
         </Box>
       </AdvancedMarker>
@@ -282,7 +295,7 @@ const YardMapMarkers: React.FC<{ viewer: RVViewer; plugin: OSMMapPlugin; workers
     {workers.map(worker => (
       <AdvancedMarker key={worker.id} position={{ lat: worker.lat, lng: worker.lng }}>
         <Tooltip title={worker.name + ' - ' + worker.role + ' - simulated GPS'}>
-          <Box onClick={() => emitAssetDetail(viewer, worker.name)} sx={{ width: 22, height: 22, borderRadius: '50%', display: 'grid', placeItems: 'center', bgcolor: worker.role === 'Security' ? '#ff5252' : '#00c853', border: '2px solid white', boxShadow: '0 0 0 5px rgba(255,255,255,0.16), 0 8px 18px rgba(0,0,0,0.36)', pointerEvents: 'auto', cursor: 'pointer' }}>
+          <Box onClick={() => emitAssetDetail(viewer, worker.name)} sx={{ width: 22, height: 22, borderRadius: '50%', display: 'grid', placeItems: 'center', bgcolor: worker.role === 'Security' ? '#D9534F' : '#5FB37A', border: '2px solid white', boxShadow: '0 0 0 5px rgba(255,255,255,0.16), 0 8px 18px rgba(0,0,0,0.36)', pointerEvents: 'auto', cursor: 'pointer' }}>
             <BadgeIcon sx={{ fontSize: 12, color: '#071013' }} />
           </Box>
         </Tooltip>
@@ -295,7 +308,7 @@ const YardMapDashboard: React.FC<{ active: boolean; workers: SiteWorker[]; logis
   <Box sx={{ position: 'absolute', left: 64, top: 112, width: 308, zIndex: 5, display: active ? 'block' : 'none', pointerEvents: 'auto' }}>
     <Paper sx={{ bgcolor: 'rgba(7, 12, 16, 0.88)', color: '#fff', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 18px 42px rgba(0,0,0,0.42)', backdropFilter: 'blur(14px)' }}>
       <Box sx={{ p: 1.4, borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-        <Typography sx={{ fontSize: 10, color: '#20c7d9', fontWeight: 900, letterSpacing: 1 }}>{DEMO_PROFILE.client.siteCode} YARD CONTROL</Typography>
+        <Typography sx={{ fontSize: 10, color: '#3FB8C4', fontWeight: 900, letterSpacing: 1 }}>{DEMO_PROFILE.client.siteCode} YARD CONTROL</Typography>
         <Typography sx={{ fontSize: 16, fontWeight: 900, mt: 0.2 }}>Wakefield 41 Site Map</Typography>
         <Typography sx={{ fontSize: 10.5, color: 'rgba(255,255,255,0.62)', mt: 0.4 }}>Prototype location: Wakefield 41 Industrial Estate, Telford Way / Kenmore Road.</Typography>
       </Box>
@@ -303,23 +316,197 @@ const YardMapDashboard: React.FC<{ active: boolean; workers: SiteWorker[]; logis
         {[['Inbound', '1 held'], ['Dock 4', '2 queue'], ['Team', String(workers.length) + ' live']].map(([label, value]) => (
           <Box key={label} sx={{ bgcolor: 'rgba(255,255,255,0.07)', borderRadius: '6px', p: 0.9 }}>
             <Typography sx={{ fontSize: 9, color: 'rgba(255,255,255,0.52)', fontWeight: 800 }}>{label}</Typography>
-            <Typography sx={{ fontSize: 13, color: label === 'Dock 4' ? '#ffd54f' : '#20c7d9', fontWeight: 900 }}>{value}</Typography>
+            <Typography sx={{ fontSize: 13, color: label === 'Dock 4' ? '#D9A441' : '#3FB8C4', fontWeight: 900 }}>{value}</Typography>
           </Box>
         ))}
       </Box>
       <Box sx={{ px: 1.2, pb: 1.2 }}>
         <Box sx={{ display: 'flex', gap: 0.7, mb: 1 }}>
-          <Chip icon={<Warehouse sx={{ fontSize: 12 }} />} label="Site boundary" size="small" sx={{ color: '#20c7d9', borderColor: 'rgba(32,199,217,0.45)' }} variant="outlined" />
-          <Chip label="Simulated GPS" size="small" sx={{ color: '#ffd54f', borderColor: 'rgba(255,213,79,0.45)' }} variant="outlined" />
+          <Chip icon={<Warehouse sx={{ fontSize: 12 }} />} label="Site boundary" size="small" sx={{ color: '#3FB8C4', borderColor: 'rgba(32,199,217,0.45)' }} variant="outlined" />
+          <Chip label="Simulated GPS" size="small" sx={{ color: '#D9A441', borderColor: 'rgba(255,213,79,0.45)' }} variant="outlined" />
         </Box>
-        {logistics.slice(0, 3).map(asset => (
-          <Box key={asset.id} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, py: 0.7, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-            <Typography sx={{ fontSize: 11, fontWeight: 900 }}>{asset.id}</Typography>
-            <Typography sx={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>{asset.destination}</Typography>
+        {logistics.slice(0, 4).map(asset => (
+          <Box key={asset.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, py: 0.7, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: 11, fontWeight: 900 }}>{asset.id}</Typography>
+              <Typography sx={{ fontSize: 9.5, color: 'rgba(255,255,255,0.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{asset.destination}</Typography>
+            </Box>
+            <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
+              <Typography sx={{ fontSize: 11, fontWeight: 900, color: asset.etaText ? '#3FB8C4' : 'rgba(255,255,255,0.4)' }}>{asset.etaText || 'on-site'}</Typography>
+              {asset.distanceText && <Typography sx={{ fontSize: 9, color: 'rgba(255,255,255,0.5)' }}>{asset.distanceText}</Typography>}
+            </Box>
           </Box>
         ))}
       </Box>
     </Paper>
+  </Box>
+);
+
+/**
+ * YardRouting
+ * Resolves a real driving route on the road network for every road-going vehicle
+ * via the Google Directions service, hands the road geometry back to the plugin
+ * (so trucks animate along actual roads) and renders each route on the map.
+ */
+const YardRouting: React.FC<{ plugin: OSMMapPlugin; logistics: LogisticsAsset[] }> = ({ plugin, logistics }) => {
+  const routesLib = useMapsLibrary('routes');
+  const map = useMap('wpf-yard-map');
+  // Stable key: only re-route when a vehicle's id/destination changes, not on every position tick.
+  const routeKey = logistics
+    .filter(a => a.destLat != null && a.destLng != null)
+    .map(a => `${a.id}:${a.destLat},${a.destLng}`)
+    .join('|');
+
+  useEffect(() => {
+    if (!routesLib || !map) return undefined;
+    const service = new routesLib.DirectionsService();
+    const renderers: google.maps.DirectionsRenderer[] = [];
+
+    logistics
+      .filter(a => a.destLat != null && a.destLng != null)
+      .forEach(asset => {
+        service.route(
+          {
+            origin: { lat: plugin.latitude, lng: plugin.longitude },
+            destination: { lat: asset.destLat!, lng: asset.destLng! },
+            travelMode: google.maps.TravelMode.DRIVING,
+          },
+          (result, status) => {
+            if (status !== google.maps.DirectionsStatus.OK || !result) return;
+            const route = result.routes[0];
+            const path = route.overview_path.map(p => ({ lat: p.lat(), lng: p.lng() }));
+            const leg = route.legs[0];
+            plugin.setVehicleRoute(asset.id, path, leg?.duration?.text ?? '', leg?.distance?.text ?? '');
+            const renderer = new routesLib.DirectionsRenderer({
+              map,
+              directions: result,
+              suppressMarkers: true,
+              preserveViewport: true,
+              polylineOptions: {
+                strokeColor: asset.type === 'Delivery Van' ? '#5FB37A' : '#3FB8C4',
+                strokeOpacity: 0.85,
+                strokeWeight: 4,
+              },
+            });
+            renderers.push(renderer);
+          },
+        );
+      });
+
+    return () => renderers.forEach(r => r.setMap(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routesLib, map, routeKey]);
+
+  return null;
+};
+
+/**
+ * DispatchSearch
+ * A functional "dispatch to any address" workflow: type/geocode a UK destination
+ * with Places Autocomplete, draw the real driving route from the site, and surface
+ * the live distance + ETA returned by Google Directions.
+ */
+const DispatchSearch: React.FC<{ plugin: OSMMapPlugin }> = ({ plugin }) => {
+  const placesLib = useMapsLibrary('places');
+  const routesLib = useMapsLibrary('routes');
+  const map = useMap('wpf-yard-map');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const rendererRef = useRef<google.maps.DirectionsRenderer | null>(null);
+  const [result, setResult] = useState<{ name: string; eta: string; dist: string } | null>(null);
+
+  useEffect(() => {
+    if (!placesLib || !routesLib || !map || !inputRef.current) return undefined;
+    const autocomplete = new placesLib.Autocomplete(inputRef.current, {
+      fields: ['geometry', 'name', 'formatted_address'],
+      componentRestrictions: { country: 'gb' },
+    });
+    const service = new routesLib.DirectionsService();
+
+    const listener = autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace();
+      const location = place.geometry?.location;
+      if (!location) return;
+      service.route(
+        {
+          origin: { lat: plugin.latitude, lng: plugin.longitude },
+          destination: location,
+          travelMode: google.maps.TravelMode.DRIVING,
+        },
+        (res, status) => {
+          if (status !== google.maps.DirectionsStatus.OK || !res) return;
+          rendererRef.current?.setMap(null);
+          rendererRef.current = new routesLib.DirectionsRenderer({
+            map,
+            directions: res,
+            suppressMarkers: false,
+            preserveViewport: false,
+            polylineOptions: { strokeColor: '#D9A441', strokeOpacity: 0.95, strokeWeight: 5 },
+          });
+          const leg = res.routes[0].legs[0];
+          setResult({
+            name: place.name || place.formatted_address || 'Destination',
+            eta: leg?.duration?.text ?? '',
+            dist: leg?.distance?.text ?? '',
+          });
+        },
+      );
+    });
+
+    return () => {
+      listener.remove();
+      rendererRef.current?.setMap(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placesLib, routesLib, map]);
+
+  return (
+    <Box sx={{ position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 6, width: 360, maxWidth: '80vw', pointerEvents: 'auto' }}>
+      <Paper sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.4, py: 0.9, bgcolor: 'rgba(7,12,16,0.92)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', backdropFilter: 'blur(12px)', boxShadow: '0 12px 30px rgba(0,0,0,0.4)' }}>
+        <Search sx={{ fontSize: 18, color: '#3FB8C4' }} />
+        <input
+          ref={inputRef}
+          placeholder="Dispatch to any UK address…"
+          style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 13, fontWeight: 600 }}
+        />
+      </Paper>
+      {result && (
+        <Paper sx={{ mt: 1, px: 1.4, py: 1, bgcolor: 'rgba(7,12,16,0.92)', border: '1px solid rgba(255,213,79,0.4)', borderRadius: '10px', backdropFilter: 'blur(12px)' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <RouteIcon sx={{ fontSize: 15, color: '#D9A441' }} />
+            <Typography sx={{ fontSize: 12, fontWeight: 900, color: '#fff', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{result.name}</Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 2, mt: 0.6 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <AccessTime sx={{ fontSize: 13, color: '#3FB8C4' }} />
+              <Typography sx={{ fontSize: 12, fontWeight: 800, color: '#3FB8C4' }}>{result.eta}</Typography>
+            </Box>
+            <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'rgba(255,255,255,0.7)' }}>{result.dist}</Typography>
+          </Box>
+        </Paper>
+      )}
+    </Box>
+  );
+};
+
+type MapTypeChoice = 'hybrid' | 'satellite' | 'roadmap';
+
+const MapTypeSwitcher: React.FC<{ value: MapTypeChoice; onChange: (v: MapTypeChoice) => void }> = ({ value, onChange }) => (
+  <Box sx={{ position: 'absolute', top: 16, right: 16, zIndex: 6, display: 'flex', gap: 0.5, p: 0.5, bgcolor: 'rgba(7,12,16,0.9)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: '10px', backdropFilter: 'blur(12px)', pointerEvents: 'auto' }}>
+    {(['hybrid', 'satellite', 'roadmap'] as MapTypeChoice[]).map(choice => (
+      <Box
+        key={choice}
+        onClick={() => onChange(choice)}
+        sx={{
+          px: 1.1, py: 0.5, borderRadius: '7px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 0.5,
+          bgcolor: value === choice ? 'rgba(32,199,217,0.22)' : 'transparent',
+          border: value === choice ? '1px solid rgba(32,199,217,0.5)' : '1px solid transparent',
+          '&:hover': { bgcolor: value === choice ? 'rgba(32,199,217,0.28)' : 'rgba(255,255,255,0.08)' },
+        }}
+      >
+        <Layers sx={{ fontSize: 13, color: value === choice ? '#3FB8C4' : 'rgba(255,255,255,0.6)' }} />
+        <Typography sx={{ fontSize: 10, fontWeight: 900, letterSpacing: 0.4, color: value === choice ? '#3FB8C4' : 'rgba(255,255,255,0.6)', textTransform: 'capitalize' }}>{choice}</Typography>
+      </Box>
+    ))}
   </Box>
 );
 
@@ -338,6 +525,7 @@ const GoogleYardMapPortal: React.FC<UISlotProps> = ({ viewer }) => {
   const [active, setActive] = useState(false);
   const [workers, setWorkers] = useState<SiteWorker[]>([]);
   const [logistics, setLogistics] = useState<LogisticsAsset[]>([]);
+  const [mapType, setMapType] = useState<MapTypeChoice>('hybrid');
   const mapPlugin = viewer.getPlugin('osm-map') as OSMMapPlugin | undefined;
   const mapContainer = mapPlugin?.mapContainer;
 
@@ -378,14 +566,14 @@ const GoogleYardMapPortal: React.FC<UISlotProps> = ({ viewer }) => {
   }
 
   return createPortal(
-    <Box sx={{ position: 'absolute', inset: 0, zIndex: 1, display: active ? 'block' : 'none', '& .gm-style': { fontFamily: 'Roboto, Arial, sans-serif' } }}>
-      <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={['marker']} version="weekly" language={GOOGLE_MAPS_LANGUAGE} region={GOOGLE_MAPS_REGION}>
+    <Box sx={{ position: 'absolute', inset: 0, zIndex: 1, display: active ? 'block' : 'none', '& .gm-style': { fontFamily: 'Roboto, Arial, sans-serif' }, '& .pac-container': { zIndex: 4000 } }}>
+      <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={['marker', 'places', 'routes', 'geometry']} version="weekly" language={GOOGLE_MAPS_LANGUAGE} region={GOOGLE_MAPS_REGION}>
         <Map
           id="wpf-yard-map"
           mapId={GOOGLE_MAPS_MAP_ID}
           defaultCenter={{ lat: mapPlugin.latitude, lng: mapPlugin.longitude }}
           defaultZoom={mapPlugin.zoom}
-          mapTypeId="satellite"
+          mapTypeId={mapType}
           tilt={0}
           heading={0}
           disableDefaultUI
@@ -397,9 +585,12 @@ const GoogleYardMapPortal: React.FC<UISlotProps> = ({ viewer }) => {
         >
           <YardMapLinework plugin={mapPlugin} logistics={logistics} />
           <YardMapMarkers viewer={viewer} plugin={mapPlugin} workers={workers} logistics={logistics} />
+          <YardRouting plugin={mapPlugin} logistics={logistics} />
           <GoogleMapBinder plugin={mapPlugin} />
         </Map>
+        <DispatchSearch plugin={mapPlugin} />
       </APIProvider>
+      <MapTypeSwitcher value={mapType} onChange={setMapType} />
       <YardMapDashboard active={active} workers={workers} logistics={logistics} />
     </Box>,
     mapContainer,
@@ -432,7 +623,7 @@ const OSMMapToggle: React.FC<UISlotProps> = ({ viewer }) => {
           onClick={toggle}
           sx={{
             bgcolor: active ? 'rgba(32, 161, 177, 0.2)' : 'rgba(0,0,0,0.4)',
-            color: active ? '#20a1b1' : '#fff', backdropFilter: 'blur(4px)',
+            color: active ? '#3FB8C4' : '#fff', backdropFilter: 'blur(4px)',
             '&:hover': { bgcolor: active ? 'rgba(32, 161, 177, 0.3)' : 'rgba(255,255,255,0.1)' }
           }}
         >
@@ -502,10 +693,10 @@ export class OSMMapPlugin implements RVViewerPlugin {
   ];
 
   readonly zones: YardZone[] = [
-    { id: 'wakefield-factory', name: DEMO_PROFILE.client.siteName, kind: 'factory', status: 'Packing live', position: { lat: 53.6931, lng: -1.5034 }, accent: '#20c7d9' },
-    { id: 'north-gate', name: 'Gatehouse', kind: 'gate', status: 'HGV-14 held', position: { lat: 53.69435, lng: -1.5061 }, accent: '#8bd67f' },
-    { id: 'loading-dock-b', name: DEMO_PROFILE.assets.dockLabel, kind: 'dock', status: '2 waiting', position: { lat: 53.69225, lng: -1.50215 }, accent: '#ffd54f' },
-    { id: 'cold-store-b', name: DEMO_PROFILE.assets.coldStore, kind: 'cold', status: '2.4 C stable', position: { lat: 53.69275, lng: -1.50155 }, accent: '#20c7d9' },
+    { id: 'wakefield-factory', name: DEMO_PROFILE.client.siteName, kind: 'factory', status: 'Packing live', position: { lat: 53.6931, lng: -1.5034 }, accent: '#3FB8C4' },
+    { id: 'north-gate', name: 'Gatehouse', kind: 'gate', status: 'HGV-14 held', position: { lat: 53.69435, lng: -1.5061 }, accent: '#5FB37A' },
+    { id: 'loading-dock-b', name: DEMO_PROFILE.assets.dockLabel, kind: 'dock', status: '2 waiting', position: { lat: 53.69225, lng: -1.50215 }, accent: '#D9A441' },
+    { id: 'cold-store-b', name: DEMO_PROFILE.assets.coldStore, kind: 'cold', status: '2.4 C stable', position: { lat: 53.69275, lng: -1.50155 }, accent: '#3FB8C4' },
   ];
 
   bindReactMap(map: google.maps.Map): void {
@@ -583,10 +774,10 @@ export class OSMMapPlugin implements RVViewerPlugin {
   private _workerProgress = [0, 0.7, 1.3, 2.0, 0.4, 1.6];
 
   private _logistics: LogisticsAsset[] = [
-    { id: DEMO_PROFILE.assets.inboundVehicle, type: 'Truck', lat: 53.695, lng: -1.508, destination: 'A650 Northbound', loadPct: 85, driver: 'R. Taylor', rounds: 3, shift: 'AM', startTime: '06:00' },
+    { id: DEMO_PROFILE.assets.inboundVehicle, type: 'Truck', lat: 53.695, lng: -1.508, destination: 'Leeds RDC', loadPct: 85, driver: 'R. Taylor', rounds: 3, shift: 'AM', startTime: '06:00', destLat: 53.7965, destLng: -1.5478 },
     { id: DEMO_PROFILE.assets.yardTug, type: 'Truck', lat: 53.691, lng: -1.501, destination: DEMO_PROFILE.assets.coldStore, loadPct: 40, driver: 'S. Malik', rounds: 5, shift: 'AM', startTime: '06:15' },
-    { id: 'HGV-27', type: 'Truck', lat: 53.698, lng: -1.512, destination: 'WPF Dispatch', loadPct: 10, driver: 'G. Khan', rounds: 2, shift: 'AM', startTime: '07:00' },
-    { id: 'VAN-06', type: 'Delivery Van', lat: 53.694, lng: -1.505, destination: DEMO_PROFILE.assets.dock, loadPct: 60, driver: 'A. Shah', rounds: 8, shift: 'AM', startTime: '08:30' }
+    { id: 'HGV-27', type: 'Truck', lat: 53.698, lng: -1.512, destination: 'Sheffield DC', loadPct: 10, driver: 'G. Khan', rounds: 2, shift: 'AM', startTime: '07:00', destLat: 53.3811, destLng: -1.4701 },
+    { id: 'VAN-06', type: 'Delivery Van', lat: 53.694, lng: -1.505, destination: 'Wakefield Retail', loadPct: 60, driver: 'A. Shah', rounds: 8, shift: 'AM', startTime: '08:30', destLat: 53.6833, destLng: -1.4977 }
   ];
 
   private _latitude = 53.6931;
@@ -651,6 +842,44 @@ export class OSMMapPlugin implements RVViewerPlugin {
 
   private _truckProgress = [0, 0, 0.5, 0.2];
 
+  /** Real road geometry (Google Directions overview_path) keyed by vehicle id. */
+  private _vehiclePaths: Record<string, GoogleMapPoint[]> = {};
+  /** Normalised 0..1 progress of each vehicle along its road path. */
+  private _roadProgress: Record<string, number> = {};
+
+  /**
+   * Called from the React routing layer once Google Directions resolves a real
+   * road route for a vehicle. Stores the road geometry so the sim can animate the
+   * vehicle along actual roads and surfaces the live ETA / distance on its card.
+   */
+  setVehicleRoute(id: string, path: GoogleMapPoint[], etaText: string, distanceText: string): void {
+    if (!path || path.length < 2) return;
+    this._vehiclePaths[id] = path;
+    if (this._roadProgress[id] == null) this._roadProgress[id] = Math.random() * 0.6;
+    const asset = this._logistics.find(l => l.id === id);
+    if (asset) {
+      asset.etaText = etaText;
+      asset.distanceText = distanceText;
+      const start = this._interpolatePath(path, this._roadProgress[id]);
+      asset.lat = start.lat;
+      asset.lng = start.lng;
+    }
+    this._viewer?.emit('osm-logistics-updated' as any, { logistics: this._logistics });
+  }
+
+  /** Interpolate a lat/lng along a dense poly-path using normalised progress t (0..1). */
+  private _interpolatePath(path: GoogleMapPoint[], t: number): GoogleMapPoint {
+    const n = path.length;
+    if (n === 0) return { lat: this._latitude, lng: this._longitude };
+    if (n === 1) return path[0];
+    const f = Math.min(0.999999, Math.max(0, t)) * (n - 1);
+    const idx = Math.floor(f);
+    const alpha = f - idx;
+    const p1 = path[idx];
+    const p2 = path[idx + 1] ?? path[idx];
+    return { lat: p1.lat + (p2.lat - p1.lat) * alpha, lng: p1.lng + (p2.lng - p1.lng) * alpha };
+  }
+
   private _startMockSimulation(): void {
     if (this._simTimer) return;
     this._simTimer = setInterval(() => {
@@ -663,19 +892,34 @@ export class OSMMapPlugin implements RVViewerPlugin {
         w.lng = pos.lng;
       });
 
-      // Mock truck movement following routes
+      // Vehicle movement. Road-going vehicles follow the real Google Directions
+      // geometry (roads); the internal yard tug falls back to a bounded on-site loop.
       this._logistics.forEach((l, i) => {
-        const route = this._truckRoutes[i % this._truckRoutes.length];
-        const previousProgress = this._truckProgress[i];
-        this._truckProgress[i] = this._advanceRoute(this._truckProgress[i], route, 0.003);
-        if (this._truckProgress[i] < previousProgress) {
-          l.rounds++;
-          l.loadPct = 35 + ((l.rounds * 17 + i * 11) % 60);
+        const roadPath = this._vehiclePaths[l.id];
+        if (roadPath && roadPath.length > 1) {
+          const prev = this._roadProgress[l.id] ?? 0;
+          let next = prev + 0.0022;
+          if (next >= 1) {
+            next -= 1;
+            l.rounds++;
+            l.loadPct = 35 + ((l.rounds * 17 + i * 11) % 60);
+          }
+          this._roadProgress[l.id] = next;
+          const pos = this._interpolatePath(roadPath, next);
+          l.lat = pos.lat;
+          l.lng = pos.lng;
+        } else {
+          const route = this._truckRoutes[i % this._truckRoutes.length];
+          const previousProgress = this._truckProgress[i];
+          this._truckProgress[i] = this._advanceRoute(this._truckProgress[i], route, 0.003);
+          if (this._truckProgress[i] < previousProgress) {
+            l.rounds++;
+            l.loadPct = 35 + ((l.rounds * 17 + i * 11) % 60);
+          }
+          const pos = this._interpolateRoute(route, this._truckProgress[i]);
+          l.lat = pos.lat;
+          l.lng = pos.lng;
         }
-
-        const pos = this._interpolateRoute(route, this._truckProgress[i]);
-        l.lat = pos.lat;
-        l.lng = pos.lng;
       });
 
       // Update dynamic labels (e.g. Loading Dock Status)

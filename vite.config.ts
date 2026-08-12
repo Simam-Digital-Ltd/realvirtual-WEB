@@ -418,10 +418,10 @@ export default defineConfig({
     rollupOptions: {
       output: {
         banner: '/* realvirtual WEB | AGPL-3.0-only | Copyright (C) 2025 realvirtual GmbH | https://realvirtual.io */',
-        manualChunks: {
-          three: ['three'],
-          echarts: ['echarts'],
-          rapier: ['@dimforge/rapier3d-compat'],
+        manualChunks(id: string) {
+          if (id.includes('@dimforge/rapier3d-compat')) return 'rapier';
+          if (id.includes('/echarts/') || id.includes('/zrender/')) return 'echarts';
+          if (id.includes('/node_modules/three/')) return 'three';
         },
       },
     },

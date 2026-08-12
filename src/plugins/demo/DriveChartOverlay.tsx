@@ -261,10 +261,10 @@ export function DriveChartOverlay() {
           sx={{
             height: 20,
             fontSize: 10,
-            color: '#ffa726',
+            color: '#D9A441',
             borderColor: 'rgba(255,167,38,0.3)',
-            '& .MuiChip-icon': { color: '#ffa726', ml: 0.5 },
-            '& .MuiChip-deleteIcon': { color: '#ffa726', fontSize: 14 },
+            '& .MuiChip-icon': { color: '#D9A441', ml: 0.5 },
+            '& .MuiChip-deleteIcon': { color: '#D9A441', fontSize: 14 },
           }}
           variant="outlined"
         />
@@ -276,7 +276,7 @@ export function DriveChartOverlay() {
         exclusive
         onChange={(_, v) => { if (v) setPeriod(v as TimePeriod); }}
         size="small"
-        sx={compactToggleGroupSx('#66bb6a', '102,187,106', { ml: 'auto' })}
+        sx={compactToggleGroupSx('#5FB37A', '102,187,106', { ml: 'auto' })}
       >
         {PERIOD_OPTIONS.map((p) => (
           <ToggleButton key={p} value={p}>
@@ -291,7 +291,7 @@ export function DriveChartOverlay() {
         exclusive
         onChange={(_, v) => { if (v) setMode(v as ChartMode); }}
         size="small"
-        sx={compactToggleGroupSx('#4fc3f7', '79,195,247')}
+        sx={compactToggleGroupSx('#3FB8C4', '79,195,247')}
       >
         <ToggleButton value="position">Position</ToggleButton>
         <ToggleButton value="speed">Speed</ToggleButton>
@@ -305,7 +305,7 @@ export function DriveChartOverlay() {
       open={open && !suppressed}
       onClose={() => viewer.toggleDriveChart(false)}
       title="Drive Monitor"
-      titleColor="#4fc3f7"
+      titleColor="#3FB8C4"
       subtitle={driveCount}
       defaultWidth={CHART_DEFAULT_WIDTH}
       defaultHeight={DEFAULT_H}

@@ -6,11 +6,11 @@ import { createTheme } from '@mui/material/styles';
 export const rvDarkTheme = createTheme({
   palette: {
     mode: 'dark',
-    primary:    { main: '#20a1b1' }, // Simam Teal
-    secondary:  { main: '#7b52ee' }, // Simam Purple
-    success:    { main: '#66bb6a' },
-    warning:    { main: '#ffa726' },
-    error:      { main: '#ef5350' },
+    primary:    { main: '#3FB8C4' }, // Simam Teal
+    secondary:  { main: '#8B7BC7' }, // Simam Purple
+    success:    { main: '#5FB37A' },
+    warning:    { main: '#D9A441' },
+    error:      { main: '#D9534F' },
     background: {
       default: 'transparent',
       paper: 'rgba(10, 10, 10, 0.6)', // Darker glass

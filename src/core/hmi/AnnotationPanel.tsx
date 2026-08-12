@@ -92,7 +92,7 @@ export function AnnotationPanel() {
     >
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', p: 1, gap: 0.5 }}>
-        <PushPin sx={{ fontSize: 14, color: '#FF5722' }} />
+        <PushPin sx={{ fontSize: 14, color: '#D9A441' }} />
         <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)', flexGrow: 1 }}>
           Annotations ({snap.annotations.length})
         </Typography>
@@ -158,14 +158,14 @@ export function AnnotationPanel() {
               <IconButton
                 size="small"
                 onClick={(e) => { e.stopPropagation(); handleStartEdit(ann); }}
-                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#4fc3f7' } }}
+                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#3FB8C4' } }}
               >
                 <EditNote sx={{ fontSize: 12 }} />
               </IconButton>
               <IconButton
                 size="small"
                 onClick={(e) => { e.stopPropagation(); handleDelete(ann.id); }}
-                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#ef5350' } }}
+                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#D9534F' } }}
               >
                 <Delete sx={{ fontSize: 12 }} />
               </IconButton>

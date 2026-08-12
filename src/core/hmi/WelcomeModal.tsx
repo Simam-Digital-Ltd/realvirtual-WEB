@@ -40,7 +40,7 @@ export function WelcomeModal({ open, onClose }: WelcomeModalProps) {
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <Typography variant="h6" sx={{ fontWeight: 700, color: '#4fc3f7' }}>
+        <Typography variant="h6" sx={{ fontWeight: 700, color: '#3FB8C4' }}>
           realvirtual WEB
         </Typography>
         <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', letterSpacing: 2, textTransform: 'uppercase', fontSize: 10, mt: -1 }}>
@@ -71,14 +71,14 @@ export function WelcomeModal({ open, onClose }: WelcomeModalProps) {
         <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
           Open source under the <strong style={{ color: '#fff' }}>AGPL-3.0 license</strong>.
           Part of the{' '}
-          <a href="https://realvirtual.io" target="_blank" rel="noopener noreferrer" style={{ color: '#4fc3f7', textDecoration: 'none' }}>
+          <a href="https://realvirtual.io" target="_blank" rel="noopener noreferrer" style={{ color: '#3FB8C4', textDecoration: 'none' }}>
             realvirtual.io
           </a>{' '}
           industrial digital twin platform.
         </Typography>
 
         <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.7 }}>
-          <a href="https://github.com/game4automation/realvirtual-WEB" target="_blank" rel="noopener noreferrer" style={{ color: '#4fc3f7', textDecoration: 'none' }}>
+          <a href="https://github.com/game4automation/realvirtual-WEB" target="_blank" rel="noopener noreferrer" style={{ color: '#3FB8C4', textDecoration: 'none' }}>
             github.com/game4automation/realvirtual-WEB
           </a>
         </Typography>

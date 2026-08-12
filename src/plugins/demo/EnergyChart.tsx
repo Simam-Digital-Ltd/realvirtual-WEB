@@ -16,13 +16,13 @@ import { useEChart } from '../../hooks/use-echart';
 import { createBaseChartOption, DARK_TOOLTIP_BASE } from '../../core/hmi/chart-theme';
 
 const COMPONENTS = [
-  { key: 'spindle', name: 'Spindle', color: '#ef4444' },
-  { key: 'coolant', name: 'Coolant', color: '#38bdf8' },
-  { key: 'hydraulics', name: 'Hydraulics', color: '#f59e0b' },
-  { key: 'robot', name: 'Robot', color: '#a78bfa' },
-  { key: 'conveyorEntry', name: 'Conv. Entry', color: '#22c55e' },
-  { key: 'conveyorExit', name: 'Conv. Exit', color: '#06b6d4' },
-  { key: 'auxiliary', name: 'Auxiliary', color: '#94a3b8' },
+  { key: 'spindle', name: 'Spindle', color: '#D9534F' },
+  { key: 'coolant', name: 'Coolant', color: '#3FB8C4' },
+  { key: 'hydraulics', name: 'Hydraulics', color: '#D9A441' },
+  { key: 'robot', name: 'Robot', color: '#8B7BC7' },
+  { key: 'conveyorEntry', name: 'Conv. Entry', color: '#5FB37A' },
+  { key: 'conveyorExit', name: 'Conv. Exit', color: '#3FB8C4' },
+  { key: 'auxiliary', name: 'Auxiliary', color: '#8A97A8' },
 ] as const;
 
 interface EnergyChartProps {
@@ -114,7 +114,7 @@ export function EnergyChart({ open, onClose }: EnergyChartProps) {
       open={open}
       onClose={onClose}
       title="Power Consumption"
-      titleColor="#ef5350"
+      titleColor="#D9534F"
       subtitle="Last 24h"
       defaultWidth={750}
       defaultHeight={360}

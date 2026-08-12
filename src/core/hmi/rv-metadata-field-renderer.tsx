@@ -57,7 +57,7 @@ function MetadataContentRenderer({ value }: FieldRendererProps) {
           case 'name':
           case 'bold':
             return (
-              <Typography key={i} sx={{ fontSize: 12, fontWeight: 700, color: '#ffa040', lineHeight: 1.4 }}>
+              <Typography key={i} sx={{ fontSize: 12, fontWeight: 700, color: '#D9A441', lineHeight: 1.4 }}>
                 {t.text}
               </Typography>
             );
@@ -105,7 +105,7 @@ function MetadataContentRenderer({ value }: FieldRendererProps) {
                 href={url ?? '#'}
                 target="_blank"
                 rel="noopener noreferrer"
-                sx={{ fontSize: 11, color: '#64b5f6', textDecoration: 'underline', cursor: 'pointer', pointerEvents: 'auto' }}
+                sx={{ fontSize: 11, color: '#3FB8C4', textDecoration: 'underline', cursor: 'pointer', pointerEvents: 'auto' }}
               >
                 {t.text}
               </Typography>

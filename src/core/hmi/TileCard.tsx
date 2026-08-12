@@ -14,10 +14,10 @@ const iconMap: Record<string, React.ReactElement> = {
 };
 
 const severityColors: Record<string, string> = {
-  error: '#ef5350',
-  warning: '#ffa726',
-  info: '#4fc3f7',
-  success: '#66bb6a',
+  error: '#D9534F',
+  warning: '#D9A441',
+  info: '#3FB8C4',
+  success: '#5FB37A',
 };
 
 export interface TileCardProps {

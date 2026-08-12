@@ -172,10 +172,10 @@ export function ComponentSection({ nodePath, componentType, data, overriddenFiel
               onClick={onResetComponent}
               sx={{
                 fontSize: 9,
-                color: '#4fc3f7',
+                color: '#3FB8C4',
                 ml: 'auto',
                 cursor: 'pointer',
-                '&:hover': { color: '#ffa726', textDecoration: 'underline' },
+                '&:hover': { color: '#D9A441', textDecoration: 'underline' },
               }}
             >
               {overriddenFields.size} override{overriddenFields.size !== 1 ? 's' : ''}

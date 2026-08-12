@@ -47,10 +47,10 @@ import type { MaintenanceStep } from '../maintenance-parser';
 
 // ─── ISA-101 Colors ──────────────────────────────────────────────────────
 
-const COLOR_DONE    = '#66bb6a';
-const COLOR_ACTIVE  = '#ffa726';
+const COLOR_DONE    = '#5FB37A';
+const COLOR_ACTIVE  = '#D9A441';
 const COLOR_PENDING = 'rgba(255,255,255,0.3)';
-const COLOR_WARNING = '#ef5350';
+const COLOR_WARNING = '#D9534F';
 
 // ─── Helper: Get plugin instance ────────────────────────────────────────
 
@@ -230,7 +230,7 @@ function ModeDialog({ plugin }: { plugin: MaintenancePluginAPI }) {
           bgcolor: COLOR_ACTIVE,
           color: '#000',
           justifyContent: 'flex-start',
-          '&:hover': { bgcolor: '#ffb74d' },
+          '&:hover': { bgcolor: '#D9A441' },
         }}
       >
         Start Step-by-Step
@@ -323,7 +323,7 @@ function CompletionSummary({ plugin }: { plugin: MaintenancePluginAPI }) {
           bgcolor: COLOR_DONE,
           color: '#000',
           mt: 1,
-          '&:hover': { bgcolor: '#81c784' },
+          '&:hover': { bgcolor: '#5FB37A' },
         }}
       >
         Back to Overview
@@ -372,7 +372,7 @@ function StepperView({ plugin, isFlythrough }: { plugin: MaintenancePluginAPI; i
             onClick={() => {
               import('./trend-overlay-store').then(s => s.openTrendOverlay('wakefield-asset-1'));
             }}
-            sx={{ textTransform: 'none', fontSize: 10, py: 0, color: '#00e676', borderColor: 'rgba(0,230,118,0.3)' }}
+            sx={{ textTransform: 'none', fontSize: 10, py: 0, color: '#5FB37A', borderColor: 'rgba(0,230,118,0.3)' }}
           >
             Show Trend
           </Button>

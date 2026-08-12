@@ -60,7 +60,7 @@ function PipelineRow({ label, before, after }: { label: string; before: string; 
       <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
         <span style={{ color: 'rgba(255,255,255,0.35)' }}>{before}</span>
         <span style={{ color: 'rgba(255,255,255,0.25)', margin: '0 4px' }}>{'\u2192'}</span>
-        <span style={{ color: '#66bb6a' }}>{after}</span>
+        <span style={{ color: '#5FB37A' }}>{after}</span>
       </Typography>
     </Box>
   );
@@ -223,12 +223,12 @@ export function DevToolsTab() {
           </Button>
           {benchResult && (
             <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              <StatRow label="Uncapped FPS" value={String(benchResult.uncappedFps)} color="#4fc3f7" />
+              <StatRow label="Uncapped FPS" value={String(benchResult.uncappedFps)} color="#3FB8C4" />
               <StatRow label="Avg Frame" value={`${benchResult.avgFrameMs} ms`} />
               <StatRow
                 label="Headroom"
                 value={`${benchResult.headroom}%`}
-                color={benchResult.headroom > 200 ? '#66bb6a' : benchResult.headroom > 120 ? '#ffa726' : '#ef5350'}
+                color={benchResult.headroom > 200 ? '#5FB37A' : benchResult.headroom > 120 ? '#D9A441' : '#D9534F'}
               />
               <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', mt: 0.5 }}>
                 {benchResult.headroom > 200 ? 'Plenty of GPU headroom' :

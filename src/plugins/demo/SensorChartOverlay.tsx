@@ -232,7 +232,7 @@ export function SensorChartOverlay() {
         exclusive
         onChange={(_, v) => { if (v) setPeriod(v as TimePeriod); }}
         size="small"
-        sx={compactToggleGroupSx('#66bb6a', '102,187,106', { ml: 'auto' })}
+        sx={compactToggleGroupSx('#5FB37A', '102,187,106', { ml: 'auto' })}
       >
         {PERIOD_OPTIONS.map((p) => (
           <ToggleButton key={p} value={p}>
@@ -248,7 +248,7 @@ export function SensorChartOverlay() {
       open={open && !suppressed}
       onClose={() => viewer.toggleSensorChart(false)}
       title="Sensor Monitor"
-      titleColor="#66bb6a"
+      titleColor="#5FB37A"
       subtitle={`${sensorCount} sensors`}
       defaultWidth={CHART_DEFAULT_WIDTH}
       defaultHeight={DEFAULT_H}

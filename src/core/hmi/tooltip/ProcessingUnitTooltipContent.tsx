@@ -25,7 +25,7 @@ export function ProcessingUnitTooltipContent({ data }: TooltipContentProps<Proce
     <>
       <Typography
         variant="subtitle2"
-        sx={{ color: '#4fc3f7', fontWeight: 700, fontSize: 13, lineHeight: 1.2 }}
+        sx={{ color: '#3FB8C4', fontWeight: 700, fontSize: 13, lineHeight: 1.2 }}
       >
         {data.nodePath.split('/').pop() ?? 'Processing Unit'}
       </Typography>

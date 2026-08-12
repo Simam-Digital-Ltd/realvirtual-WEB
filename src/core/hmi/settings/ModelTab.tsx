@@ -133,7 +133,7 @@ export function ModelTab() {
 
           {/* Import error */}
           {importError && (
-            <Typography variant="caption" sx={{ color: '#f44336', display: 'block', mt: 1, fontSize: 10 }}>
+            <Typography variant="caption" sx={{ color: '#D9534F', display: 'block', mt: 1, fontSize: 10 }}>
               {importError}
             </Typography>
           )}

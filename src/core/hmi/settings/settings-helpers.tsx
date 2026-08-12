@@ -14,7 +14,7 @@ export function StatRow({ label, value, color }: { label: string; value: string;
   return (
     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>{label}</Typography>
-      <Typography variant="caption" sx={{ color: color ?? '#4fc3f7', fontWeight: 600, fontFamily: 'monospace' }}>
+      <Typography variant="caption" sx={{ color: color ?? '#3FB8C4', fontWeight: 600, fontFamily: 'monospace' }}>
         {value}
       </Typography>
     </Box>
@@ -39,6 +39,6 @@ export function BudgetRow({ label, pct, color }: { label: string; pct: number; c
 
 export function budgetPct(value: number, budget: number): { pct: number; color: string } {
   const pct = Math.min(Math.round((value / budget) * 100), 100);
-  const color = pct < 60 ? '#66bb6a' : pct < 85 ? '#ffa726' : '#ef5350';
+  const color = pct < 60 ? '#5FB37A' : pct < 85 ? '#D9A441' : '#D9534F';
   return { pct, color };
 }

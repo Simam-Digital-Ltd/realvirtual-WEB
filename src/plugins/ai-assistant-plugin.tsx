@@ -115,7 +115,7 @@ function escapeHtml(value: string): string {
 }
 
 function downloadShiftBrief(text: string): void {
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>WPF-41 Shift Brief</title><style>body{font-family:Segoe UI,Arial,sans-serif;margin:40px;color:#172026}h1{font-size:24px}pre{white-space:pre-wrap;font:14px/1.55 Segoe UI,Arial,sans-serif}.brand{color:#20a1b1;font-weight:700}</style></head><body><h1>WPF-41 Shift Brief</h1><div class="brand">Simam Digital Twin - built with realvirtual WEB</div><pre>${escapeHtml(text)}</pre><script>window.print()</script></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>WPF-41 Shift Brief</title><style>body{font-family:Segoe UI,Arial,sans-serif;margin:40px;color:#172026}h1{font-size:24px}pre{white-space:pre-wrap;font:14px/1.55 Segoe UI,Arial,sans-serif}.brand{color:#3FB8C4;font-weight:700}</style></head><body><h1>WPF-41 Shift Brief</h1><div class="brand">Simam Digital Twin - built with realvirtual WEB</div><pre>${escapeHtml(text)}</pre><script>window.print()</script></body></html>`;
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -236,7 +236,7 @@ const AIAssistantUI: React.FC<UISlotProps> = ({ viewer }) => {
       <Tooltip title="Ops Copilot" placement="bottom">
         <IconButton
           onClick={() => setOpen(true)}
-          sx={{ bgcolor: '#20a1b1', color: '#071013', boxShadow: '0 4px 18px rgba(32,161,177,0.35)', '&:hover': { bgcolor: '#2db8ca' } }}
+          sx={{ bgcolor: '#3FB8C4', color: '#071013', boxShadow: '0 4px 18px rgba(32,161,177,0.35)', '&:hover': { bgcolor: '#3FB8C4' } }}
         >
           <Psychology fontSize="small" />
         </IconButton>
@@ -263,10 +263,10 @@ const AIAssistantUI: React.FC<UISlotProps> = ({ viewer }) => {
       >
         <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: 'rgba(32,161,177,0.1)' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-            <Avatar sx={{ width: 32, height: 32, bgcolor: '#20a1b1', color: '#071013' }}><Psychology fontSize="small" /></Avatar>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: '#3FB8C4', color: '#071013' }}><Psychology fontSize="small" /></Avatar>
             <Box>
               <Typography sx={{ fontSize: 13, fontWeight: 900, lineHeight: 1 }}>Ops Copilot</Typography>
-              <Typography sx={{ color: '#81c784', fontSize: 10, fontWeight: 700 }}>live demo agent - {scenario === 'dock4-blocked' ? 'Dock 4 blocked' : 'normal shift'}</Typography>
+              <Typography sx={{ color: '#5FB37A', fontSize: 10, fontWeight: 700 }}>live demo agent - {scenario === 'dock4-blocked' ? 'Dock 4 blocked' : 'normal shift'}</Typography>
             </Box>
           </Box>
           <IconButton size="small" onClick={() => setOpen(false)} sx={{ color: 'rgba(255,255,255,0.62)' }}><Close fontSize="small" /></IconButton>
@@ -289,13 +289,13 @@ const AIAssistantUI: React.FC<UISlotProps> = ({ viewer }) => {
         <Box ref={scrollRef} sx={{ flex: 1, overflowY: 'auto', p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
           {messages.map(msg => (
             <Box key={msg.id} sx={{ alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start', maxWidth: '88%' }}>
-              <Paper sx={{ p: 1.2, borderRadius: msg.sender === 'user' ? '14px 14px 4px 14px' : '4px 14px 14px 14px', bgcolor: msg.sender === 'user' ? '#20a1b1' : msg.sender === 'tool' ? 'rgba(255,167,38,0.14)' : 'rgba(255,255,255,0.06)', color: msg.sender === 'user' ? '#071013' : '#fff', border: msg.sender === 'tool' ? '1px solid rgba(255,167,38,0.28)' : '1px solid rgba(255,255,255,0.07)' }}>
+              <Paper sx={{ p: 1.2, borderRadius: msg.sender === 'user' ? '14px 14px 4px 14px' : '4px 14px 14px 14px', bgcolor: msg.sender === 'user' ? '#3FB8C4' : msg.sender === 'tool' ? 'rgba(255,167,38,0.14)' : 'rgba(255,255,255,0.06)', color: msg.sender === 'user' ? '#071013' : '#fff', border: msg.sender === 'tool' ? '1px solid rgba(255,167,38,0.28)' : '1px solid rgba(255,255,255,0.07)' }}>
                 <Typography sx={{ fontSize: 12, lineHeight: 1.42, whiteSpace: 'pre-wrap', fontWeight: msg.sender === 'user' ? 800 : 600 }}>{msg.text}</Typography>
               </Paper>
               <Typography sx={{ mt: 0.35, px: 0.5, color: 'rgba(255,255,255,0.32)', fontSize: 9 }}>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Typography>
             </Box>
           ))}
-          {isTyping && <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}><CircularProgress size={13} sx={{ color: '#20a1b1' }} /><Typography sx={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>Reading scene state...</Typography></Box>}
+          {isTyping && <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}><CircularProgress size={13} sx={{ color: '#3FB8C4' }} /><Typography sx={{ color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>Reading scene state...</Typography></Box>}
         </Box>
 
         <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)' }} />
@@ -319,7 +319,7 @@ const AIAssistantUI: React.FC<UISlotProps> = ({ viewer }) => {
               autoComplete="off"
               sx={{ '& .MuiOutlinedInput-root': { height: 36, color: '#fff', bgcolor: 'rgba(0,0,0,0.24)', fontSize: 12 } }}
             />
-            <IconButton onClick={handleSend} disabled={!inputValue.trim()} sx={{ bgcolor: '#20a1b1', color: '#071013', '&:hover': { bgcolor: '#2db8ca' }, '&.Mui-disabled': { bgcolor: 'rgba(255,255,255,0.1)' } }}><Send fontSize="small" /></IconButton>
+            <IconButton onClick={handleSend} disabled={!inputValue.trim()} sx={{ bgcolor: '#3FB8C4', color: '#071013', '&:hover': { bgcolor: '#3FB8C4' }, '&.Mui-disabled': { bgcolor: 'rgba(255,255,255,0.1)' } }}><Send fontSize="small" /></IconButton>
           </Stack>
         </Box>
       </Paper>

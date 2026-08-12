@@ -18,9 +18,9 @@ export function McpTab() {
   // Sync portInput when mcp.port changes externally
   useEffect(() => { setPortInput(mcp.port); }, [mcp.port]);
 
-  const stateColor = mcp.connected ? '#66bb6a'
-    : mcp.reconnectAttempt > 0 ? '#ffa726'
-    : mcp.enabled ? '#ef5350'
+  const stateColor = mcp.connected ? '#5FB37A'
+    : mcp.reconnectAttempt > 0 ? '#D9A441'
+    : mcp.enabled ? '#D9534F'
     : 'rgba(255,255,255,0.5)';
 
   const stateLabel = mcp.connected ? 'Connected'

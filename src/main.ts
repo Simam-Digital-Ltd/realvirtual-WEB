@@ -52,6 +52,8 @@ import { WebXRPlugin } from './plugins/webxr-plugin';
 import { RvExtrasEditorPlugin } from './core/hmi/rv-extras-editor';
 
 // Industrial interface plugins (WebSocket Realtime, ctrlX, etc.)
+import { ProductionMetricsPlugin } from './core/production-metrics';
+import { ConnectionStatusPlugin } from './plugins/connection-status-plugin';
 import { InterfaceManager } from './interfaces/interface-manager';
 import { WebSocketRealtimeInterface } from './interfaces/websocket-realtime-interface';
 import { CtrlXInterface } from './interfaces/ctrlx-interface';
@@ -204,6 +206,8 @@ async function init() {
   // --- Register Core Plugins ---
   viewer
     .use(ifaceManager)
+    .use(new ProductionMetricsPlugin())
+    .use(new ConnectionStatusPlugin())
     .use(rapierPlugin)
     .use(new DriveOrderPlugin())
     .use(new OSMMapPlugin())
@@ -233,7 +237,11 @@ async function init() {
   registerPrivatePlugins(viewer);
 
   // --- Model discovery ---
-  const modelFiles = import.meta.glob('/public/models/*.glb', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
+  // Exclude test-only models (e.g. tests.glb, ~35 MB) from the production bundle.
+  const modelFiles = import.meta.glob(
+    ['/public/models/*.glb', '!/public/models/tests.glb', '!/public/models/**/*test*.glb'],
+    { query: '?url', import: 'default', eager: true }
+  ) as Record<string, string>;
   const entries = Object.keys(modelFiles).map((key) => {
     const filename = key.split('/').pop()!;
     return { filename, url: `${import.meta.env.BASE_URL}models/${filename}` };

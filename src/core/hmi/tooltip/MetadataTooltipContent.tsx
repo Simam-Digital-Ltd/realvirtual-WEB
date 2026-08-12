@@ -121,7 +121,7 @@ function LinkButton({ url, text }: { url: string; text: string }) {
       endIcon={<OpenInNewIcon sx={{ fontSize: '12px !important' }} />}
       sx={{
         pointerEvents: 'auto',
-        color: isDoc ? '#64b5f6' : '#81c784',
+        color: isDoc ? '#3FB8C4' : '#5FB37A',
         fontSize: 11,
         textTransform: 'none',
         px: 1,
@@ -179,7 +179,7 @@ export function MetadataTooltipContent({ data, viewer }: TooltipContentProps<Met
               <Typography
                 key={i}
                 variant="subtitle2"
-                sx={{ color: '#ffa040', fontWeight: 700, fontSize: 13, lineHeight: 1.3, mb: 0.25 }}
+                sx={{ color: '#D9A441', fontWeight: 700, fontSize: 13, lineHeight: 1.3, mb: 0.25 }}
               >
                 {t.text}
               </Typography>

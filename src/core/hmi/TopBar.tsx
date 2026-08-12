@@ -134,7 +134,7 @@ export function TopBar() {
             >
               {muOpen ? <Close fontSize="small" /> : <People fontSize="small" />}
               {muState.connected && !muOpen && (
-                <Box sx={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: '50%', bgcolor: '#66bb6a' }} />
+                <Box sx={{ position: 'absolute', top: 4, right: 4, width: 6, height: 6, borderRadius: '50%', bgcolor: '#5FB37A' }} />
               )}
             </IconButton>
           </Tooltip>
@@ -159,7 +159,7 @@ export function TopBar() {
         {showMobileAR && (
           <Tooltip title="Start AR" placement="bottom">
             <IconButton
-              sx={{ p: 1, color: '#81c784' }}
+              sx={{ p: 1, color: '#5FB37A' }}
               onClick={() => xrPlugin?.startAR()}
             >
               <ViewInAr />
@@ -273,7 +273,7 @@ function VRModal({ onClose }: { onClose: () => void }) {
         sx={{ borderRadius: 2, width: 420, maxWidth: '95vw', p: { xs: 2.5, sm: 4 }, display: 'flex', flexDirection: 'column', gap: 2.5, alignItems: 'center', maxHeight: '90dvh', overflow: 'auto' }}
         onClick={(e: React.MouseEvent) => e.stopPropagation()}
       >
-        <Typography variant="h6" sx={{ fontWeight: 700, color: '#4fc3f7' }}>
+        <Typography variant="h6" sx={{ fontWeight: 700, color: '#3FB8C4' }}>
           VR / AR
         </Typography>
 
@@ -306,7 +306,7 @@ function VRModal({ onClose }: { onClose: () => void }) {
           <Typography
             variant="body2"
             sx={{
-              color: '#4fc3f7',
+              color: '#3FB8C4',
               fontFamily: 'monospace',
               fontSize: '0.85rem',
               flex: 1,
@@ -346,7 +346,7 @@ function StepRow({ n, text }: { n: number; text: string }) {
         width: 22, height: 22, borderRadius: '50%', bgcolor: 'rgba(79,195,247,0.15)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
       }}>
-        <Typography variant="caption" sx={{ color: '#4fc3f7', fontWeight: 700, fontSize: 11 }}>{n}</Typography>
+        <Typography variant="caption" sx={{ color: '#3FB8C4', fontWeight: 700, fontSize: 11 }}>{n}</Typography>
       </Box>
       <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: 13 }}>{text}</Typography>
     </Box>

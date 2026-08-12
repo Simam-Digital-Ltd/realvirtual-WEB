@@ -30,10 +30,10 @@ export { formatDistance } from './rv-measurement-renderer';
 // ── Constants ──────────────────────────────────────────────────────────
 
 const LS_PREFIX = 'rv-measurements-';
-const DEFAULT_COLOR = '#4fc3f7';
+const DEFAULT_COLOR = '#3FB8C4';
 const MEASUREMENT_COLORS = [
-  '#4fc3f7', '#66bb6a', '#ffa726', '#ef5350', '#ab47bc',
-  '#26c6da', '#9ccc65', '#ffca28', '#ec407a', '#7e57c2',
+  '#3FB8C4', '#5FB37A', '#D9A441', '#D9534F', '#8B7BC7',
+  '#3FB8C4', '#5FB37A', '#D9A441', '#8B7BC7', '#8B7BC7',
 ];
 
 // ── State machine ──────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ function MeasureButton({ viewer: _v }: { viewer: RVViewerType }) {
       <IconButton
         size="small"
         onClick={handleClick}
-        sx={{ color: snap.measurementMode ? '#4fc3f7' : 'text.secondary' }}
+        sx={{ color: snap.measurementMode ? '#3FB8C4' : 'text.secondary' }}
       >
         <Straighten sx={{ fontSize: 18 }} />
       </IconButton>

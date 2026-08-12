@@ -244,7 +244,7 @@ export function GroupsOverlay() {
       open={open}
       onClose={handleClose}
       title="Groups"
-      titleColor="#4fc3f7"
+      titleColor="#3FB8C4"
       subtitle={hasGroups ? `${groups.length} group${groups.length !== 1 ? 's' : ''}` : undefined}
       defaultWidth={DEFAULT_W}
       defaultHeight={DEFAULT_H}
@@ -332,7 +332,7 @@ export function GroupsOverlay() {
                         userSelect: 'none',
                         fontSize: 13,
                         fontWeight: isIsolated ? 700 : 400,
-                        color: isIsolated ? '#4fc3f7' : 'inherit',
+                        color: isIsolated ? '#3FB8C4' : 'inherit',
                       },
                     }}
                     sx={{ minWidth: 0, my: 0 }}
@@ -343,8 +343,8 @@ export function GroupsOverlay() {
                     title={isIsolated ? `Stop isolating "${group.name}"` : `Isolate "${group.name}"`}
                     sx={{
                       p: 0.3,
-                      color: isIsolated ? '#4fc3f7' : 'rgba(255,255,255,0.25)',
-                      '&:hover': { color: '#4fc3f7' },
+                      color: isIsolated ? '#3FB8C4' : 'rgba(255,255,255,0.25)',
+                      '&:hover': { color: '#3FB8C4' },
                     }}
                   >
                     <FilterCenterFocus sx={{ fontSize: 16 }} />

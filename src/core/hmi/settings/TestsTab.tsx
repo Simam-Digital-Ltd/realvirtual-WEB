@@ -60,20 +60,20 @@ export function TestsTab() {
         {result && !error && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             {failed === 0 ? (
-              <CheckCircle sx={{ fontSize: 16, color: '#66bb6a' }} />
+              <CheckCircle sx={{ fontSize: 16, color: '#5FB37A' }} />
             ) : (
-              <ErrorIcon sx={{ fontSize: 16, color: '#ef5350' }} />
+              <ErrorIcon sx={{ fontSize: 16, color: '#D9534F' }} />
             )}
             <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
               {passed}/{total} passed
-              {failed > 0 && <span style={{ color: '#ef5350' }}> ({failed} failed)</span>}
+              {failed > 0 && <span style={{ color: '#D9534F' }}> ({failed} failed)</span>}
             </Typography>
           </Box>
         )}
       </Box>
 
       {error && (
-        <Typography variant="caption" sx={{ color: '#ef5350', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+        <Typography variant="caption" sx={{ color: '#D9534F', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
           {error}
         </Typography>
       )}
@@ -84,11 +84,11 @@ export function TestsTab() {
             suite.assertionResults?.map((t, i) => (
               <Box key={`${suite.name}-${i}`} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                 {t.status === 'passed' ? (
-                  <CheckCircle sx={{ fontSize: 12, color: '#66bb6a' }} />
+                  <CheckCircle sx={{ fontSize: 12, color: '#5FB37A' }} />
                 ) : (
-                  <ErrorIcon sx={{ fontSize: 12, color: '#ef5350' }} />
+                  <ErrorIcon sx={{ fontSize: 12, color: '#D9534F' }} />
                 )}
-                <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 11, color: t.status === 'passed' ? 'text.secondary' : '#ef5350' }}>
+                <Typography variant="caption" sx={{ fontFamily: 'monospace', fontSize: 11, color: t.status === 'passed' ? 'text.secondary' : '#D9534F' }}>
                   {t.fullName}
                 </Typography>
               </Box>

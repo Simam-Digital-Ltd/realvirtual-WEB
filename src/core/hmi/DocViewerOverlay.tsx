@@ -62,7 +62,7 @@ export function DocViewerOverlay({ url, title, onClose }: DocViewerOverlayProps)
           component="object"
           data={url}
           type="application/pdf"
-          sx={{ flex: 1, border: 'none', width: '100%', bgcolor: '#525659' }}
+          sx={{ flex: 1, border: 'none', width: '100%', bgcolor: '#8A97A8' }}
         />
       </Paper>
     </Box>

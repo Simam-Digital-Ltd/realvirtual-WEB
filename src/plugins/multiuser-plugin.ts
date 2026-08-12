@@ -142,7 +142,7 @@ export class MultiuserPlugin extends RVBehavior {
   // ── Configuration (set before model load or via joinSession) ──
   private _serverUrl: string = '';
   private _localName: string = '';
-  private _localColor: string = '#2196F3';
+  private _localColor: string = '#3FB8C4';
   private _localRole: string = 'observer';
   private _joinCode: string = '';
 
@@ -201,7 +201,7 @@ export class MultiuserPlugin extends RVBehavior {
   // ── Public API ───────────────────────────────────────────────────────────────
 
   /** Connect to a MultiplayerWEB server. Safe to call before or after model load. */
-  joinSession(serverUrl: string, name: string, color = '#2196F3', role = 'observer', joinCode = ''): void {
+  joinSession(serverUrl: string, name: string, color = '#3FB8C4', role = 'observer', joinCode = ''): void {
     this._serverUrl = serverUrl;
     this._localName = name;
     this._localColor = color;
@@ -363,7 +363,7 @@ export class MultiuserPlugin extends RVBehavior {
     const params = new URLSearchParams(window.location.search);
     const server = params.get('server') ?? params.get('relay') ?? params.get('multiuserServer');
     const name = params.get('name') ?? params.get('multiuserName') ?? 'Browser';
-    const color = params.get('multiuserColor') ?? '#2196F3';
+    const color = params.get('multiuserColor') ?? '#3FB8C4';
     const role = params.get('role') ?? params.get('multiuserRole') ?? 'observer';
     const code = params.get('joinCode') ?? params.get('code') ?? '';
     if (server) {

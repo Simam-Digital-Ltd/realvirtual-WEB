@@ -34,6 +34,7 @@ import { DocViewerOverlay } from '../../core/hmi/DocViewerOverlay';
 import { useDriveChartOpen } from '../../hooks/use-drive-chart';
 import { useSensorChartOpen } from '../../hooks/use-sensor-chart';
 import { useMaintenanceMode } from '../../hooks/use-maintenance-mode';
+import { useProduction } from '../../hooks/use-production';
 
 // Layout constants
 import { MACHINE_PANEL_WIDTH } from '../../core/hmi/layout-constants';
@@ -43,9 +44,20 @@ import { WAKEFIELD_DEMO_PROFILE as DEMO_PROFILE } from './demo-profile';
 
 function OeeKpi(_props: UISlotProps) {
   const [open, setOpen] = useState(false);
+  const metrics = useProduction();
+  // Real value once the sim has drives and has run long enough to be meaningful.
+  const live = metrics.hasDrives && metrics.elapsedSec > 2;
   return (
     <>
-      <KpiCard label="Line Availability" value={DEMO_PROFILE.kpis.availability} unit="%" color="#66bb6a" secondary={DEMO_PROFILE.kpis.availabilityTarget} onClick={() => setOpen((o) => !o)} />
+      <KpiCard
+        label="Line Availability"
+        value={live ? metrics.availabilityPct.toFixed(0) : DEMO_PROFILE.kpis.availability}
+        unit="%"
+        color="#5FB37A"
+        secondary={live ? `LIVE · ${metrics.drivesRunning}/${metrics.driveCount} drives running` : DEMO_PROFILE.kpis.availabilityTarget}
+        sparkline={live ? metrics.availabilityTrend : undefined}
+        onClick={() => setOpen((o) => !o)}
+      />
       <OeeChart open={open} onClose={() => setOpen(false)} />
     </>
   );
@@ -53,9 +65,20 @@ function OeeKpi(_props: UISlotProps) {
 
 function PartsKpi(_props: UISlotProps) {
   const [open, setOpen] = useState(false);
+  const metrics = useProduction();
+  // Only claim a real throughput number when the model actually has sinks.
+  const live = metrics.hasSinks && metrics.elapsedSec > 2;
   return (
     <>
-      <KpiCard label="Cases Packed" value={DEMO_PROFILE.kpis.casesPacked} unit="/h" color="#4fc3f7" secondary={DEMO_PROFILE.kpis.shiftTotal} onClick={() => setOpen((o) => !o)} />
+      <KpiCard
+        label="Cases Packed"
+        value={live ? Math.round(metrics.casesPerHour).toLocaleString() : DEMO_PROFILE.kpis.casesPacked}
+        unit="/h"
+        color="#3FB8C4"
+        secondary={live ? `LIVE · ${metrics.casesTotal} this run` : DEMO_PROFILE.kpis.shiftTotal}
+        sparkline={live ? metrics.throughputTrend : undefined}
+        onClick={() => setOpen((o) => !o)}
+      />
       <PartsChart open={open} onClose={() => setOpen(false)} />
     </>
   );
@@ -65,7 +88,7 @@ function CycleTimeKpi(_props: UISlotProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <KpiCard label="Dock Turnaround" value={DEMO_PROFILE.kpis.dockTurnaround} unit="min" color="#ffa726" secondary="Avg inbound" onClick={() => setOpen((o) => !o)} />
+      <KpiCard label="Dock Turnaround" value={DEMO_PROFILE.kpis.dockTurnaround} unit="min" color="#D9A441" secondary="Avg inbound" onClick={() => setOpen((o) => !o)} />
       <CycleTimeChart open={open} onClose={() => setOpen(false)} />
     </>
   );
@@ -75,7 +98,7 @@ function PowerKpi(_props: UISlotProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <KpiCard label="Cold Chain" value={DEMO_PROFILE.kpis.coldChain} unit={DEMO_PROFILE.kpis.coldChainUnit} color="#26c6da" secondary={DEMO_PROFILE.kpis.coldChainStatus} onClick={() => setOpen((o) => !o)} />
+      <KpiCard label="Cold Chain" value={DEMO_PROFILE.kpis.coldChain} unit={DEMO_PROFILE.kpis.coldChainUnit} color="#3FB8C4" secondary={DEMO_PROFILE.kpis.coldChainStatus} onClick={() => setOpen((o) => !o)} />
       <EnergyChart open={open} onClose={() => setOpen(false)} />
     </>
   );
@@ -185,7 +208,7 @@ function RobotMaintenanceMessage(_props: UISlotProps) {
     <>
       <TileCard
         title="Gripper Service Due"
-        subtitle={<>Robot Cell A1 - <a href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDocOpen(true); }} style={{ color: '#4fc3f7', textDecoration: 'underline', cursor: 'pointer' }}>see manual p.105</a></>}
+        subtitle={<>Robot Cell A1 - <a href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDocOpen(true); }} style={{ color: '#3FB8C4', textDecoration: 'underline', cursor: 'pointer' }}>see manual p.105</a></>}
         severity="warning"
         icon="build"
         timestamp="Today"
@@ -215,22 +238,22 @@ type OpsTab = 'brief' | 'timeline' | 'actions';
 
 const SHIFT_BRIEF = [
   { label: DEMO_PROFILE.copy.shiftName, value: '07:00-15:00', color: '#ffffff' },
-  { label: 'Case target', value: DEMO_PROFILE.copy.caseTarget, color: '#81c784' },
-  { label: 'Current', value: DEMO_PROFILE.copy.currentCases, color: '#4fc3f7' },
-  { label: 'Decision due', value: DEMO_PROFILE.copy.decisionDue, color: '#ffa726' },
+  { label: 'Case target', value: DEMO_PROFILE.copy.caseTarget, color: '#5FB37A' },
+  { label: 'Current', value: DEMO_PROFILE.copy.currentCases, color: '#3FB8C4' },
+  { label: 'Decision due', value: DEMO_PROFILE.copy.decisionDue, color: '#D9A441' },
 ];
 
 const INCIDENT_TIMELINE = [
-  { time: '09:12', title: 'Tray former load rising', color: '#ffa726' },
-  { time: '09:18', title: `${DEMO_PROFILE.assets.dock} queue predicted`, color: '#ef5350' },
-  { time: '09:21', title: `${DEMO_PROFILE.assets.inboundVehicle} arrives at weighbridge`, color: '#4fc3f7' },
-  { time: '09:27', title: `${DEMO_PROFILE.assets.maintenanceTech} assigned to ${DEMO_PROFILE.assets.robotCell}`, color: '#81c784' },
+  { time: '09:12', title: 'Tray former load rising', color: '#D9A441' },
+  { time: '09:18', title: `${DEMO_PROFILE.assets.dock} queue predicted`, color: '#D9534F' },
+  { time: '09:21', title: `${DEMO_PROFILE.assets.inboundVehicle} arrives at weighbridge`, color: '#3FB8C4' },
+  { time: '09:27', title: `${DEMO_PROFILE.assets.maintenanceTech} assigned to ${DEMO_PROFILE.assets.robotCell}`, color: '#5FB37A' },
 ];
 
 const ACTION_CARDS = [
-  { label: `Assign ${DEMO_PROFILE.assets.maintenanceTech}`, detail: `${DEMO_PROFILE.assets.robotCell} service check`, color: '#81c784', action: 'maintenance' },
-  { label: `Hold ${DEMO_PROFILE.assets.inboundVehicle}`, detail: 'Weighbridge buffer: 8 min', color: '#ffa726', action: 'map' },
-  { label: `Clear ${DEMO_PROFILE.assets.dock}`, detail: `Move ${DEMO_PROFILE.assets.yardTug} to outbound bay`, color: '#4fc3f7', action: 'dock' },
+  { label: `Assign ${DEMO_PROFILE.assets.maintenanceTech}`, detail: `${DEMO_PROFILE.assets.robotCell} service check`, color: '#5FB37A', action: 'maintenance' },
+  { label: `Hold ${DEMO_PROFILE.assets.inboundVehicle}`, detail: 'Weighbridge buffer: 8 min', color: '#D9A441', action: 'map' },
+  { label: `Clear ${DEMO_PROFILE.assets.dock}`, detail: `Move ${DEMO_PROFILE.assets.yardTug} to outbound bay`, color: '#3FB8C4', action: 'dock' },
 ] as const;
 
 function MiniOpsTabs({ active, onChange }: { active: OpsTab; onChange: (tab: OpsTab) => void }) {
@@ -252,7 +275,7 @@ function MiniOpsTabs({ active, onChange }: { active: OpsTab; onChange: (tab: Ops
             borderColor: active === tab ? 'rgba(32,161,177,0.62)' : 'rgba(255,255,255,0.07)',
           }}
         >
-          <Typography sx={{ color: active === tab ? '#20a1b1' : 'rgba(255,255,255,0.55)', fontSize: 8, fontWeight: 900, textTransform: 'uppercase' }}>
+          <Typography sx={{ color: active === tab ? '#3FB8C4' : 'rgba(255,255,255,0.55)', fontSize: 8, fontWeight: 900, textTransform: 'uppercase' }}>
             {tab}
           </Typography>
         </Box>
@@ -348,7 +371,7 @@ function WakefieldOpsCockpit({ viewer }: UISlotProps) {
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: collapsed ? 0 : 0.9 }}>
         <Box>
-          <Typography sx={{ color: '#20a1b1', fontSize: 9, fontWeight: 900, letterSpacing: 1.2, lineHeight: 1 }}>
+          <Typography sx={{ color: '#3FB8C4', fontSize: 9, fontWeight: 900, letterSpacing: 1.2, lineHeight: 1 }}>
             {DEMO_PROFILE.client.operationsLabel}
           </Typography>
           <Typography sx={{ color: '#fff', fontSize: 13, fontWeight: 900, lineHeight: 1.25, mt: 0.35 }}>
@@ -360,7 +383,7 @@ function WakefieldOpsCockpit({ viewer }: UISlotProps) {
             <Chip
               label="LIVE SIM"
               size="small"
-              sx={{ height: 16, fontSize: 7.5, fontWeight: 900, bgcolor: 'rgba(102,187,106,0.12)', color: '#81c784', border: '1px solid rgba(102,187,106,0.3)' }}
+              sx={{ height: 16, fontSize: 7.5, fontWeight: 900, bgcolor: 'rgba(102,187,106,0.12)', color: '#5FB37A', border: '1px solid rgba(102,187,106,0.3)' }}
             />
           )}
           <IconButton size="small" onClick={() => setCollapsed((v) => !v)} sx={{ p: 0.2, color: 'rgba(255,255,255,0.58)' }}>
@@ -371,10 +394,10 @@ function WakefieldOpsCockpit({ viewer }: UISlotProps) {
 
       {!collapsed && <Stack spacing={0.85}>
         <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.75 }}>
-          <FlowStage label="Inbound" value={DEMO_PROFILE.copy.inboundStatus} color="#4fc3f7" />
-          <FlowStage label="Cell A" value={DEMO_PROFILE.copy.cellStatus} color="#ffa726" />
-          <FlowStage label={DEMO_PROFILE.assets.dock} value={DEMO_PROFILE.copy.dockStatus} color="#ef5350" />
-          <FlowStage label="Cold Store" value={DEMO_PROFILE.copy.coldStatus} color="#26c6da" />
+          <FlowStage label="Inbound" value={DEMO_PROFILE.copy.inboundStatus} color="#3FB8C4" />
+          <FlowStage label="Cell A" value={DEMO_PROFILE.copy.cellStatus} color="#D9A441" />
+          <FlowStage label={DEMO_PROFILE.assets.dock} value={DEMO_PROFILE.copy.dockStatus} color="#D9534F" />
+          <FlowStage label="Cold Store" value={DEMO_PROFILE.copy.coldStatus} color="#3FB8C4" />
         </Box>
 
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0.75, alignItems: 'center' }}>
@@ -385,7 +408,7 @@ function WakefieldOpsCockpit({ viewer }: UISlotProps) {
             { icon: <AcUnit />, label: 'Cold' },
           ].map((item) => (
             <Box key={item.label} sx={{ py: 0.55, borderRadius: 1.25, bgcolor: 'rgba(255,255,255,0.035)', textAlign: 'center' }}>
-              <Box sx={{ color: '#20a1b1', display: 'flex', justifyContent: 'center', '& svg': { fontSize: 15 } }}>{item.icon}</Box>
+              <Box sx={{ color: '#3FB8C4', display: 'flex', justifyContent: 'center', '& svg': { fontSize: 15 } }}>{item.icon}</Box>
               <Typography sx={{ color: 'rgba(255,255,255,0.58)', fontSize: 8, fontWeight: 800, mt: 0.15 }}>{item.label}</Typography>
             </Box>
           ))}
@@ -394,12 +417,12 @@ function WakefieldOpsCockpit({ viewer }: UISlotProps) {
         <Box>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
             <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 9, fontWeight: 800, letterSpacing: 0.8 }}>SHIFT DISPATCH TARGET</Typography>
-            <Typography sx={{ color: '#81c784', fontSize: 10, fontWeight: 900 }}>{DEMO_PROFILE.kpis.dispatchTarget}%</Typography>
+            <Typography sx={{ color: '#5FB37A', fontSize: 10, fontWeight: 900 }}>{DEMO_PROFILE.kpis.dispatchTarget}%</Typography>
           </Box>
           <LinearProgress
             variant="determinate"
             value={DEMO_PROFILE.kpis.dispatchTarget}
-            sx={{ height: 6, borderRadius: 6, bgcolor: 'rgba(255,255,255,0.08)', '& .MuiLinearProgress-bar': { bgcolor: '#81c784', borderRadius: 6 } }}
+            sx={{ height: 6, borderRadius: 6, bgcolor: 'rgba(255,255,255,0.08)', '& .MuiLinearProgress-bar': { bgcolor: '#5FB37A', borderRadius: 6 } }}
           />
         </Box>
 
@@ -436,7 +459,7 @@ const ASSET_DETAILS: Record<string, AssetDetail> = {
     metric: 'Motor load 142% / conveyor 120 mm/s',
     linkedAlert: 'Tray Former Jam Risk',
     suggestedAction: 'Assign MT-03 and open gripper service checklist',
-    color: '#ffa726',
+    color: '#D9A441',
   },
   'dock-4': {
     id: 'dock-4',
@@ -448,7 +471,7 @@ const ASSET_DETAILS: Record<string, AssetDetail> = {
     metric: '2 vehicles waiting / next dispatch 14:20',
     linkedAlert: `${DEMO_PROFILE.assets.dockLabel} Queue`,
     suggestedAction: `Move ${DEMO_PROFILE.assets.yardTug} to bay and hold ${DEMO_PROFILE.assets.inboundVehicle} for 8 min`,
-    color: '#ef5350',
+    color: '#D9534F',
   },
   'hgv-14': {
     id: 'hgv-14',
@@ -460,7 +483,7 @@ const ASSET_DETAILS: Record<string, AssetDetail> = {
     metric: `ETA ${DEMO_PROFILE.assets.dock}: 12 min / load 85%`,
     linkedAlert: `${DEMO_PROFILE.assets.dock} Queue`,
     suggestedAction: `Hold at weighbridge until ${DEMO_PROFILE.assets.robotCell} clears`,
-    color: '#4fc3f7',
+    color: '#3FB8C4',
   },
   'yt-02': {
     id: 'yt-02',
@@ -472,7 +495,7 @@ const ASSET_DETAILS: Record<string, AssetDetail> = {
     metric: 'Rounds: 5 / load 40%',
     linkedAlert: 'Dock 4 Queue',
     suggestedAction: `Move staged pallets from cold store to ${DEMO_PROFILE.assets.dock}`,
-    color: '#20a1b1',
+    color: '#3FB8C4',
   },
   'mt-03': {
     id: 'mt-03',
@@ -484,7 +507,7 @@ const ASSET_DETAILS: Record<string, AssetDetail> = {
     metric: 'Checklist ready / 12 min decision window',
     linkedAlert: 'Gripper Service Due',
     suggestedAction: `Start ${DEMO_PROFILE.assets.robotCell} inspection workflow`,
-    color: '#81c784',
+    color: '#5FB37A',
   },
   'cold-store-b': {
     id: 'cold-store-b',
@@ -496,7 +519,7 @@ const ASSET_DETAILS: Record<string, AssetDetail> = {
     metric: `${DEMO_PROFILE.kpis.coldChainStatus} / Zone B rising`,
     linkedAlert: 'Cold Chain: Zone B watch',
     suggestedAction: 'Keep dispatch priority on chilled pallets',
-    color: '#26c6da',
+    color: '#3FB8C4',
   },
 };
 
@@ -641,7 +664,7 @@ function OnboardingOverlay({ viewer }: UISlotProps) {
       }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mb: 1.5 }}>
           <Box>
-            <Chip label={current.kicker} size="small" sx={{ height: 20, mb: 1, bgcolor: 'rgba(32,161,177,0.18)', color: '#20a1b1', fontSize: 9, fontWeight: 900 }} />
+            <Chip label={current.kicker} size="small" sx={{ height: 20, mb: 1, bgcolor: 'rgba(32,161,177,0.18)', color: '#3FB8C4', fontSize: 9, fontWeight: 900 }} />
             <Typography sx={{ fontSize: 22, fontWeight: 950, letterSpacing: 0 }}>{current.title}</Typography>
           </Box>
           <IconButton onClick={close} sx={{ color: 'rgba(255,255,255,0.62)', alignSelf: 'flex-start' }}><Close fontSize="small" /></IconButton>
@@ -650,18 +673,18 @@ function OnboardingOverlay({ viewer }: UISlotProps) {
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 0.75, mb: 2 }}>
           {['Factory cell', 'Warehouse floor', 'Yard impact'].map((label, index) => (
             <Box key={label} sx={{ p: 1, borderRadius: 1, bgcolor: index === step ? 'rgba(32,161,177,0.16)' : 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <Typography sx={{ color: index === step ? '#20a1b1' : 'rgba(255,255,255,0.62)', fontSize: 10, fontWeight: 900 }}>{label}</Typography>
+              <Typography sx={{ color: index === step ? '#3FB8C4' : 'rgba(255,255,255,0.62)', fontSize: 10, fontWeight: 900 }}>{label}</Typography>
             </Box>
           ))}
         </Box>
         <Stack direction="row" spacing={1} sx={{ justifyContent: 'space-between' }}>
-          <Button variant="outlined" onClick={openMap} sx={{ color: '#20a1b1', borderColor: 'rgba(32,161,177,0.45)', fontSize: 11, fontWeight: 900 }}>Open map</Button>
+          <Button variant="outlined" onClick={openMap} sx={{ color: '#3FB8C4', borderColor: 'rgba(32,161,177,0.45)', fontSize: 11, fontWeight: 900 }}>Open map</Button>
           <Stack direction="row" spacing={1}>
             {step > 0 && <Button onClick={() => setStep(step - 1)} sx={{ color: 'rgba(255,255,255,0.72)', fontSize: 11, fontWeight: 900 }}>Back</Button>}
             {step < steps.length - 1 ? (
-              <Button variant="contained" onClick={() => setStep(step + 1)} sx={{ bgcolor: '#20a1b1', color: '#071013', fontSize: 11, fontWeight: 900, '&:hover': { bgcolor: '#2db8ca' } }}>Next</Button>
+              <Button variant="contained" onClick={() => setStep(step + 1)} sx={{ bgcolor: '#3FB8C4', color: '#071013', fontSize: 11, fontWeight: 900, '&:hover': { bgcolor: '#3FB8C4' } }}>Next</Button>
             ) : (
-              <Button variant="contained" onClick={startDemo} sx={{ bgcolor: '#20a1b1', color: '#071013', fontSize: 11, fontWeight: 900, '&:hover': { bgcolor: '#2db8ca' } }}>Start walkthrough</Button>
+              <Button variant="contained" onClick={startDemo} sx={{ bgcolor: '#3FB8C4', color: '#071013', fontSize: 11, fontWeight: 900, '&:hover': { bgcolor: '#3FB8C4' } }}>Start walkthrough</Button>
             )}
           </Stack>
         </Stack>
@@ -853,14 +876,14 @@ function GuidedDemoStrip({ viewer }: UISlotProps) {
             <Chip
               label={playing ? 'DEMO RUNNING' : '2-3 MIN SCRIPT'}
               size="small"
-              sx={{ height: 18, fontSize: 7.5, fontWeight: 900, bgcolor: playing ? 'rgba(102,187,106,0.14)' : 'rgba(32,161,177,0.16)', color: playing ? '#81c784' : '#20a1b1', border: '1px solid rgba(255,255,255,0.12)' }}
+              sx={{ height: 18, fontSize: 7.5, fontWeight: 900, bgcolor: playing ? 'rgba(102,187,106,0.14)' : 'rgba(32,161,177,0.16)', color: playing ? '#5FB37A' : '#3FB8C4', border: '1px solid rgba(255,255,255,0.12)' }}
             />
             <Typography sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 9, fontWeight: 800, letterSpacing: 1 }}>
               STEP {activeStep + 1} / {DEMO_STEPS.length}
             </Typography>
           </Box>
           <Typography sx={{ color: '#fff', fontSize: 13, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{step.title}</Typography>
-          <Typography sx={{ color: '#20a1b1', fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', mb: 0.35 }}>{step.note}</Typography>
+          <Typography sx={{ color: '#3FB8C4', fontSize: 10, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', mb: 0.35 }}>{step.note}</Typography>
           <Typography sx={{ color: 'rgba(255,255,255,0.66)', fontSize: 10.5, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
             {scenario === 'dock4-blocked' && activeStep >= 2 ? `${step.script} Live scenario: Dock 4 is blocked, so the narrator is now using a recovery story with HGV-14 held and YT-02 rerouted.` : step.script}
           </Typography>
@@ -873,7 +896,7 @@ function GuidedDemoStrip({ viewer }: UISlotProps) {
               variant="contained"
               startIcon={playing ? <Pause sx={{ fontSize: 15 }} /> : <PlayArrow sx={{ fontSize: 15 }} />}
               onClick={() => playing ? setPlaying(false) : startDemo()}
-              sx={{ flex: 1, height: 28, fontSize: 9.5, fontWeight: 900, bgcolor: '#20a1b1', color: '#071013', '&:hover': { bgcolor: '#2db8ca' } }}
+              sx={{ flex: 1, height: 28, fontSize: 9.5, fontWeight: 900, bgcolor: '#3FB8C4', color: '#071013', '&:hover': { bgcolor: '#3FB8C4' } }}
             >
               {playing ? 'Pause' : 'Start Demo'}
             </Button>
@@ -897,7 +920,7 @@ function GuidedDemoStrip({ viewer }: UISlotProps) {
           <LinearProgress
             variant="determinate"
             value={totalProgress}
-            sx={{ height: 5, borderRadius: 5, bgcolor: 'rgba(255,255,255,0.08)', '& .MuiLinearProgress-bar': { bgcolor: '#20a1b1', borderRadius: 5 } }}
+            sx={{ height: 5, borderRadius: 5, bgcolor: 'rgba(255,255,255,0.08)', '& .MuiLinearProgress-bar': { bgcolor: '#3FB8C4', borderRadius: 5 } }}
           />
           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 0.35 }}>
             {DEMO_STEPS.map((item, index) => (
@@ -913,17 +936,17 @@ function GuidedDemoStrip({ viewer }: UISlotProps) {
                   cursor: 'pointer',
                   bgcolor: index === activeStep ? 'rgba(32,161,177,0.24)' : 'rgba(255,255,255,0.05)',
                   border: '1px solid',
-                  borderColor: index === activeStep ? '#20a1b1' : 'rgba(255,255,255,0.08)',
+                  borderColor: index === activeStep ? '#3FB8C4' : 'rgba(255,255,255,0.08)',
                 }}
               >
-                <Typography sx={{ color: index === activeStep ? '#20a1b1' : 'rgba(255,255,255,0.52)', fontSize: 8, fontWeight: 900 }}>{item.label}</Typography>
+                <Typography sx={{ color: index === activeStep ? '#3FB8C4' : 'rgba(255,255,255,0.52)', fontSize: 8, fontWeight: 900 }}>{item.label}</Typography>
               </Box>
             ))}
           </Box>
           <LinearProgress
             variant="determinate"
             value={stepProgress}
-            sx={{ height: 3, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.06)', '& .MuiLinearProgress-bar': { bgcolor: '#81c784', borderRadius: 3 } }}
+            sx={{ height: 3, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.06)', '& .MuiLinearProgress-bar': { bgcolor: '#5FB37A', borderRadius: 3 } }}
           />
         </Stack>
       </Box>

@@ -35,7 +35,7 @@ export function MultiuserTab({ muEnabled, onMuEnabledChange }: { muEnabled: bool
     }
   }, [mu.connected, mu.serverUrl, mu.localName, mu.localRole]);
 
-  const stateColor = mu.connected ? '#66bb6a' : 'rgba(255,255,255,0.5)';
+  const stateColor = mu.connected ? '#5FB37A' : 'rgba(255,255,255,0.5)';
   const stateLabel = mu.connected ? `Connected (${mu.playerCount + 1} users)` : 'Disconnected';
 
   const handleConnect = () => {
@@ -141,7 +141,7 @@ export function MultiuserTab({ muEnabled, onMuEnabledChange }: { muEnabled: bool
       {!mu.connected ? (
         <Button size="small" variant="contained" onClick={handleConnect}
           disabled={!serverUrl.trim()}
-          sx={{ alignSelf: 'flex-start', textTransform: 'none', bgcolor: '#1565c0', '&:hover': { bgcolor: '#1976d2' } }}>
+          sx={{ alignSelf: 'flex-start', textTransform: 'none', bgcolor: '#3FB8C4', '&:hover': { bgcolor: '#3FB8C4' } }}>
           Connect
         </Button>
       ) : (
@@ -149,7 +149,7 @@ export function MultiuserTab({ muEnabled, onMuEnabledChange }: { muEnabled: bool
           sx={{
             alignSelf: 'flex-start', textTransform: 'none',
             borderColor: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.65)',
-            '&:hover': { borderColor: '#ef5350', color: '#ef5350', bgcolor: 'rgba(239,83,80,0.06)' },
+            '&:hover': { borderColor: '#D9534F', color: '#D9534F', bgcolor: 'rgba(239,83,80,0.06)' },
           }}>
           Disconnect
         </Button>

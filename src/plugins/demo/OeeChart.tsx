@@ -16,12 +16,12 @@ import { useEChart } from '../../hooks/use-echart';
 import { createBaseChartOption, DARK_TOOLTIP_BASE } from '../../core/hmi/chart-theme';
 
 const CATEGORIES = [
-  { key: 'production', name: 'Production', color: '#22c55e' },
-  { key: 'waiting', name: 'Waiting', color: '#f59e0b' },
-  { key: 'blocked', name: 'Blocked', color: '#f97316' },
-  { key: 'loading', name: 'Loading', color: '#38bdf8' },
-  { key: 'toolchange', name: 'Toolchange', color: '#06b6d4' },
-  { key: 'downtime', name: 'Downtime', color: '#ef4444' },
+  { key: 'production', name: 'Production', color: '#5FB37A' },
+  { key: 'waiting', name: 'Waiting', color: '#D9A441' },
+  { key: 'blocked', name: 'Blocked', color: '#D9A441' },
+  { key: 'loading', name: 'Loading', color: '#3FB8C4' },
+  { key: 'toolchange', name: 'Toolchange', color: '#3FB8C4' },
+  { key: 'downtime', name: 'Downtime', color: '#D9534F' },
 ] as const;
 
 interface OeeChartProps {
@@ -109,7 +109,7 @@ export function OeeChart({ open, onClose }: OeeChartProps) {
       open={open}
       onClose={onClose}
       title="OEE Breakdown"
-      titleColor="#66bb6a"
+      titleColor="#5FB37A"
       subtitle="Last 24h"
       defaultWidth={750}
       defaultHeight={340}

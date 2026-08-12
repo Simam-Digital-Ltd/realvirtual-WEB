@@ -73,9 +73,9 @@ function HmiRestorePill() {
           fontSize: 10,
           fontWeight: 900,
           color: '#071013',
-          bgcolor: '#20a1b1',
+          bgcolor: '#3FB8C4',
           boxShadow: '0 10px 24px rgba(0,0,0,0.35)',
-          '&:hover': { bgcolor: '#2db8ca' },
+          '&:hover': { bgcolor: '#3FB8C4' },
         }}
       >
         Show UI

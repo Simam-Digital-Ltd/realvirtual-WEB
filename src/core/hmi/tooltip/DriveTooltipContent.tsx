@@ -115,7 +115,7 @@ export function DriveTooltipContent({ data, viewer }: TooltipContentProps<DriveT
       {/* Drive name */}
       <Typography
         variant="subtitle2"
-        sx={{ color: '#ffa040', fontWeight: 700, fontSize: 13, lineHeight: 1.2 }}
+        sx={{ color: '#D9A441', fontWeight: 700, fontSize: 13, lineHeight: 1.2 }}
       >
         {drive.name}
       </Typography>

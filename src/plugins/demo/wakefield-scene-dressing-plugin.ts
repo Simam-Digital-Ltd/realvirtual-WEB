@@ -99,12 +99,12 @@ const ZONES: ZoneSpec[] = [
 ];
 
 const SIGNS: SignSpec[] = [
-  { text: DEMO_PROFILE.client.name, subtext: `${DEMO_PROFILE.client.siteCode} | ${DEMO_PROFILE.brand.product}`, x: 0, y: 3.55, z: -2.7, color: '#20a1b1', scale: 2.5 },
-  { text: 'Visitor Entrance', subtext: 'reception | induction | PPE point', x: -10.2, y: 1.9, z: 3.75, color: '#7e57c2', scale: 1.45 },
-  { text: 'Staff Welfare', subtext: 'shift office | lockers | briefing area', x: -10.2, y: 1.75, z: 1.3, color: '#66bb6a', scale: 1.45 },
-  { text: DEMO_PROFILE.assets.robotCell, subtext: 'Tray forming and case pack', x: -1.9, y: 2.2, z: 1.8, color: '#81c784', scale: 1.55 },
-  { text: `${DEMO_PROFILE.assets.dock} Queue`, subtext: `${DEMO_PROFILE.assets.inboundVehicle} | ${DEMO_PROFILE.assets.yardTug} | live simulated ETA`, x: 4.9, y: 1.8, z: -2.4, color: '#ffa726', scale: 1.55 },
-  { text: 'Cold Chain Zone', subtext: `${DEMO_PROFILE.kpis.coldChain} ${DEMO_PROFILE.kpis.coldChainUnit} stable | Zone B watch`, x: 4.6, y: 1.8, z: 1.2, color: '#26c6da', scale: 1.55 },
+  { text: DEMO_PROFILE.client.name, subtext: `${DEMO_PROFILE.client.siteCode} | ${DEMO_PROFILE.brand.product}`, x: 0, y: 3.55, z: -2.7, color: '#3FB8C4', scale: 2.5 },
+  { text: 'Visitor Entrance', subtext: 'reception | induction | PPE point', x: -10.2, y: 1.9, z: 3.75, color: '#8B7BC7', scale: 1.45 },
+  { text: 'Staff Welfare', subtext: 'shift office | lockers | briefing area', x: -10.2, y: 1.75, z: 1.3, color: '#5FB37A', scale: 1.45 },
+  { text: DEMO_PROFILE.assets.robotCell, subtext: 'Tray forming and case pack', x: -1.9, y: 2.2, z: 1.8, color: '#5FB37A', scale: 1.55 },
+  { text: `${DEMO_PROFILE.assets.dock} Queue`, subtext: `${DEMO_PROFILE.assets.inboundVehicle} | ${DEMO_PROFILE.assets.yardTug} | live simulated ETA`, x: 4.9, y: 1.8, z: -2.4, color: '#D9A441', scale: 1.55 },
+  { text: 'Cold Chain Zone', subtext: `${DEMO_PROFILE.kpis.coldChain} ${DEMO_PROFILE.kpis.coldChainUnit} stable | Zone B watch`, x: 4.6, y: 1.8, z: 1.2, color: '#3FB8C4', scale: 1.55 },
 ];
 
 const BEACONS: BeaconSpec[] = [
@@ -212,11 +212,11 @@ export class WakefieldSceneDressingPlugin implements RVViewerPlugin {
     group.add(this._createFlowArrow(-1.0, -4.7, 0xef5350, 'flow-qc-hold'));
     group.add(this._createFlowArrow(2.75, -4.65, 0xffa726, 'flow-palletiser-dispatch'));
 
-    group.add(this._createSign({ text: 'Warehouse Pick Face', subtext: 'ambient racks | batch-ready stock', x: -7.2, y: 1.75, z: 2.55, color: '#90a4ae', scale: 1.45 }));
-    group.add(this._createSign({ text: 'Quality Hold', subtext: 'vision reject lane | supervisor review', x: -2.65, y: 1.55, z: -3.8, color: '#ef5350', scale: 1.45 }));
-    group.add(this._createSign({ text: 'Dispatch Buffer', subtext: 'palletiser C | dock wave 14:20', x: 2.3, y: 1.55, z: -4.0, color: '#ffa726', scale: 1.45 }));
-    group.add(this._createSign({ text: 'Plant Room', subtext: 'compressor | utilities | energy metering', x: 7.9, y: 1.8, z: 5.35, color: '#b0bec5', scale: 1.4 }));
-    group.add(this._createSign({ text: 'Dispatch Marshalling', subtext: 'staged pallets | release by dock wave', x: 8.75, y: 1.7, z: -6.25, color: '#ffa726', scale: 1.45 }));
+    group.add(this._createSign({ text: 'Warehouse Pick Face', subtext: 'ambient racks | batch-ready stock', x: -7.2, y: 1.75, z: 2.55, color: '#8A97A8', scale: 1.45 }));
+    group.add(this._createSign({ text: 'Quality Hold', subtext: 'vision reject lane | supervisor review', x: -2.65, y: 1.55, z: -3.8, color: '#D9534F', scale: 1.45 }));
+    group.add(this._createSign({ text: 'Dispatch Buffer', subtext: 'palletiser C | dock wave 14:20', x: 2.3, y: 1.55, z: -4.0, color: '#D9A441', scale: 1.45 }));
+    group.add(this._createSign({ text: 'Plant Room', subtext: 'compressor | utilities | energy metering', x: 7.9, y: 1.8, z: 5.35, color: '#8A97A8', scale: 1.4 }));
+    group.add(this._createSign({ text: 'Dispatch Marshalling', subtext: 'staged pallets | release by dock wave', x: 8.75, y: 1.7, z: -6.25, color: '#D9A441', scale: 1.45 }));
 
     for (const sign of SIGNS) {
       group.add(this._createSign(sign));

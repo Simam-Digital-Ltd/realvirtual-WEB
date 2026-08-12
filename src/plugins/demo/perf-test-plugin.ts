@@ -132,11 +132,11 @@ export class PerfTestPlugin implements RVViewerPlugin {
       position:fixed; top:16px; left:16px; z-index:99999;
       background:rgba(0,0,0,0.85); color:#e0e0e0; padding:16px 20px;
       border-radius:8px; font:13px/1.6 monospace; min-width:280px;
-      border-left:4px solid ${pass ? '#4caf50' : '#f44336'};
+      border-left:4px solid ${pass ? '#5FB37A' : '#D9534F'};
     `;
     el.innerHTML = `
       <div style="font-size:15px;font-weight:bold;margin-bottom:8px">
-        <span style="color:${pass ? '#4caf50' : '#f44336'}">${pass ? 'PASS' : 'FAIL'}</span>
+        <span style="color:${pass ? '#5FB37A' : '#D9534F'}">${pass ? 'PASS' : 'FAIL'}</span>
         &nbsp; ${r.model}
       </div>
       <div>Load: ${r.loadTime} &middot; ${r.glbSize}</div>

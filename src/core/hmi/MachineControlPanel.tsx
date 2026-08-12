@@ -28,11 +28,11 @@ import type { MachineControlPluginAPI, MachineState, MachineMode, MachineCompone
 // ─── ISA-101 Inspired Colors ─────────────────────────────────────────────
 
 const C = {
-  green:   '#66bb6a',
-  blue:    '#42a5f5',
-  orange:  '#ffa726',
-  red:     '#ef5350',
-  cyan:    '#4fc3f7',
+  green:   '#5FB37A',
+  blue:    '#3FB8C4',
+  orange:  '#D9A441',
+  red:     '#D9534F',
+  cyan:    '#3FB8C4',
   dimWhite: 'rgba(255,255,255,0.5)',
   faintWhite: 'rgba(255,255,255,0.25)',
   subtleBorder: 'rgba(255,255,255,0.06)',
@@ -140,7 +140,7 @@ function ControlButtons({ state, plugin }: { state: MachineState; plugin: Machin
             flex: 1, fontSize: 11, fontWeight: 700, textTransform: 'none',
             bgcolor: isRunning ? C.green : 'rgba(255,255,255,0.15)',
             color: isRunning ? '#fff' : undefined,
-            '&:hover': { bgcolor: isRunning ? '#4caf50' : 'rgba(255,255,255,0.25)' },
+            '&:hover': { bgcolor: isRunning ? '#5FB37A' : 'rgba(255,255,255,0.25)' },
           }}
         >
           {isRunning ? 'Running' : 'Start'}
@@ -154,8 +154,8 @@ function ControlButtons({ state, plugin }: { state: MachineState; plugin: Machin
         startIcon={<Warning sx={{ fontSize: '14px !important' }} />}
         sx={{
           fontSize: 12, fontWeight: 800, textTransform: 'none', letterSpacing: 0.5,
-          bgcolor: '#d32f2f', color: '#fff',
-          '&:hover': { bgcolor: '#b71c1c' },
+          bgcolor: '#D9534F', color: '#fff',
+          '&:hover': { bgcolor: '#D9534F' },
           '&.Mui-disabled': { bgcolor: 'rgba(211,47,47,0.3)', color: 'rgba(255,255,255,0.3)' },
         }}
       >

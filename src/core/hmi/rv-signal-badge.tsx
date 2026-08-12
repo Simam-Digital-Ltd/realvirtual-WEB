@@ -24,8 +24,8 @@ export type SignalDirection = 'input' | 'output' | 'unknown';
 
 /** Active color for signal values: green = PLCOutput, red = PLCInput. */
 export function signalActiveColor(dir: SignalDirection): string {
-  if (dir === 'output') return '#66bb6a';  // green
-  if (dir === 'input') return '#ef5350';   // red
+  if (dir === 'output') return '#5FB37A';  // green
+  if (dir === 'input') return '#D9534F';   // red
   return '#fff';
 }
 
@@ -65,7 +65,7 @@ export function SignalBadge({ direction, plcType, raw }: {
 }) {
   const isActive = raw === true;
   const isBool = typeof raw === 'boolean' || raw === undefined;
-  const color = (isBool && isActive) ? signalActiveColor(direction) : '#808080';
+  const color = (isBool && isActive) ? signalActiveColor(direction) : '#8A97A8';
   const typeLabel = plcType ? signalBadgeLabel(plcType)
     : (direction === 'output' ? 'Out' : direction === 'input' ? 'In' : '');
   const valueStr = raw === undefined ? '—'

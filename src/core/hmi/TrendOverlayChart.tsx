@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Box, Typography, IconButton, Paper, CircularProgress } from '@mui/material';
 import { Close, Timeline } from '@mui/icons-material';
-import * as echarts from 'echarts';
+import { echarts } from './echarts-setup';
 import { DataConnectService } from '../dataconnect-service';
 import { useTrendOverlay, closeTrendOverlay } from './trend-overlay-store';
 
@@ -71,21 +71,21 @@ export function TrendOverlayChart() {
           type: 'line',
           smooth: true,
           data: data.map(d => d.temperature),
-          itemStyle: { color: '#ff5252' }
+          itemStyle: { color: '#D9534F' }
         },
         {
           name: 'Vibration',
           type: 'line',
           smooth: true,
           data: data.map(d => d.vibration),
-          itemStyle: { color: '#ffea00' }
+          itemStyle: { color: '#D9A441' }
         },
         {
           name: 'OEE Score',
           type: 'line',
           smooth: true,
           data: data.map(d => d.oeeScore),
-          itemStyle: { color: '#00e676' }
+          itemStyle: { color: '#5FB37A' }
         }
       ]
     };
@@ -120,7 +120,7 @@ export function TrendOverlayChart() {
     }}>
       <Box sx={{ p: 1.5, borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Timeline sx={{ color: '#00e676', fontSize: 20 }} />
+          <Timeline sx={{ color: '#5FB37A', fontSize: 20 }} />
           <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>7-Day Diagnostic Trend</Typography>
         </Box>
         <IconButton size="small" onClick={closeTrendOverlay} sx={{ color: 'text.secondary' }}>
@@ -130,7 +130,7 @@ export function TrendOverlayChart() {
       <Box sx={{ flex: 1, position: 'relative', p: 1 }}>
         {loading && (
           <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CircularProgress size={24} sx={{ color: '#00e676' }} />
+            <CircularProgress size={24} sx={{ color: '#5FB37A' }} />
           </Box>
         )}
         <Box ref={chartRef} sx={{ width: '100%', height: '100%' }} />
