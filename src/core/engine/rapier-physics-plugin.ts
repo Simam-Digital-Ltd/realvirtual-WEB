@@ -117,7 +117,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       const RAPIER = await import('@dimforge/rapier3d-compat');
       await RAPIER.init();
       this._rapier = RAPIER;
-      debug('physics', 'WASM loaded successfully');
+      debug('transport', 'WASM loaded successfully');
     } catch (e) {
       console.warn('[RapierPhysicsPlugin] WASM init failed, falling back to kinematic transport:', e);
       this.handlesTransport = false;
@@ -305,7 +305,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       this._buildDebugWireframes(viewer);
     }
 
-    debug('physics',
+    debug('transport',
       `World built: ${tm.surfaces.length} surfaces, ` +
       `${tm.sensors.length} sensors, ${tm.sinks.length} sinks` +
       (settings.debugWireframes ? ' (debug wireframes ON)' : ''),
@@ -591,7 +591,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
     }
 
     viewer.scene?.add(this._debugGroup);
-    debug('physics', `Debug wireframes: ${bodies.length} colliders visualized`);
+    debug('transport', `Debug wireframes: ${bodies.length} colliders visualized`);
   }
 
   /**
@@ -682,11 +682,11 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
       if (hasIssue) {
         debugWarn('physics', msg);
       } else {
-        debug('physics', msg);
+        debug('transport', msg);
       }
     }
 
-    debug('physics',
+    debug('transport',
       `Validation summary: ${bodies.length - Array.from(this._physicsWorld.getDebugBodies()).filter(b => b.type === 'mu').length} colliders, max pos delta=${(maxPosDelta * 1000).toFixed(1)}mm`,
     );
   }

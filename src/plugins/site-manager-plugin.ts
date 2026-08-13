@@ -128,8 +128,8 @@ export class SiteManagerPlugin implements RVViewerPlugin {
     this._viewer.highlighter.clear();
     const node = this._viewer.registry?.getNode(asset.path);
     if (node) {
-      // 'nav-pulse' id is arbitrary but helps track the highlight cause
-      this._viewer.highlighter.highlightAlarm(node, 'nav-pulse');
+      // Attention pulse on the navigated-to asset; self-animating.
+      this._viewer.highlighter.ping(node);
     }
 
     this._viewer.emit('breadcrumb-updated' as any);

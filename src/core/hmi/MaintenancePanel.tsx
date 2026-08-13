@@ -16,7 +16,7 @@
  *   completed  — summary screen with pass/fail per step
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -41,16 +41,16 @@ import {
 } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useMaintenanceMode } from '../../hooks/use-maintenance-mode';
-import { DataConnectService } from '../dataconnect-service';
 import type { MaintenancePluginAPI } from '../types/plugin-types';
 import type { MaintenanceStep } from '../maintenance-parser';
+import { ISA_GREEN, ISA_AMBER, ISA_RED } from './isa-colors';
 
 // ─── ISA-101 Colors ──────────────────────────────────────────────────────
 
-const COLOR_DONE    = '#5FB37A';
-const COLOR_ACTIVE  = '#D9A441';
+const COLOR_DONE    = ISA_GREEN;
+const COLOR_ACTIVE  = ISA_AMBER;
 const COLOR_PENDING = 'rgba(255,255,255,0.3)';
-const COLOR_WARNING = '#D9534F';
+const COLOR_WARNING = ISA_RED;
 
 // ─── Helper: Get plugin instance ────────────────────────────────────────
 
@@ -230,7 +230,7 @@ function ModeDialog({ plugin }: { plugin: MaintenancePluginAPI }) {
           bgcolor: COLOR_ACTIVE,
           color: '#000',
           justifyContent: 'flex-start',
-          '&:hover': { bgcolor: '#D9A441' },
+          '&:hover': { bgcolor: '#ffb74d' },
         }}
       >
         Start Step-by-Step
@@ -323,7 +323,7 @@ function CompletionSummary({ plugin }: { plugin: MaintenancePluginAPI }) {
           bgcolor: COLOR_DONE,
           color: '#000',
           mt: 1,
-          '&:hover': { bgcolor: '#5FB37A' },
+          '&:hover': { bgcolor: '#81c784' },
         }}
       >
         Back to Overview
@@ -363,19 +363,9 @@ function StepperView({ plugin, isFlythrough }: { plugin: MaintenancePluginAPI; i
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
           <Build sx={{ color: COLOR_ACTIVE, fontSize: 16 }} />
-          <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: 13, flex: 1 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: 13 }}>
             {proc.name}
           </Typography>
-          <Button 
-            size="small" 
-            variant="outlined" 
-            onClick={() => {
-              import('./trend-overlay-store').then(s => s.openTrendOverlay('wakefield-asset-1'));
-            }}
-            sx={{ textTransform: 'none', fontSize: 10, py: 0, color: '#5FB37A', borderColor: 'rgba(0,230,118,0.3)' }}
-          >
-            Show Trend
-          </Button>
         </Box>
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -475,16 +465,6 @@ function StepItem({ step, stepIndex, currentStep, stepResults, isActive, plugin,
   plugin: MaintenancePluginAPI;
   isFlythrough: boolean;
 }) {
-  const [diagnostics, setDiagnostics] = useState<any[]>([]);
-
-  useEffect(() => {
-    if (isActive && !isFlythrough) {
-      DataConnectService.getPredictiveDiagnostics('wakefield-asset-1').then(data => {
-        setDiagnostics(data || []);
-      }).catch(console.error);
-    }
-  }, [isActive, isFlythrough]);
-
   const handleStepClick = useCallback(() => {
     if (!isFlythrough) {
       plugin.goToStep(stepIndex);
@@ -570,37 +550,9 @@ function StepItem({ step, stepIndex, currentStep, stepResults, isActive, plugin,
 
             {/* Estimated time */}
             {step.estimatedMinutes > 0 && (
-              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10, mb: 1, display: 'block' }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10 }}>
                 ~{step.estimatedMinutes} min
               </Typography>
-            )}
-
-            {/* Predictive Diagnostics (Wakefield) */}
-            {diagnostics.length > 0 && (
-              <Box sx={{ mt: 1 }}>
-                {diagnostics.map((diag, idx) => (
-                  <Box key={idx} sx={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 0.75,
-                    p: 1,
-                    mb: 1,
-                    borderRadius: 1,
-                    bgcolor: 'rgba(239, 83, 80, 0.08)',
-                    border: `1px solid rgba(239, 83, 80, 0.4)`,
-                  }}>
-                    <Warning sx={{ fontSize: 14, color: COLOR_WARNING, mt: 0.25 }} />
-                    <Box>
-                      <Typography variant="caption" sx={{ color: COLOR_WARNING, fontSize: 11, fontWeight: 'bold', display: 'block' }}>
-                        DataConnect Alert: {diag.message}
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                        Temp: {diag.temperature?.toFixed(1)}°C | Vib: {diag.vibration?.toFixed(1)}mm/s
-                      </Typography>
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
             )}
 
             {/* Completion UI (only in stepbystep mode, not flythrough) */}

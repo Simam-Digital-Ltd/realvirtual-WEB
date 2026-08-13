@@ -112,34 +112,9 @@ function useAnimatedKpi(seed: number[], baseValue: string, active: boolean) {
   return { sparkData: data, displayValue };
 }
 
-export function KpiCard({ label, value, unit, secondary, color = '#3FB8C4', sparkline, animate = true, onClick }: KpiCardProps) {
-  const seed = SPARKLINES[label] || [];
-  // A caller-supplied sparkline is real measured data — never animate over it.
-  const live = sparkline !== undefined;
-  const { sparkData, displayValue } = useAnimatedKpi(seed, value, !live && animate && seed.length >= 2);
-
-  return (
-    <KpiCardView
-      label={label}
-      value={live || !animate ? value : displayValue}
-      unit={unit}
-      secondary={secondary}
-      color={color}
-      sparkData={live ? sparkline : sparkData}
-      onClick={onClick}
-    />
-  );
-}
-
-function KpiCardView({ label, value, unit, secondary, color, sparkData, onClick }: {
-  label: string;
-  value: string;
-  unit: string;
-  secondary?: string;
-  color: string;
-  sparkData: number[];
-  onClick?: () => void;
-}) {
+export function KpiCard({ label, value, unit, secondary, color = '#4fc3f7', sparkline, animate = true, onClick }: KpiCardProps) {
+  const seed = sparkline ?? SPARKLINES[label] ?? [];
+  const { sparkData, displayValue } = useAnimatedKpi(seed, value, animate && seed.length >= 2);
 
   return (
     <Paper
@@ -184,7 +159,7 @@ function KpiCardView({ label, value, unit, secondary, color, sparkData, onClick 
               transition: 'opacity 0.3s ease',
             }}
           >
-            {value}
+            {animate ? displayValue : value}
           </Typography>
           <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
             {unit}

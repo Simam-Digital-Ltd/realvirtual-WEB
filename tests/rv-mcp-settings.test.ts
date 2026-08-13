@@ -11,7 +11,12 @@
  * - McpBridgeSnapshot shape correctness
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { McpBridgePlugin, type McpBridgeSnapshot } from '../src/plugins/mcp-bridge-plugin';
+import {
+  McpBridgePlugin,
+  DEFAULT_BRIDGE_PORT,
+  NODE_FALLBACK_PORT,
+  type McpBridgeSnapshot,
+} from '../src/plugins/mcp-bridge-plugin';
 import { buildToolDispatcher } from '../src/core/engine/rv-mcp-tools';
 
 // ── Minimal mock viewer ──
@@ -115,7 +120,7 @@ describe('McpBridgePlugin - State Extension', () => {
 
     const s = snapshot as McpBridgeSnapshot;
     expect(s.connected).toBe(true);
-    expect(s.port).toBe('18712');
+    expect(s.port).toBe(DEFAULT_BRIDGE_PORT);
     expect(s.toolCount).toBeGreaterThan(0);
     expect(s.enabled).toBe(true);
     expect(typeof s.reconnectAttempt).toBe('number');
@@ -273,7 +278,7 @@ describe('McpBridgePlugin - State Extension', () => {
     expect(plugin.mcpToolCount).toBe(expectedSize);
   });
 
-  it('snapshot contains all 7 McpBridgeSnapshot fields with correct types', () => {
+  it('snapshot contains all 8 McpBridgeSnapshot fields with correct types', () => {
     const { plugin, viewer } = setupPlugin();
     const p = internals(plugin);
 
@@ -289,7 +294,7 @@ describe('McpBridgePlugin - State Extension', () => {
     expect(viewer.emit).toHaveBeenCalledOnce();
     const snapshot = viewer.emit.mock.calls[0][1] as McpBridgeSnapshot;
 
-    // Verify all 7 fields exist and have correct types
+    // Verify all 8 fields exist and have correct types
     expect(typeof snapshot.connected).toBe('boolean');
     expect(typeof snapshot.port).toBe('string');
     expect(typeof snapshot.toolCount).toBe('number');
@@ -297,6 +302,8 @@ describe('McpBridgePlugin - State Extension', () => {
     expect(typeof snapshot.enabled).toBe('boolean');
     expect(typeof snapshot.reconnectAttempt).toBe('number');
     expect(typeof snapshot.reconnectDelay).toBe('number');
+    // serverStatus is the bridge's full-chain health frame — null until received.
+    expect(snapshot.serverStatus).toBeNull();
 
     // Verify specific values
     expect(snapshot.connected).toBe(true);
@@ -307,10 +314,74 @@ describe('McpBridgePlugin - State Extension', () => {
     expect(snapshot.reconnectAttempt).toBe(3);
     expect(snapshot.reconnectDelay).toBe(4000);
 
-    // Verify exactly 7 keys (no extra, no missing)
-    expect(Object.keys(snapshot)).toHaveLength(7);
+    // Verify exactly 8 keys (no extra, no missing)
+    expect(Object.keys(snapshot)).toHaveLength(8);
     expect(Object.keys(snapshot).sort()).toEqual(
-      ['connected', 'enabled', 'port', 'reconnectAttempt', 'reconnectDelay', 'toolCount', 'toolNames'],
+      ['connected', 'enabled', 'port', 'reconnectAttempt', 'reconnectDelay', 'serverStatus', 'toolCount', 'toolNames'],
     );
+  });
+});
+
+describe('McpBridgePlugin - Persistence (reload)', () => {
+  beforeEach(() => { localStorage.clear(); });
+
+  it('saves the port to localStorage when changed (without connecting)', () => {
+    const { plugin } = setupPlugin();
+    plugin.setPort('17777');
+    const raw = JSON.parse(localStorage.getItem('rv-ai-bridge') ?? '{}');
+    expect(raw.port).toBe('17777');
+  });
+
+  it('restores enabled=false + port from localStorage on init', () => {
+    localStorage.setItem('rv-ai-bridge', JSON.stringify({ enabled: false, port: '16666' }));
+    const { plugin, viewer } = setupPlugin();
+    (plugin as unknown as { init: (v: unknown) => void }).init(viewer);
+    expect(plugin.mcpPort).toBe('16666');
+    expect(plugin.mcpEnabled).toBe(false);
+  });
+
+  it('getSnapshot reflects the restored state (UI seeding on mount)', () => {
+    localStorage.setItem('rv-ai-bridge', JSON.stringify({ enabled: false, port: '15555' }));
+    const { plugin, viewer } = setupPlugin();
+    (plugin as unknown as { init: (v: unknown) => void }).init(viewer);
+    const snap = plugin.getSnapshot();
+    expect(snap.port).toBe('15555');
+    expect(snap.enabled).toBe(false);
+  });
+});
+
+// plan-327 AP5: CONNECT becomes the default transport WITHOUT taking the Node bridge away.
+describe('McpBridgePlugin - CONNECT is the default, Node stays reachable', () => {
+  beforeEach(() => { localStorage.clear(); });
+
+  it('a fresh profile targets CONNECT and does not pin the port', () => {
+    const { plugin, viewer } = setupPlugin();
+    (plugin as unknown as { init: (v: unknown) => void }).init(viewer);
+
+    expect(plugin.mcpPort).toBe(DEFAULT_BRIDGE_PORT);
+    // Not pinned → same-origin derivation still applies where the HMI is served by CONNECT.
+    expect((plugin as unknown as { _explicitPort: boolean })._explicitPort).toBe(false);
+  });
+
+  it('a profile that still holds a Node port keeps it (the fallback is not taken away)', () => {
+    localStorage.setItem('rv-ai-bridge',
+      JSON.stringify({ enabled: false, port: NODE_FALLBACK_PORT }));
+    const { plugin, viewer } = setupPlugin();
+    (plugin as unknown as { init: (v: unknown) => void }).init(viewer);
+
+    expect(plugin.mcpPort).toBe(NODE_FALLBACK_PORT);
+    expect((plugin as unknown as { _explicitPort: boolean })._explicitPort).toBe(true);
+  });
+
+  it('switching to a Node port pins it, switching back to CONNECT un-pins it', () => {
+    const { plugin } = setupPlugin();
+    const p = plugin as unknown as { _explicitPort: boolean };
+
+    plugin.setPort(NODE_FALLBACK_PORT);
+    expect(p._explicitPort).toBe(true);
+
+    plugin.setPort(DEFAULT_BRIDGE_PORT);
+    expect(p._explicitPort).toBe(false);
+    expect(plugin.mcpPort).toBe(DEFAULT_BRIDGE_PORT);
   });
 });

@@ -35,11 +35,11 @@ import {
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 import type { WebGLRenderer } from 'three';
-import { isHeadsetDevice } from '../hooks/use-mobile-layout';
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
 import { RVXRManager, type XRSupport } from '../core/engine/rv-xr-manager';
+import { disposeSubtree } from '../core/engine/rv-traverse-utils';
 import { tooltipStore } from '../core/hmi/tooltip/tooltip-store';
 
 const DEAD_ZONE = 0.15;
@@ -148,6 +148,11 @@ export class WebXRPlugin implements RVViewerPlugin {
   private arSelectedDrive: import('../core/engine/rv-drive').RVDrive | null = null;
   private arStyleEl: HTMLStyleElement | null = null;
 
+  // Last successful hit-test result — used so tap-to-place works even when the
+  // current frame has no results (ARCore hit-test is intermittent on some devices).
+  private lastHitSeen = false;
+  private lastHitTime = 0;
+
   onModelLoaded(result: LoadResult, viewer: RVViewer): void {
     this.viewer = viewer;
     this.modelBoundingBox = result.boundingBox;
@@ -168,7 +173,10 @@ export class WebXRPlugin implements RVViewerPlugin {
 
   /** Detect if running on a VR headset browser (Quest, Pico, etc.) vs mobile/desktop. */
   private static isHeadsetBrowser(): boolean {
-    return isHeadsetDevice();
+    const ua = navigator.userAgent.toLowerCase();
+    return ua.includes('oculus') || ua.includes('quest')
+        || ua.includes('pico') || ua.includes('vive')
+        || ua.includes('wolvic') || ua.includes('magic leap');
   }
 
   private async initXR(viewer: RVViewer): Promise<void> {
@@ -210,26 +218,18 @@ export class WebXRPlugin implements RVViewerPlugin {
     // On mobile/desktop, entry is handled through the app menu instead.
     if (!WebXRPlugin.isHeadsetBrowser()) return;
 
-    if (!navigator.xr) {
-      console.error('[WebXR] navigator.xr is undefined. This site must be served over HTTPS for WebXR to work.');
-      return;
-    }
-
     const buttonStyle = {
       position: 'fixed',
-      bottom: '32px', // Moved up slightly to avoid overlapping with browser nav
-      padding: '16px 40px',
-      border: '1px solid rgba(255,255,255,0.2)',
-      borderRadius: '12px',
-      fontSize: '18px',
-      fontWeight: '800',
+      bottom: '20px',
+      padding: '12px 32px',
+      border: 'none',
+      borderRadius: '8px',
+      fontSize: '16px',
+      fontWeight: '700',
       fontFamily: 'system-ui, sans-serif',
       cursor: 'pointer',
       zIndex: '10000',
-      letterSpacing: '1px',
-      backdropFilter: 'blur(10px)',
-      boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
-      transition: 'all 0.2s ease',
+      letterSpacing: '0.5px',
     };
 
     // VR button
@@ -237,10 +237,11 @@ export class WebXRPlugin implements RVViewerPlugin {
       const button = VRButton.createButton(glRenderer);
       Object.assign(button.style, {
         ...buttonStyle,
-        left: this.arSupported ? 'calc(50% - 100px)' : '50%',
-        transform: this.arSupported ? 'translateX(-100%)' : 'translateX(-50%)',
-        background: 'rgba(32, 161, 177, 0.95)',
-        color: '#fff',
+        left: this.arSupported ? 'calc(50% - 90px)' : '50%',
+        transform: this.arSupported ? 'none' : 'translateX(-50%)',
+        background: 'rgba(79, 195, 247, 0.9)',
+        color: '#000',
+        boxShadow: '0 4px 20px rgba(79, 195, 247, 0.3)',
       });
       this.vrButton = button;
       document.body.appendChild(button);
@@ -252,21 +253,13 @@ export class WebXRPlugin implements RVViewerPlugin {
       arBtn.textContent = 'ENTER AR';
       Object.assign(arBtn.style, {
         ...buttonStyle,
-        left: this.vrSupported ? 'calc(50% + 100px)' : '50%',
+        left: this.vrSupported ? 'calc(50% + 90px)' : '50%',
         transform: this.vrSupported ? 'none' : 'translateX(-50%)',
-        background: 'rgba(129, 199, 132, 0.95)',
-        color: '#fff',
+        background: 'rgba(129, 199, 132, 0.9)',
+        color: '#000',
+        boxShadow: '0 4px 20px rgba(129, 199, 132, 0.3)',
       });
-      arBtn.onclick = () => {
-        glRenderer.xr.getSession()?.end(); // Close existing if any
-        navigator.xr?.requestSession('immersive-ar', {
-          requiredFeatures: ['hit-test'],
-          optionalFeatures: ['dom-overlay'],
-          domOverlay: { root: document.body }
-        }).then(session => {
-          glRenderer.xr.setSession(session);
-        });
-      };
+      arBtn.addEventListener('click', () => this.startAR());
       this.arButton = arBtn;
       document.body.appendChild(arBtn);
     }
@@ -281,7 +274,8 @@ export class WebXRPlugin implements RVViewerPlugin {
     try {
       // On mobile: create DOM overlay for touch gestures (pinch-to-scale, drag-to-move)
       const sessionInit: XRSessionInit = {
-        optionalFeatures: ['local-floor', 'hand-tracking', 'hit-test'],
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['local-floor', 'hand-tracking'],
       };
 
       if (isMobile) {
@@ -299,7 +293,11 @@ export class WebXRPlugin implements RVViewerPlugin {
           #react-root [data-ar-show] { display: flex !important; }
         `;
         document.head.appendChild(this.arStyleEl);
-        sessionInit.optionalFeatures!.push('dom-overlay');
+        // dom-overlay must be required (not optional) so the browser guarantees
+        // DOM touch-event routing through the overlay element. When only optional,
+        // Chrome Android can start the session without overlay-mode and the
+        // touch handlers on this.arOverlay never fire → tap-to-place is dead.
+        sessionInit.requiredFeatures!.push('dom-overlay');
         (sessionInit as Record<string, unknown>).domOverlay = { root: this.arOverlay };
       }
 
@@ -364,7 +362,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     roundRect(ctx, 1, 1, 510, 378, 16);
     ctx.stroke();
 
-    const accent = mode === 'ar' ? '#5FB37A' : '#3FB8C4';
+    const accent = mode === 'ar' ? '#81c784' : '#4fc3f7';
 
     ctx.fillStyle = accent;
     ctx.font = 'bold 28px system-ui, sans-serif';
@@ -468,6 +466,9 @@ export class WebXRPlugin implements RVViewerPlugin {
         // Hide model until placed via hit-test tap
         this.sceneContent.visible = false;
         this.sceneContent.position.set(0, 0, 0);
+        // Freeze simulation while the user is placing / adjusting the model.
+        // Resumes after "Done" is tapped (exit placementMode) — see updatePlacementButton.
+        this.viewer.setSimulationPaused('ar-placement', true);
       } else {
         // Headset AR: position model at floor level, 2m in front of user
         this.sceneContent.position.set(
@@ -521,6 +522,11 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.presenting = false;
     if (!this.dolly || !this.viewer) return;
 
+    // Always release the AR placement pause — whether it was still held (session
+    // ended mid-placement) or already released (set false on Done). Idempotent:
+    // releasing an inactive reason is a no-op.
+    this.viewer.setSimulationPaused('ar-placement', false);
+
     // Restore scene content from AR wrapper
     if (this.sceneContent) {
       this.sceneContent.scale.setScalar(1);
@@ -569,12 +575,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.hitTestMode = false;
     if (this.hitReticle) {
       this.hitReticle.removeFromParent();
-      this.hitReticle.traverse((child) => {
-        if (child instanceof Mesh) {
-          child.geometry.dispose();
-          (child.material as MeshBasicMaterial).dispose();
-        }
-      });
+      disposeSubtree(this.hitReticle);
       this.hitReticle = null;
     }
 
@@ -816,9 +817,20 @@ export class WebXRPlugin implements RVViewerPlugin {
   /** Request WebXR hit-test source for surface detection. */
   private async requestHitTest(session: XRSession): Promise<void> {
     try {
+      if (typeof (session as any).requestHitTestSource !== 'function') {
+        console.warn('[WebXR] Session does not support requestHitTestSource — hit-test feature may not be enabled');
+        this.placeModelDefault();
+        return;
+      }
       const viewerSpace = await session.requestReferenceSpace('viewer');
       this.hitTestSource = await (session as any).requestHitTestSource({ space: viewerSpace });
+      if (!this.hitTestSource) {
+        console.warn('[WebXR] requestHitTestSource returned null');
+        this.placeModelDefault();
+        return;
+      }
       this.hitTestMode = true;
+      console.log('[WebXR] Hit-test source created successfully');
 
       // Create reticle mesh (green ring on detected surfaces)
       this.hitReticle = this.createHitReticle();
@@ -837,50 +849,71 @@ export class WebXRPlugin implements RVViewerPlugin {
     const group = new Group();
     group.visible = false;
 
-    // Outer ring
-    const ringGeo = new RingGeometry(0.08, 0.11, 32).rotateX(-Math.PI / 2);
+    // Outer ring — enlarged (matches three.js AR example). depthTest:false +
+    // renderOrder so the reticle is never occluded by camera-near geometry
+    // or z-fights with the detected ground plane.
+    const ringGeo = new RingGeometry(0.15, 0.20, 32).rotateX(-Math.PI / 2);
     const ringMat = new MeshBasicMaterial({
-      color: 0x81c784, transparent: true, opacity: 0.85, side: DoubleSide,
+      color: 0x81c784, transparent: true, opacity: 0.95, side: DoubleSide,
+      depthTest: false, depthWrite: false,
     });
-    group.add(new Mesh(ringGeo, ringMat));
+    const ring = new Mesh(ringGeo, ringMat);
+    ring.renderOrder = 9998;
+    group.add(ring);
 
     // Center dot
-    const dotGeo = new CircleGeometry(0.015, 16).rotateX(-Math.PI / 2);
+    const dotGeo = new CircleGeometry(0.03, 16).rotateX(-Math.PI / 2);
     const dotMat = new MeshBasicMaterial({
-      color: 0x81c784, transparent: true, opacity: 0.5, side: DoubleSide,
+      color: 0x81c784, transparent: true, opacity: 0.75, side: DoubleSide,
+      depthTest: false, depthWrite: false,
     });
-    group.add(new Mesh(dotGeo, dotMat));
+    const dot = new Mesh(dotGeo, dotMat);
+    dot.renderOrder = 9998;
+    group.add(dot);
 
     return group;
   }
 
   /** Per-frame hit-test loop using session.requestAnimationFrame. */
   private startHitTestLoop(session: XRSession): void {
+    let frameCount = 0;
+    let firstHitLogged = false;
     const onFrame = (_time: number, frame: unknown): void => {
       if (!this.hitTestMode || !this.hitTestSource) return;
 
-      const refSpace = this.viewer?.renderer.xr.getReferenceSpace();
+      const refSpace = this.glRenderer?.xr.getReferenceSpace();
       if (!refSpace) {
         session.requestAnimationFrame(onFrame as XRFrameRequestCallback);
         return;
       }
 
+      frameCount++;
       try {
         const results = (frame as any).getHitTestResults(this.hitTestSource);
         if (results.length > 0) {
           const pose = results[0].getPose(refSpace);
           if (pose && this.hitReticle) {
+            if (!firstHitLogged) {
+              firstHitLogged = true;
+            }
             this.hitReticle.visible = true;
             const p = pose.transform.position;
             const q = pose.transform.orientation;
             this.hitReticle.position.set(p.x, p.y, p.z);
             this.hitReticle.quaternion.set(q.x, q.y, q.z, q.w);
+            this.lastHitSeen = true;
+            this.lastHitTime = performance.now();
           }
         } else if (this.hitReticle) {
           this.hitReticle.visible = false;
+          // Diagnostic hint if ARCore isn't detecting surfaces after ~5s
+          if (!firstHitLogged && frameCount === 300) {
+            console.warn('[WebXR] No surfaces detected after ~5s. '
+              + 'Move the device slowly left-right; ensure the floor has visible texture and good lighting.');
+          }
         }
-      } catch (_) {
-        // Hit-test results may not be available on every frame
+      } catch (_e) {
+        // Hit-test results not available on every frame (transient, don't spam console)
       }
 
       session.requestAnimationFrame(onFrame as XRFrameRequestCallback);
@@ -893,15 +926,35 @@ export class WebXRPlugin implements RVViewerPlugin {
     if (!this.hitReticle || !this.sceneContent || !this.modelBoundingBox) return;
 
     const center = new Vector3();
+    const size = new Vector3();
     this.modelBoundingBox.getCenter(center);
+    this.modelBoundingBox.getSize(size);
 
-    // Position model so its bottom-center aligns with the reticle
+    // Auto-scale model to table-top size (~0.8 m diagonal) on first placement,
+    // so large industrial scenes (factory floors, production lines) fit into a
+    // typical room without the user ending up inside the model. Users can still
+    // pinch-to-scale up to full 1:1 after placement (AR_MAX_SCALE = 5x of auto-fit).
+    const maxHoriz = Math.max(size.x, size.z, 0.001);
+    const TARGET_AR_SIZE = 0.8;  // 80 cm across
+    if (this.arScale === 1.0 && maxHoriz > TARGET_AR_SIZE) {
+      this.arScale = TARGET_AR_SIZE / maxHoriz;
+      this.sceneContent.scale.setScalar(this.arScale);
+      this.updateScaleBadge();
+      console.log('[WebXR] Auto-scaled model:', this.arScale.toFixed(3),
+        `(original ${maxHoriz.toFixed(2)}m → ${TARGET_AR_SIZE}m)`);
+    }
+
+    // Position model so its bottom-center aligns with the reticle.
+    // Bounding box coords are in pre-scale space, so multiply by current arScale.
     this.sceneContent.position.set(
-      this.hitReticle.position.x - center.x,
-      this.hitReticle.position.y - this.modelBoundingBox.min.y,
-      this.hitReticle.position.z - center.z,
+      this.hitReticle.position.x - center.x * this.arScale,
+      this.hitReticle.position.y - this.modelBoundingBox.min.y * this.arScale,
+      this.hitReticle.position.z - center.z * this.arScale,
     );
     this.sceneContent.visible = true;
+
+    console.log('[WebXR] Placed at scale', this.arScale.toFixed(3),
+      `(bbox ${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)}m)`);
 
     // Exit hit-test mode
     this.hitTestMode = false;
@@ -950,6 +1003,9 @@ export class WebXRPlugin implements RVViewerPlugin {
     if (this.replaceBtn) this.replaceBtn.style.display = 'none';
     if (this.instructionEl) this.instructionEl.style.display = '';
 
+    // Pause simulation again while user picks a new surface
+    this.viewer.setSimulationPaused('ar-placement', true);
+
     // Re-start hit-test
     const session = this.glRenderer!.xr.getSession();
     if (session) {
@@ -975,7 +1031,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     exitBtn.style.cssText = `${btnStyle}position:fixed;top:16px;left:16px;z-index:10001;`
       + 'padding:10px 20px;font-size:14px;background:rgba(239,83,80,0.85);color:#fff;';
     exitBtn.addEventListener('click', () => {
-      this.viewer?.renderer.xr.getSession()?.end();
+      this.glRenderer?.xr.getSession()?.end();
     });
     overlay.appendChild(exitBtn);
 
@@ -984,7 +1040,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.instructionEl.textContent = 'Point at a surface \u00b7 Tap to place';
     this.instructionEl.style.cssText = 'position:fixed;bottom:32px;left:50%;transform:translateX(-50%);'
       + 'z-index:10001;padding:12px 24px;border-radius:16px;background:rgba(0,0,0,0.7);'
-      + 'color:#5FB37A;font:bold 15px system-ui,sans-serif;white-space:nowrap;pointer-events:none;';
+      + 'color:#81c784;font:bold 15px system-ui,sans-serif;white-space:nowrap;pointer-events:none;';
     overlay.appendChild(this.instructionEl);
 
     // Place mode toggle (bottom-center) — hidden until model is placed
@@ -1007,6 +1063,8 @@ export class WebXRPlugin implements RVViewerPlugin {
 
       this.placementMode = !this.placementMode;
       this.updatePlacementButton(this.placementMode);
+      // Freeze simulation while in placement/adjustment mode, resume when "Done"
+      this.viewer?.setSimulationPaused('ar-placement', this.placementMode);
     });
     overlay.appendChild(this.placementBtn);
 
@@ -1014,7 +1072,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.scaleBadge = document.createElement('div');
     this.scaleBadge.style.cssText = 'pointer-events:none;position:fixed;bottom:76px;left:50%;'
       + 'transform:translateX(-50%);z-index:10001;padding:4px 12px;border-radius:12px;'
-      + 'background:rgba(0,0,0,0.6);color:#5FB37A;font:bold 12px system-ui,sans-serif;display:none;';
+      + 'background:rgba(0,0,0,0.6);color:#81c784;font:bold 12px system-ui,sans-serif;display:none;';
     this.updateScaleBadge();
     overlay.appendChild(this.scaleBadge);
 
@@ -1115,11 +1173,18 @@ export class WebXRPlugin implements RVViewerPlugin {
         if ((e.target as HTMLElement).closest('button')) return;
 
         if (this.hitTestMode && e.changedTouches.length > 0) {
-          // Detect tap: touchend close to touchstart position → place model
+          // Detect tap: touchend close to touchstart position → place model.
+          // Tolerant: accept taps up to 40 CSS-px movement (Android taps drift a bit)
+          // and don't require the reticle to be visible *this frame* — ARCore hit-test
+          // results are intermittent. We use the last known good hit if it was seen
+          // within 500 ms, so the tap feels responsive even in gap frames.
           const ct = e.changedTouches[0];
           const dx = ct.clientX - this.touchState.lastX;
           const dy = ct.clientY - this.touchState.lastY;
-          if (Math.hypot(dx, dy) < 20 && this.hitReticle?.visible) {
+          const dist = Math.hypot(dx, dy);
+          const recentHit = this.lastHitSeen
+            && (performance.now() - this.lastHitTime) < 500;
+          if (dist < 40 && (this.hitReticle?.visible || recentHit)) {
             this.placeModelAtReticle();
           }
           return;
@@ -1306,16 +1371,15 @@ export class WebXRPlugin implements RVViewerPlugin {
   getDolly(): Group | null { return this.dolly; }
 
   dispose(): void {
+    // Release any held simulation pause — plugin teardown must never leave
+    // the simulation frozen for the next model/plugin instance.
+    this.viewer?.setSimulationPaused('ar-placement', false);
+
     if (this.vrButton) { this.vrButton.remove(); this.vrButton = null; }
     if (this.arButton) { this.arButton.remove(); this.arButton = null; }
     if (this.teleportReticle) {
       this.teleportReticle.removeFromParent();
-      this.teleportReticle.traverse((child) => {
-        if (child instanceof Mesh) {
-          child.geometry.dispose();
-          (child.material as MeshBasicMaterial).dispose();
-        }
-      });
+      disposeSubtree(this.teleportReticle);
       this.teleportReticle = null;
     }
     if (this.teleportArc) {
@@ -1328,12 +1392,7 @@ export class WebXRPlugin implements RVViewerPlugin {
     this.teardownMobileARTouch();
     if (this.hitReticle) {
       this.hitReticle.removeFromParent();
-      this.hitReticle.traverse((child) => {
-        if (child instanceof Mesh) {
-          child.geometry.dispose();
-          (child.material as MeshBasicMaterial).dispose();
-        }
-      });
+      disposeSubtree(this.hitReticle);
       this.hitReticle = null;
     }
     this.hitTestSource = null;

@@ -19,6 +19,8 @@ import {
   FrontSide,
   type Material,
 } from 'three';
+import { ISOLATE_FOCUS_LAYER } from './rv-group-registry';
+import { traverseMeshes } from './rv-traverse-utils';
 
 // ─── Config ─────────────────────────────────────────────────────────────
 
@@ -58,10 +60,8 @@ function findVesselMesh(tankNode: Object3D): Mesh | null {
   const tmpBox = new Box3();
   const tmpSize = new Vector3();
 
-  tankNode.traverse((child) => {
-    if (!(child as Mesh).isMesh) return;
-    if (child.userData._tankFillViz) return;
-    const mesh = child as Mesh;
+  traverseMeshes(tankNode, (mesh) => {
+    if (mesh.userData._tankFillViz) return;
     if (!mesh.geometry?.attributes?.position) return;
 
     tmpBox.setFromObject(mesh);
@@ -147,6 +147,29 @@ export class TankFillManager {
     this.entries.length = 0;
   }
 
+  /**
+   * Override a tank's fill + surface-line colors (e.g. to match a custom
+   * fluid palette owned by ProcessIndustryPlugin). No-op when the tank has
+   * no fill overlay yet.
+   */
+  setFillColor(tankNode: Object3D, fillColor: number, lineColor: number): void {
+    const entry = this.entries.find((e) => e.node === tankNode);
+    if (!entry) return;
+    (entry.overlay.material as MeshBasicMaterial).color.setHex(fillColor);
+    (entry.line.material as MeshBasicMaterial).color.setHex(lineColor);
+  }
+
+  /** Restore every fill + surface-line overlay to the built-in preset color
+   *  derived from the tank's current resourceName (or the default preset). */
+  resetAllFillColors(): void {
+    for (const entry of this.entries) {
+      const rv = entry.node.userData._rvTank as { resourceName?: string } | undefined;
+      const preset = getLiquidPreset(rv?.resourceName ?? '');
+      (entry.overlay.material as MeshBasicMaterial).color.setHex(preset.fill);
+      (entry.line.material as MeshBasicMaterial).color.setHex(preset.line);
+    }
+  }
+
   private _createFill(tankNode: Object3D): void {
     const vesselMesh = findVesselMesh(tankNode);
     if (!vesselMesh) return;
@@ -188,6 +211,11 @@ export class TankFillManager {
     overlay.position.copy(vesselMesh.position);
     overlay.quaternion.copy(vesselMesh.quaternion);
     overlay.scale.copy(vesselMesh.scale);
+    // Make the fill visible in pass 3 of isolate mode (focus pass) — without
+    // this, the overlay only carries layer 0 and would render dim in pass 1
+    // and not at all in pass 3, so the fill level disappears under the dim
+    // overlay when the pumping plant is isolated.
+    overlay.layers.enable(ISOLATE_FOCUS_LAYER);
     parent.add(overlay);
 
     // ── Surface line ──
@@ -211,6 +239,8 @@ export class TankFillManager {
     line.position.copy(vesselMesh.position);
     line.quaternion.copy(vesselMesh.quaternion);
     line.scale.copy(vesselMesh.scale);
+    // Same isolate-layer enabling as the fill overlay above.
+    line.layers.enable(ISOLATE_FOCUS_LAYER);
     parent.add(line);
 
     overlay.visible = false;

@@ -158,7 +158,7 @@ export function MeasurementPanel() {
     >
       {/* Unified header (matches LeftPanel) */}
       <Box sx={{ display: 'flex', alignItems: 'center', px: 1.5, py: 1.25, gap: 0.5, borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
-        <Straighten sx={{ fontSize: 16, color: '#3FB8C4' }} />
+        <Straighten sx={{ fontSize: 16, color: '#4fc3f7' }} />
         <Typography variant="subtitle2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: 'text.primary', flexGrow: 1 }}>
           Measurements ({snap.measurements.length})
         </Typography>
@@ -170,7 +170,7 @@ export function MeasurementPanel() {
                 const allVisible = snap.measurements.every(m => m.visible);
                 for (const m of snap.measurements) plugin?.updateMeasurement(m.id, { visible: !allVisible });
               }}
-              sx={{ color: 'rgba(255,255,255,0.3)', p: 0.25, '&:hover': { color: '#3FB8C4' } }}
+              sx={{ color: 'rgba(255,255,255,0.3)', p: 0.25, '&:hover': { color: '#4fc3f7' } }}
               title={snap.measurements.every(m => m.visible) ? 'Hide all' : 'Show all'}
             >
               {snap.measurements.every(m => m.visible)
@@ -180,7 +180,7 @@ export function MeasurementPanel() {
             <IconButton
               size="small"
               onClick={handleClearAll}
-              sx={{ color: 'rgba(255,255,255,0.3)', p: 0.25, '&:hover': { color: '#D9534F' } }}
+              sx={{ color: 'rgba(255,255,255,0.3)', p: 0.25, '&:hover': { color: '#ef5350' } }}
               title="Clear all"
             >
               <DeleteSweep sx={{ fontSize: 14 }} />
@@ -203,7 +203,7 @@ export function MeasurementPanel() {
             '& .MuiToggleButton-root': {
               fontSize: 10, py: 0.15, px: 0.8, textTransform: 'none',
               color: 'rgba(255,255,255,0.5)', borderColor: 'rgba(255,255,255,0.1)',
-              '&.Mui-selected': { color: '#3FB8C4', bgcolor: 'rgba(79,195,247,0.1)' },
+              '&.Mui-selected': { color: '#4fc3f7', bgcolor: 'rgba(79,195,247,0.1)' },
             },
           }}
         >
@@ -220,10 +220,10 @@ export function MeasurementPanel() {
             '& .MuiToggleButton-root': {
               fontSize: 10, py: 0.15, px: 0.6, textTransform: 'none',
               color: 'rgba(255,255,255,0.5)', borderColor: 'rgba(255,255,255,0.1)',
-              '&.Mui-selected.axis-x': { color: '#D9534F', bgcolor: 'rgba(239,83,80,0.15)' },
-              '&.Mui-selected.axis-y': { color: '#5FB37A', bgcolor: 'rgba(102,187,106,0.15)' },
-              '&.Mui-selected.axis-z': { color: '#3FB8C4', bgcolor: 'rgba(66,165,245,0.15)' },
-              '&.Mui-selected.axis-none': { color: '#3FB8C4', bgcolor: 'rgba(79,195,247,0.1)' },
+              '&.Mui-selected.axis-x': { color: '#ef5350', bgcolor: 'rgba(239,83,80,0.15)' },
+              '&.Mui-selected.axis-y': { color: '#66bb6a', bgcolor: 'rgba(102,187,106,0.15)' },
+              '&.Mui-selected.axis-z': { color: '#42a5f5', bgcolor: 'rgba(66,165,245,0.15)' },
+              '&.Mui-selected.axis-none': { color: '#4fc3f7', bgcolor: 'rgba(79,195,247,0.1)' },
             },
           }}
         >
@@ -245,7 +245,7 @@ export function MeasurementPanel() {
           value={displayScale}
           onChange={handleScaleChange}
           sx={{
-            color: '#3FB8C4',
+            color: '#4fc3f7',
             '& .MuiSlider-thumb': { width: 10, height: 10 },
             '& .MuiSlider-track': { height: 2 },
             '& .MuiSlider-rail': { height: 2, opacity: 0.2 },
@@ -318,17 +318,17 @@ export function MeasurementPanel() {
                   {m.name}
                 </Typography>
               )}
-              <Typography sx={{ fontSize: 10, color: '#3FB8C4', fontWeight: 600 }}>
+              <Typography sx={{ fontSize: 10, color: '#4fc3f7', fontWeight: 600 }}>
                 {formatDistance(m.distance, unit)}
               </Typography>
               <Box sx={{ display: 'flex', gap: 0.5, mt: 0.2 }}>
-                <Typography sx={{ fontSize: 9, color: '#D9534F' }}>
+                <Typography sx={{ fontSize: 9, color: '#ef5350' }}>
                   ΔX {formatDistance(Math.abs(m.pointB[0] - m.pointA[0]), unit)}
                 </Typography>
-                <Typography sx={{ fontSize: 9, color: '#5FB37A' }}>
+                <Typography sx={{ fontSize: 9, color: '#66bb6a' }}>
                   ΔY {formatDistance(Math.abs(m.pointB[1] - m.pointA[1]), unit)}
                 </Typography>
-                <Typography sx={{ fontSize: 9, color: '#3FB8C4' }}>
+                <Typography sx={{ fontSize: 9, color: '#42a5f5' }}>
                   ΔZ {formatDistance(Math.abs(m.pointB[2] - m.pointA[2]), unit)}
                 </Typography>
               </Box>
@@ -339,21 +339,21 @@ export function MeasurementPanel() {
               <IconButton
                 size="small"
                 onClick={(e) => { e.stopPropagation(); handleToggleVisibility(m); }}
-                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#3FB8C4' } }}
+                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#4fc3f7' } }}
               >
                 {m.visible ? <Visibility sx={{ fontSize: 12 }} /> : <VisibilityOff sx={{ fontSize: 12 }} />}
               </IconButton>
               <IconButton
                 size="small"
                 onClick={(e) => { e.stopPropagation(); handleFocus(m.id); }}
-                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#3FB8C4' } }}
+                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#4fc3f7' } }}
               >
                 <CenterFocusStrong sx={{ fontSize: 12 }} />
               </IconButton>
               <IconButton
                 size="small"
                 onClick={(e) => { e.stopPropagation(); handleDelete(m.id); }}
-                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#D9534F' } }}
+                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#ef5350' } }}
               >
                 <Delete sx={{ fontSize: 12 }} />
               </IconButton>

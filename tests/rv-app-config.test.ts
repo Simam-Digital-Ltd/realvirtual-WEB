@@ -44,7 +44,6 @@ describe('rv-app-config', () => {
     expect(config.visual?.antialias).toBe(false);
     expect(config.interface?.wsPort).toBe(8080);
     // Unset fields must be undefined
-    expect(config.physics).toBeUndefined();
     expect(config.search).toBeUndefined();
   });
 
@@ -93,15 +92,15 @@ describe('rv-app-config', () => {
   it('should lock all tabs when lockSettings is true', () => {
     setAppConfig({ lockSettings: true });
     expect(isTabLocked('visual')).toBe(true);
-    expect(isTabLocked('physics')).toBe(true);
+    expect(isTabLocked('devtools')).toBe(true);
     expect(isTabLocked('interfaces')).toBe(true);
     expect(isTabLocked('model')).toBe(true);
   });
 
   it('should lock only specified tabs via lockedTabs', () => {
-    setAppConfig({ lockedTabs: ['interfaces', 'physics'] });
+    setAppConfig({ lockedTabs: ['interfaces', 'devtools'] });
     expect(isTabLocked('interfaces')).toBe(true);
-    expect(isTabLocked('physics')).toBe(true);
+    expect(isTabLocked('devtools')).toBe(true);
     expect(isTabLocked('visual')).toBe(false);
     expect(isTabLocked('model')).toBe(false);
   });
@@ -149,12 +148,12 @@ describe('rv-app-config', () => {
     defaults.modeSettings.default.lightIntensity = 1.0;
     saveVisualSettings(defaults);
 
-    // Step 2: Set config override (lightingMode override)
+    // Step 2: Set config override (legacy `lightingMode` key — exercises back-compat)
     setAppConfig({ visual: { lightingMode: 'default' } });
 
     // Step 3: Load — config must win over localStorage for overridden fields
     const result = loadVisualSettings();
-    expect(result.lightingMode).toBe('default');
+    expect(result.renderMode).toBe('default');
     // localStorage values preserved for non-overridden fields
     expect(result.modeSettings.default.shadowEnabled).toBe(false);
     expect(result.modeSettings.default.lightIntensity).toBe(1.0);
@@ -167,12 +166,36 @@ describe('rv-app-config', () => {
     const defaults = loadVisualSettings();
     defaults.modeSettings.default.shadowEnabled = false;
     defaults.modeSettings.default.lightIntensity = 1.5;
-    defaults.lightingMode = 'default';
+    defaults.renderMode = 'default';
     saveVisualSettings(defaults);
 
     const result = loadVisualSettings();
-    expect(result.lightingMode).toBe('default');
+    expect(result.renderMode).toBe('default');
     expect(result.modeSettings.default.shadowEnabled).toBe(false);
     expect(result.modeSettings.default.lightIntensity).toBe(1.5);
+  });
+
+  // ── Navigation Sensitivity Overrides (Plan 148) ─────────────────────
+  it('overrides navigation settings from settings.json (visual.orbit*)', async () => {
+    const { loadVisualSettings } = await import('../src/core/hmi/visual-settings-store');
+    setAppConfig({ visual: { orbitRotateSpeed: 2.0, orbitDampingFactor: 0.15 } });
+    const s = loadVisualSettings();
+    expect(s.orbitRotateSpeed).toBe(2.0);
+    expect(s.orbitDampingFactor).toBe(0.15);
+  });
+
+  it('ignores string values in settings.json for nav fields (typeof guard)', async () => {
+    const { loadVisualSettings } = await import('../src/core/hmi/visual-settings-store');
+    // Cast forces a broken JSON-like payload that TS would normally reject.
+    setAppConfig({ visual: { orbitRotateSpeed: '2.0' as unknown as number } });
+    const s = loadVisualSettings();
+    expect(s.orbitRotateSpeed).toBe(1.0); // falls back to DEFAULT
+  });
+
+  it('ignores out-of-range values in settings.json for nav fields', async () => {
+    const { loadVisualSettings } = await import('../src/core/hmi/visual-settings-store');
+    setAppConfig({ visual: { orbitPanSpeed: 99 } });
+    const s = loadVisualSettings();
+    expect(s.orbitPanSpeed).toBe(1.0); // clamped to DEFAULT
   });
 });

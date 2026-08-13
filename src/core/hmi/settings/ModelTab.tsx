@@ -1,12 +1,40 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
 
-import { useState, useRef, useCallback } from 'react';
-import { Typography, Box, Button, Select, MenuItem } from '@mui/material';
-import { RestartAlt, FileDownload, FileUpload } from '@mui/icons-material';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { Typography, Box, Button } from '@mui/material';
+import { RestartAlt, FileDownload, FileUpload, CleaningServices, Cookie } from '@mui/icons-material';
 import { useViewer } from '../../../hooks/use-viewer';
 import { clearAllRVStorage } from '../rv-storage-keys';
+import { clearCadGlbCache, getCadGlbCacheSize } from '../../import/rv-cad-glb-cache';
 import { isSettingsLocked } from '../../rv-app-config';
+import { isAnalyticsConfigured, useAnalyticsConsent, resetAnalyticsConsent } from '../../consent-store';
+import { SettingsSection } from './settings-helpers';
+
+/**
+ * Enumerate legacy WebViewer localStorage keys that the unified Scene model
+ * superseded. They are no longer read but may consume quota on long-running
+ * deployments. The Settings → Backup tab exposes a button that calls this.
+ */
+function listLegacyWebViewerKeys(): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k) continue;
+    if (
+      k === 'rv-layouts-index' ||
+      k.startsWith('rv-layouts/') ||
+      k === 'rv-scene-active' ||
+      k === 'rv-layout-autosave' ||
+      k === 'rv-layout-library-urls' ||
+      k.startsWith('rv-extras-overlay:') ||
+      k.startsWith('rv-extras-originals:')
+    ) {
+      out.push(k);
+    }
+  }
+  return out;
+}
 import {
   collectSettingsBundle,
   downloadSettingsBundle,
@@ -16,32 +44,61 @@ import {
 } from '../rv-settings-bundle';
 import type { RVSettingsBundle } from '../rv-settings-bundle';
 
-export function ModelTab() {
+/**
+ * BackupTab — Settings export/import + reset.
+ *
+ * Note: model selection moved to the Scene window (top-bar Scene button).
+ * The file is still named ModelTab.tsx for git-history continuity, but the
+ * exported component is `BackupTab` and the Settings tab label is "Backup".
+ */
+export function BackupTab() {
   const viewer = useViewer();
-  const models = viewer.availableModels;
-  const currentUrl = viewer.currentModelUrl;
-  // Clamp to known options so MUI Select doesn't warn about out-of-range values (e.g. blob: URLs)
-  const modelValue = models.some((m) => m.url === currentUrl) ? currentUrl! : '';
 
   // Import confirmation state
   const [pendingImport, setPendingImport] = useState<RVSettingsBundle | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleModelChange = (url: string) => {
-    if (!url) return;
-    // Use loadModelWithProgress (with overlay) if available, otherwise direct load
-    if (viewer.loadModelWithProgress) {
-      viewer.loadModelWithProgress(url);
-    } else {
-      viewer.loadModel(url);
-    }
-  };
+  // Analytics consent (only relevant when a tracker is configured).
+  const analyticsConfigured = isAnalyticsConfigured();
+  const analyticsConsented = useAnalyticsConsent();
+  const handleWithdrawConsent = useCallback(() => {
+    resetAnalyticsConsent();
+    window.location.reload();
+  }, []);
 
   const handleResetAll = () => {
     clearAllRVStorage();
     window.location.reload();
   };
+
+  // Legacy WebViewer data cleanup — see listLegacyWebViewerKeys above.
+  const legacyKeyCount = useMemo(() => listLegacyWebViewerKeys().length, []);
+  const handleClearLegacy = useCallback(() => {
+    const keys = listLegacyWebViewerKeys();
+    if (keys.length === 0) return;
+    if (!confirm(
+      `Clear ${keys.length} legacy WebViewer entr${keys.length === 1 ? 'y' : 'ies'} from local storage? This cannot be undone.`,
+    )) return;
+    for (const k of keys) {
+      try { localStorage.removeItem(k); } catch { /* ignore */ }
+    }
+    localStorage.setItem('rv-scenes-cleared-legacy', 'true');
+    window.location.reload();
+  }, []);
+
+  // Imported CAD (STEP→GLB) cache size, for the "Clear CAD import cache" button.
+  const [cadCacheBytes, setCadCacheBytes] = useState<number | null>(null);
+  useEffect(() => {
+    void getCadGlbCacheSize().then(setCadCacheBytes).catch(() => setCadCacheBytes(null));
+  }, []);
+  const handleClearCadCache = useCallback(() => {
+    const mb = cadCacheBytes != null ? (cadCacheBytes / 1048576).toFixed(1) : '?';
+    if (!confirm(
+      `Clear the imported CAD cache (~${mb} MB of converted STEP/GLB meshes)? ` +
+      `Scene layouts are unaffected — a part re-converts on its next import.`,
+    )) return;
+    void clearCadGlbCache().then(() => window.location.reload());
+  }, [cadCacheBytes]);
 
   const handleExport = useCallback(() => {
     const bundle = collectSettingsBundle(viewer.currentModelUrl ?? null);
@@ -84,32 +141,10 @@ export function ModelTab() {
   }, []);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <Box>
-        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-          Model
-        </Typography>
-        <Select
-          size="small"
-          fullWidth
-          value={modelValue}
-          onChange={(e) => handleModelChange(e.target.value as string)}
-          displayEmpty
-          sx={{ mt: 0.5, fontSize: 13, '& .MuiSelect-select': { py: 0.75 } }}
-        >
-          <MenuItem value="" sx={{ fontSize: 13, color: 'text.secondary' }}>-- Select Model --</MenuItem>
-          {models.map((m) => (
-            <MenuItem key={m.url} value={m.url} sx={{ fontSize: 13 }}>{m.label}</MenuItem>
-          ))}
-        </Select>
-      </Box>
-
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       {/* Export / Import Settings */}
       {!isSettingsLocked() && (
-        <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 2 }}>
-          <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, mb: 1, display: 'block' }}>
-            Settings
-          </Typography>
+        <SettingsSection id="model-settings" title="Settings">
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button
               variant="outlined"
@@ -133,7 +168,7 @@ export function ModelTab() {
 
           {/* Import error */}
           {importError && (
-            <Typography variant="caption" sx={{ color: '#D9534F', display: 'block', mt: 1, fontSize: 10 }}>
+            <Typography variant="caption" sx={{ color: '#f44336', display: 'block', mt: 1, fontSize: 10 }}>
               {importError}
             </Typography>
           )}
@@ -173,26 +208,100 @@ export function ModelTab() {
               </Box>
             </Box>
           )}
-        </Box>
+        </SettingsSection>
       )}
 
       {/* Reset all settings (hidden when locked) */}
       {!isSettingsLocked() && (
-        <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 2 }}>
-          <Button
-            variant="outlined"
-            size="small"
-            color="warning"
-            startIcon={<RestartAlt sx={{ fontSize: 14 }} />}
-            onClick={handleResetAll}
-            sx={{ fontSize: 11, textTransform: 'none' }}
-          >
-            Reset All Settings to Defaults
-          </Button>
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontSize: 10 }}>
-            Clears all saved browser settings and reloads the page.
-          </Typography>
-        </Box>
+        <SettingsSection id="model-reset" title="Reset">
+          <Box>
+            <Button
+              variant="outlined"
+              size="small"
+              color="warning"
+              startIcon={<RestartAlt sx={{ fontSize: 14 }} />}
+              onClick={handleResetAll}
+              sx={{ fontSize: 11, textTransform: 'none' }}
+            >
+              Reset All Settings to Defaults
+            </Button>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontSize: 10 }}>
+              Clears all saved browser settings and reloads the page.
+            </Typography>
+          </Box>
+        </SettingsSection>
+      )}
+
+      {/* Legacy data cleanup — orphaned keys from before the unified Scene model */}
+      {!isSettingsLocked() && legacyKeyCount > 0 && (
+        <SettingsSection id="model-legacy" title="Legacy Data">
+          <Box>
+            <Button
+              variant="outlined"
+              size="small"
+              color="inherit"
+              startIcon={<CleaningServices sx={{ fontSize: 14 }} />}
+              onClick={handleClearLegacy}
+              sx={{ fontSize: 11, textTransform: 'none' }}
+            >
+              Clear legacy WebViewer data ({legacyKeyCount})
+            </Button>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontSize: 10 }}>
+              Removes orphaned entries from the previous Layout / overlay storage scheme. Saved scenes are unaffected.
+            </Typography>
+          </Box>
+        </SettingsSection>
+      )}
+
+      {/* Imported CAD cache — content-addressed converted GLBs from STEP import. */}
+      {!isSettingsLocked() && (cadCacheBytes ?? 0) > 0 && (
+        <SettingsSection id="model-cad-cache" title="Imported CAD Data">
+          <Box>
+            <Button
+              variant="outlined"
+              size="small"
+              color="inherit"
+              startIcon={<CleaningServices sx={{ fontSize: 14 }} />}
+              onClick={handleClearCadCache}
+              sx={{ fontSize: 11, textTransform: 'none' }}
+            >
+              Clear CAD import cache ({Math.max(1, Math.round((cadCacheBytes ?? 0) / 1048576))} MB)
+            </Button>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontSize: 10 }}>
+              Frees the browser store of converted STEP/CAD meshes. Parts re-convert on next import; scene layouts are unaffected.
+            </Typography>
+          </Box>
+        </SettingsSection>
+      )}
+
+      {/* Analytics consent — only shown when a tracker is configured (GDPR withdrawal). */}
+      {analyticsConfigured && (
+        <SettingsSection id="model-privacy" title="Privacy">
+          <Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.75, fontSize: 10 }}>
+              {analyticsConsented
+                ? 'Google Analytics is active — you opted in.'
+                : 'Google Analytics is disabled — you have not opted in.'}
+            </Typography>
+            {analyticsConsented && (
+              <>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  color="warning"
+                  startIcon={<Cookie sx={{ fontSize: 14 }} />}
+                  onClick={handleWithdrawConsent}
+                  sx={{ fontSize: 11, textTransform: 'none' }}
+                >
+                  Withdraw analytics consent
+                </Button>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontSize: 10 }}>
+                  Stops Google Analytics and reloads the page.
+                </Typography>
+              </>
+            )}
+          </Box>
+        </SettingsSection>
       )}
     </Box>
   );

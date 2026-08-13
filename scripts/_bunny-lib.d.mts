@@ -1,0 +1,184 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
+
+/**
+ * Type declarations for `_bunny-lib.mjs` so the Node test suite type-checks
+ * without enabling `allowJs`. Keep in sync with the runtime exports.
+ */
+
+export const ALWAYS_UPLOAD_FILES: Set<string>;
+
+export function normalizePath(path: string): string;
+export function buildUploadUrl(region: string, storageZone: string, relativePath: string): string;
+export function normalizeRegion(region: string | undefined | null): string;
+export function mimeType(filePath: string): string;
+export function isAlwaysUploadFile(filePath: string): boolean;
+
+export interface BunnyConfig {
+  storageKey: string;
+  storageZone: string;
+  accountKey: string;
+  pullZoneId: string;
+  region: string;
+  remotePath: string;
+  googleAnalyticsId: string;
+  newsApiUrl: string;
+}
+export function loadConfig(env?: Record<string, string | undefined>): BunnyConfig;
+export const DEFAULT_NEWS_API_URL: string;
+export function injectNewsIntoSettings(
+  settingsPath: string,
+  newsApiUrl: string,
+  dryRun?: boolean,
+): boolean;
+
+export type BuildMode = 'public' | 'private';
+export function buildEnvForMode(
+  mode: BuildMode,
+  opts?: { base?: string | null },
+): Record<string, string | undefined>;
+
+export function sanitizeDemoName(name: string | null | undefined): string;
+
+export interface LocalFile { abs: string; rel: string; size: number; }
+export function collectLocalFiles(rootDir: string): LocalFile[];
+
+export interface DiffFile { rel: string; size: number; }
+export function selectFilesToUpload<T extends DiffFile>(
+  local: T[],
+  remote: Map<string, number> | null,
+  opts?: { force?: boolean; alwaysUploadGlbs?: boolean },
+): T[];
+
+export interface RemoteEntry { rel: string; size: number; isDirectory: boolean; }
+export function buildRemoteIndex(entries: RemoteEntry[]): Map<string, number>;
+
+export interface BunnyClientOptions {
+  region: string;
+  zone: string;
+  storageKey: string;
+  accountKey?: string;
+  pullZoneId?: string;
+  dryRun?: boolean;
+  log?: (msg: string) => void;
+}
+export class BunnyClient {
+  constructor(opts: BunnyClientOptions);
+  putFile(bytes: Uint8Array | Buffer, remotePath: string, mimeOverride?: string): Promise<void>;
+  listRecursive(remoteRoot: string): Promise<RemoteEntry[]>;
+  purge(): Promise<boolean>;
+}
+
+export interface PrivateProject {
+  name: string;
+  code: string;
+  created?: string;
+  lastPublished?: string;
+  settings?: { defaultModel?: string };
+  folderName?: string;
+  /** Manifest scene entries — the source of the published Examples catalogue. */
+  scenes?: Array<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+/**
+ * What `generatePrivateSettings` and `publishedSceneIndex` actually need: a
+ * manifest-shaped object. Looser than {@link PrivateProject} on purpose —
+ * neither function reads `code`, and requiring it would only force test
+ * fixtures to carry a field the code never looks at.
+ */
+export type PrivateProjectLike = Partial<PrivateProject> & Record<string, unknown>;
+export function loadProject(projectDir: string): PrivateProject;
+export function discoverPrivateProjects(
+  baseDir: string,
+): Array<{ project: PrivateProject; projectDir: string; folderName: string }>;
+
+export function generatePrivateSettings(
+  project: PrivateProjectLike,
+  projectFolderName?: string,
+  opts?: { encryption?: boolean; projectSettings?: unknown },
+): string;
+
+/** Keys of the generated settings.json a project file may never set (B14). */
+export const SETTINGS_RESERVED_KEYS: readonly string[];
+/** A `settings/project-settings.json` payload with the reserved keys stripped. */
+export function projectSettingsBase(raw: unknown): Record<string, unknown>;
+/** `<projectDir>/settings/project-settings.json`, or null when absent/broken. */
+export function readProjectSettingsFile(projectDir: string): unknown | null;
+
+/** One entry of the curated `scenes/index.json` Examples catalogue. */
+export interface PublishedSceneIndexEntry {
+  file: string;
+  name?: string;
+  mode?: string;
+}
+/** The Examples catalogue derived from `scenes[]`, or null when none apply. */
+export function publishedSceneIndex(project: PrivateProjectLike | null): PublishedSceneIndexEntry[] | null;
+
+/** The GLBs a project publishes — folder-derived, never manifest-derived (P0-3). */
+export function projectModelNames(projectDir: string): string[];
+
+/** plan-267: optional AES-256-GCM encryption of GLBs at publish time. */
+export interface PrivateEncryptionOptions {
+  password: string;
+  fragmentSecret: Uint8Array;
+  iterations?: number;
+  chunkSize?: number;
+}
+
+export interface PrivateSigningOptions {
+  privateKey: import('node:crypto').KeyObject;
+  customerCert?: { pub: string; org: string; sig: string } | null;
+}
+
+export function stagePrivateProject(opts: {
+  distDir: string;
+  projectDir: string;
+  encryption?: PrivateEncryptionOptions | null;
+  signing?: PrivateSigningOptions | null;
+}): Promise<string>;
+
+export const PUBLIC_MODEL_PREFIX: string;
+
+export interface PublicModelAllowlistResult {
+  kept: string[];
+  dropped: string[];
+  droppedAssets: string[];
+}
+export function applyPublicModelAllowlist(
+  distDir: string,
+  opts?: { prefix?: string; dryRun?: boolean },
+): PublicModelAllowlistResult;
+
+export const PUBLIC_TEST_SCENE_PREFIX: string;
+
+export interface PublicScenePruningResult {
+  kept: string[];
+  dropped: string[];
+}
+export function applyPublicScenePruning(
+  distDir: string,
+  opts?: { prefix?: string; dryRun?: boolean },
+): PublicScenePruningResult;
+
+export const PUBLIC_BASE_URL: string;
+export const SEO_CANONICAL_PATH: string;
+
+export function injectSeoTags(
+  distDir: string,
+  opts: { pageUrl: string; dryRun?: boolean },
+): boolean;
+
+export function injectNoindex(
+  indexPath: string,
+  opts?: { dryRun?: boolean },
+): boolean;
+
+export interface SeoArtifacts {
+  robots: string;
+  sitemap: string;
+}
+export function writeSeoArtifacts(
+  distDir: string,
+  opts: { pageUrl: string; dryRun?: boolean },
+): SeoArtifacts;

@@ -32,6 +32,25 @@ import {
   FrontSide,
 } from 'three';
 import { debug } from './rv-debug';
+import { isRuntimeRigMesh, traverseMeshes } from './rv-traverse-utils';
+import { getTslMaterials } from './materials/material-factory';
+
+// Module-local warn-once flag (repo convention — no external warnOnce util).
+// Since plan-271 Phase 2 this only fires as a FALLBACK: when the renderer is
+// a WebGPURenderer but the TSL material module was not pre-warmed (see
+// preloadTslMaterials in material-factory.ts).
+let _warnedWebGPU = false;
+function warnUberWebGPUOnce(): void {
+  if (_warnedWebGPU) return;
+  _warnedWebGPU = true;
+  console.warn(
+    '[UberMaterial] WebGPU renderer active but the TSL material module is ' +
+    'not preloaded — the GLSL onBeforeCompile patch (per-vertex ' +
+    'roughness/metalness via rmPacked) is disabled because onBeforeCompile ' +
+    'is silently ignored under WebGPURenderer. Base colors stay correct ' +
+    '(vertexColors), only the roughness/metalness overlay is skipped.',
+  );
+}
 
 /**
  * Shared uber-material. A single instance serves every uber-eligible mesh in
@@ -39,7 +58,7 @@ import { debug } from './rv-debug';
  * skips it during model teardown — the singleton outlives individual loads.
  */
 export class RVUberMaterial extends MeshStandardMaterial {
-  constructor() {
+  constructor(isWebGPU = false) {
     super({
       color: 0xffffff,    // identity — real color comes from vertex attribute
       roughness: 1.0,     // identity — replaced in fragment shader by vRm.x
@@ -49,6 +68,15 @@ export class RVUberMaterial extends MeshStandardMaterial {
     });
     this.name = '__rvUberMaterial';
     this.userData._rvShared = true;
+
+    // WebGPU guard (plan-271 PR#0): onBeforeCompile GLSL patches are silently
+    // ignored under WebGPURenderer — do not install one. The material keeps
+    // `vertexColors: true` (set above), so merged-mesh base colors stay
+    // correct; only the per-vertex roughness/metalness overlay is skipped.
+    if (isWebGPU) {
+      warnUberWebGPUOnce();
+      return;
+    }
 
     this.onBeforeCompile = (shader) => {
       // Vertex shader: declare the custom attribute and forward it as a
@@ -99,6 +127,12 @@ export interface UberResult {
   bakedMeshCount: number;
   /** Shared uber-material reference, or null if nothing was eligible */
   sharedMaterial: RVUberMaterial | null;
+  /** Meshes that shared an already-baked BufferGeometry instead of cloning (plan-153) */
+  sharedGeometryReuses: number;
+  /** Meshes that had to clone their geometry because of a material conflict (plan-153) */
+  clonedGeometryCount: number;
+  /** Orphaned source BufferGeometries that Pass 3 disposed (plan-153) */
+  disposedSourceGeometries: number;
 }
 
 /**
@@ -161,14 +195,21 @@ export function classifyUberEligible(materials: Set<Material>): Set<Material> {
 
 /**
  * Bake the uniform color / roughness / metalness of `originalMat` into
- * per-vertex attributes on a cloned copy of `mesh.geometry`, then swap the
- * mesh over to the shared uber material.
+ * per-vertex attributes on `mesh.geometry`, then swap the mesh over to the
+ * shared uber material.
  *
- * Geometry is cloned unconditionally — GLTFLoader can share a single
- * BufferGeometry across multiple meshes with different materials, and
- * mutating a shared geometry would paint the wrong color onto the other
- * users. The extra memory is bounded and Phase 3 (geometry-dedup → instance)
- * recovers it for genuine duplicates.
+ * Geometry handling is conditional:
+ *   - `shareGeometry === false` (default): clone the geometry before baking.
+ *     Required when other meshes still reference this BufferGeometry with
+ *     DIFFERENT materials — mutating it would corrupt their output.
+ *   - `shareGeometry === true`: bake into the original geometry in place.
+ *     The caller has verified via Pre-Scan that every uber-eligible user of
+ *     this geometry would produce the same bake result, so a single in-place
+ *     bake serves all of them and the clone is avoided. This is the major
+ *     heap saving for scenes with heavily reused GLTFLoader geometries.
+ *
+ * The function marks the resulting geometry with `userData._rvUberBaked =
+ * true` so the outer loop can skip re-baking when the next mesh shares it.
  *
  * Per-vertex storage uses Uint8 normalized attributes: 3 bytes/vertex for
  * color and 2 bytes/vertex for rmPacked. That's a 4× memory win over
@@ -178,15 +219,15 @@ export function bakeMaterialToAttributes(
   mesh: Mesh,
   sharedUber: RVUberMaterial,
   originalMat: MeshStandardMaterial,
+  options: { shareGeometry?: boolean } = {},
 ): void {
   const srcGeom = mesh.geometry;
   const posAttr = srcGeom.attributes.position;
   if (!posAttr) return; // Nothing to bake onto
   const vCount = posAttr.count;
 
-  // Clone the geometry so we don't mutate a buffer potentially shared with
-  // other meshes that keep their original material.
-  const geom = srcGeom.clone();
+  // Conditional clone — see function docs above.
+  const geom = options.shareGeometry ? srcGeom : srcGeom.clone();
 
   // Build color attribute: Uint8 normalized (0-255 → 0..1 in shader)
   // material.color is in linear RGB; three.js r150+ vertex colors are
@@ -215,7 +256,11 @@ export function bakeMaterialToAttributes(
   }
   geom.setAttribute('rmPacked', new BufferAttribute(rm, 2, true));
 
-  // Swap in the cloned geometry + shared material
+  // Mark the geometry so the outer loop knows not to re-bake it when the
+  // next mesh in the traversal shares this same BufferGeometry.
+  geom.userData._rvUberBaked = true;
+
+  // Swap in the (possibly cloned) geometry + shared material
   mesh.geometry = geom;
   mesh.material = sharedUber;
   mesh.userData._rvUberBaked = true;
@@ -235,14 +280,39 @@ export function bakeMaterialToAttributes(
 export function applyUberMaterial(
   root: Object3D,
   dedupedMaterials: Set<Material>,
+  isWebGPU = false,
 ): UberResult {
   const eligible = classifyUberEligible(dedupedMaterials);
   if (eligible.size === 0) {
-    return { eligibleMaterialCount: 0, bakedMeshCount: 0, sharedMaterial: null };
+    return {
+      eligibleMaterialCount: 0,
+      bakedMeshCount: 0,
+      sharedMaterial: null,
+      sharedGeometryReuses: 0,
+      clonedGeometryCount: 0,
+      disposedSourceGeometries: 0,
+    };
   }
 
-  const sharedUber = new RVUberMaterial();
+  // Renderer-aware variant selection (plan-271 Phase 2): under a
+  // WebGPURenderer (BOTH backends) the pre-warmed TSL variant replaces the
+  // GLSL onBeforeCompile patch. Without a successful pre-warm the F4 guard
+  // fallback stays active (RVUberMaterial(true): warn once, vertexColors
+  // kept, rm overlay skipped). The TSL material is a MeshStandardNodeMaterial
+  // — downstream code only uses the shared reference structurally (assign to
+  // mesh.material, Set<Material>, name/userData), so the cast is safe.
+  let sharedUber: RVUberMaterial;
+  if (isWebGPU) {
+    const tsl = getTslMaterials();
+    sharedUber = tsl
+      ? (tsl.createUberMaterialTsl() as unknown as RVUberMaterial)
+      : new RVUberMaterial(true);
+  } else {
+    sharedUber = new RVUberMaterial(false);
+  }
   let bakedMeshCount = 0;
+  let sharedGeometryReuses = 0;
+  let clonedGeometryCount = 0;
   // Track every source geometry we replace so we can dispose the ones that
   // nothing references anymore after the pass. GLTFLoader often shares a
   // single BufferGeometry across several meshes (e.g. 100 identical bolts,
@@ -251,29 +321,127 @@ export function applyUberMaterial(
   // holds it.
   const replacedSources = new Set<BufferGeometry>();
 
-  root.traverse((node) => {
-    if (!(node as Mesh).isMesh) return;
-    const mesh = node as Mesh;
+  // Pre-Scan: map every shared BufferGeometry to the set of distinct
+  // uber-eligible materials that use it. If the set size is 1, every
+  // eligible user of this geometry would bake to the same color+rm output,
+  // so we can bake in-place and share the geometry instead of cloning it
+  // per mesh. This is the main heap-reduction lever for GLTFLoader scenes
+  // with many shared geometries (e.g. 40k meshes → ~24k unique geometries
+  // on the Mauser scene).
+  const geometryUsage = new Map<BufferGeometry, Set<Material>>();
+  // Geometries that a runtime deformation rig (EnergyChain, plan-362) holds.
+  // They are never baked themselves, and no OTHER mesh may bake them in place
+  // either — that would write shared color/rmPacked attributes into geometry a
+  // SkinnedMesh renders and a dispose() has to hand back untouched.
+  const rigGeometries = new Set<BufferGeometry>();
+  traverseMeshes(root, (mesh) => {
+    if (isRuntimeRigMesh(mesh)) {
+      if (mesh.geometry) rigGeometries.add(mesh.geometry);
+      return;
+    }
+    if (Array.isArray(mesh.material)) return;
+    const mat = mesh.material;
+    if (!mat || !eligible.has(mat)) return;
+    let users = geometryUsage.get(mesh.geometry);
+    if (!users) {
+      users = new Set<Material>();
+      geometryUsage.set(mesh.geometry, users);
+    }
+    users.add(mat);
+  });
 
+  // Clone cache: when a geometry is used with SEVERAL eligible materials
+  // (canShare === false), all meshes with the same (geometry, material) pair
+  // still bake to an identical clone — share ONE baked clone per pair instead
+  // of cloning per mesh. Shrinks the heap AND the unique-geometry set the
+  // BatchedMesh arena stores.
+  const cloneCache = new Map<BufferGeometry, Map<Material, BufferGeometry>>();
+
+  traverseMeshes(root, (mesh) => {
     // Skip multi-material meshes — baking per-submesh would require splitting
     // the geometry by groups and is out of scope for Phase 2. They continue to
     // use the deduped (but not uber-collapsed) materials.
     if (Array.isArray(mesh.material)) return;
 
+    // Skip pipe and tank meshes — ProcessIndustryPlugin swaps their materials
+    // at runtime to show the fluid color. Uber baking freezes the color into
+    // a shared vertex attribute, which would make `mesh.material = newMat` a
+    // visual no-op.
+    if (mesh.userData?._rvLampMesh || mesh.parent?.userData?._rvLampMesh) return;
+    if (mesh.userData?._rvType === 'Pipe' || mesh.parent?.userData?._rvType === 'Pipe') return;
+    if (mesh.userData?._rvType === 'Tank' || mesh.parent?.userData?._rvType === 'Tank') return;
+
+    // Skip runtime deformation-rig sidecars (EnergyChain, plan-362): a
+    // SkinnedMesh must keep its own material and untouched geometry, and the
+    // invisible picking proxy has no business in the bake at all.
+    if (isRuntimeRigMesh(mesh)) return;
+
     const mat = mesh.material;
     if (!mat || !eligible.has(mat)) return;
 
-    // Remember the source geometry BEFORE the bake replaces mesh.geometry
-    // with a clone.
-    replacedSources.add(mesh.geometry);
-    bakeMaterialToAttributes(mesh, sharedUber, mat as MeshStandardMaterial);
+    const users = geometryUsage.get(mesh.geometry);
+    const canShare = users !== undefined && users.size === 1
+      && !rigGeometries.has(mesh.geometry);
+
+    // Second (or later) visit of a shared geometry that has already been
+    // baked in-place by an earlier mesh in this traversal. The geometry
+    // already carries the color+rmPacked attributes — we only need to swap
+    // the material reference on this mesh.
+    if (canShare && mesh.geometry.userData._rvUberBaked === true) {
+      mesh.material = sharedUber;
+      mesh.userData._rvUberBaked = true;
+      bakedMeshCount++;
+      sharedGeometryReuses++;
+      return;
+    }
+
+    // Clone case: reuse an already-baked clone for this (geometry, material)
+    // pair when an earlier mesh in the traversal produced one.
+    if (!canShare) {
+      const cached = cloneCache.get(mesh.geometry)?.get(mat);
+      if (cached) {
+        replacedSources.add(mesh.geometry);
+        mesh.geometry = cached;
+        mesh.material = sharedUber;
+        mesh.userData._rvUberBaked = true;
+        bakedMeshCount++;
+        sharedGeometryReuses++;
+        return;
+      }
+    }
+
+    // Remember the source geometry BEFORE the bake potentially replaces
+    // mesh.geometry with a clone.
+    const sourceGeom = mesh.geometry;
+    replacedSources.add(sourceGeom);
+    bakeMaterialToAttributes(mesh, sharedUber, mat as MeshStandardMaterial, {
+      shareGeometry: canShare,
+    });
     bakedMeshCount++;
+    if (canShare) {
+      sharedGeometryReuses++;
+    } else {
+      clonedGeometryCount++;
+      let byMat = cloneCache.get(sourceGeom);
+      if (!byMat) {
+        byMat = new Map<Material, BufferGeometry>();
+        cloneCache.set(sourceGeom, byMat);
+      }
+      byMat.set(mat, mesh.geometry);
+    }
   });
 
   if (bakedMeshCount === 0) {
     // Predicate matched materials but no live mesh used them — bail out
     // without adding the shared material to the unique set.
-    return { eligibleMaterialCount: eligible.size, bakedMeshCount: 0, sharedMaterial: null };
+    return {
+      eligibleMaterialCount: eligible.size,
+      bakedMeshCount: 0,
+      sharedMaterial: null,
+      sharedGeometryReuses: 0,
+      clonedGeometryCount: 0,
+      disposedSourceGeometries: 0,
+    };
   }
 
   // Pass 2: dispose source geometries that no surviving mesh still uses.
@@ -282,9 +450,9 @@ export function applyUberMaterial(
   // On a typical scene this reclaims tens of megabytes of typed-array
   // vertex data that GLTFLoader uploaded but nothing renders anymore.
   const stillReferenced = new Set<BufferGeometry>();
-  root.traverse((node) => {
-    if ((node as Mesh).isMesh && (node as Mesh).geometry) {
-      stillReferenced.add((node as Mesh).geometry);
+  traverseMeshes(root, (mesh) => {
+    if (mesh.geometry) {
+      stillReferenced.add(mesh.geometry);
     }
   });
   let disposedSources = 0;
@@ -303,12 +471,16 @@ export function applyUberMaterial(
 
   debug('loader',
     `[UberMaterial] ${eligible.size} untextured materials → 1 shared ` +
-    `(${bakedMeshCount} meshes baked, ${disposedSources} orphaned source geometries disposed)`
+    `(${bakedMeshCount} meshes baked: ${sharedGeometryReuses} shared / ${clonedGeometryCount} cloned, ` +
+    `${disposedSources} orphaned source geometries disposed)`
   );
 
   return {
     eligibleMaterialCount: eligible.size,
     bakedMeshCount,
     sharedMaterial: sharedUber,
+    sharedGeometryReuses,
+    clonedGeometryCount,
+    disposedSourceGeometries: disposedSources,
   };
 }

@@ -25,15 +25,14 @@ import type { LoadResult } from '../core/engine/rv-scene-loader';
 import type { UISlotEntry } from '../core/rv-ui-plugin';
 import type { Annotation, AnnotationPluginAPI } from '../core/types/plugin-types';
 import { AnnotationRenderer, ANNOTATION_LAYER } from './rv-annotation-renderer';
-import { db, firestoreEnabled } from '../core/rv-firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { pointerToNDC } from '../core/engine/rv-pointer-utils';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
 const MAX_ANNOTATIONS = 500;
 const MAX_TEXT_LENGTH = 200;
 const LS_PREFIX = 'rv-annotations-';
-const DEFAULT_COLOR = '#D9A441';
+const DEFAULT_COLOR = '#FF5722';
 
 // ── External subscribers for React re-render ───────────────────────────
 
@@ -221,7 +220,7 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
     this._viewer.markRenderDirty();
   }
 
-  addDrawing(points: [number, number, number][], lineColor = '#D9A441', lineWidth = 2): Annotation {
+  addDrawing(points: [number, number, number][], lineColor = '#FF5722', lineWidth = 2): Annotation {
     if (this._annotations.length >= MAX_ANNOTATIONS) {
       console.warn(`[AnnotationPlugin] Max annotations (${MAX_ANNOTATIONS}) reached`);
       return this._annotations[this._annotations.length - 1];
@@ -263,25 +262,8 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
   }
 
   /** Handle incoming annotation message from multiuser. */
-  /** Handle incoming annotation message from multiuser. */
   handleRemoteMessage(type: string, msg: Record<string, unknown>): void {
-    const playerId = msg['playerId'] as string; // Relay server injects this
-    
     switch (type) {
-      case 'annotation_drawing': {
-        const points = msg['points'] as [number, number, number][];
-        const color = msg['color'] as string;
-        if (playerId && points) {
-          this._renderer?.updateTempDrawing(playerId, points, color);
-        }
-        break;
-      }
-      case 'annotation_drawing_end': {
-        if (playerId) {
-          this._renderer?.removeTempDrawing(playerId);
-        }
-        break;
-      }
       case 'annotation_add': {
         const ann = msg['annotation'] as Annotation;
         if (!ann || this._annotations.some(a => a.id === ann.id)) return;
@@ -357,6 +339,8 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
           id: 'annotations.add',
           label: 'Annotate',
           order: 50,
+          // Annotations are a viewing/review feature — hidden in editor mode
+          condition: () => viewer.modes.activeMode !== 'editor',
           action: (target) => {
             // Use exact raycast hit point if available, otherwise node center
             const pos: [number, number, number] = target.hitPoint
@@ -390,6 +374,10 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
   }
 
   onRender(): void {
+    // Re-bind to the live active camera each frame — the viewer can swap
+    // perspective ↔ orthographic at runtime, and a captured stale reference
+    // would freeze LOD scaling at the moment of the swap.
+    if (this._renderer && this._viewer) this._renderer.setCamera(this._viewer.camera);
     this._renderer?.updateLOD();
     this._updateNodeAttachments();
   }
@@ -427,21 +415,11 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
       const hit = this._worldRaycast(e);
       if (hit) {
         this._drawingPoints.push([hit.point.x, hit.point.y, hit.point.z]);
-        this._renderer?.updateDrawingProgress(this._drawingPoints);
-
-        // Broadcast drawing progress to other users
-        if (this._syncSend) {
-          this._syncSend('annotation_drawing', { 
-            points: this._drawingPoints,
-            color: DEFAULT_COLOR // Or current selection color
-          });
-        }
         // We complete drawing on double-click or when mode is toggled off
         if (this._drawingPoints.length >= 2 && e.detail >= 2) {
           // Double-click finishes drawing
           this.addDrawing([...this._drawingPoints]);
           this._drawingPoints = [];
-          this._renderer?.clearDrawingProgress();
         }
       }
       return;
@@ -493,9 +471,7 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
     if (!this._viewer) return null;
 
     const canvas = this._viewer.renderer.domElement;
-    const rect = canvas.getBoundingClientRect();
-    this._pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    this._pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    pointerToNDC(e.clientX, e.clientY, canvas, this._pointer);
 
     this._worldRaycaster.setFromCamera(this._pointer, this._viewer.camera);
     // Cast against all visible meshes on layer 0
@@ -506,8 +482,6 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
       if (!hit.object.visible) continue;
       // Skip the annotation group itself
       if (this._isAnnotationObject(hit.object)) continue;
-      // Skip kinematic merge chunks — annotations should not attach to merged geometry
-      if (hit.object.userData?._rvKinGroupMerged) continue;
       return {
         point: hit.point,
         normal: hit.face?.normal?.clone().transformDirection(hit.object.matrixWorld) ?? null,
@@ -521,9 +495,7 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
     if (!this._viewer || !this._renderer) return null;
 
     const canvas = this._viewer.renderer.domElement;
-    const rect = canvas.getBoundingClientRect();
-    this._pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    this._pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    pointerToNDC(e.clientX, e.clientY, canvas, this._pointer);
 
     this._annotationRaycaster.setFromCamera(this._pointer, this._viewer.camera);
     this._annotationRaycaster.layers.set(ANNOTATION_LAYER);
@@ -593,46 +565,26 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
     return Math.abs(hash).toString(36);
   }
 
-  private async _save(): Promise<void> {
+  private _save(): void {
     try {
       const key = LS_PREFIX + this._modelHash;
-      // Also save to localStorage as a fallback/cache
       const data = JSON.stringify(this._annotations);
-      try { localStorage.setItem(key, data); } catch (e) { /* ignore quota */ }
-      const firestore = db;
-      if (firestoreEnabled && firestore) {
-        const docRef = doc(firestore, 'annotations', key);
-        await setDoc(docRef, { annotations: this._annotations, timestamp: Date.now() });
-      }
+      localStorage.setItem(key, data);
     } catch (e) {
-      console.warn('[AnnotationPlugin] Failed to save annotations', e);
+      // QuotaExceededError — gracefully ignore
+      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+        console.warn('[AnnotationPlugin] localStorage quota exceeded, annotations not saved');
+      }
     }
   }
 
-  private async _load(): Promise<void> {
+  private _load(): void {
     try {
       const key = LS_PREFIX + this._modelHash;
-      let parsed: Annotation[] | null = null;
-      const firestore = db;
-      if (firestoreEnabled && firestore) {
-        try {
-          const docRef = doc(firestore, 'annotations', key);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists() && Array.isArray(docSnap.data().annotations)) {
-            parsed = docSnap.data().annotations;
-          }
-        } catch (e) {
-          console.warn('[AnnotationPlugin] Firestore load failed, falling back to localStorage', e);
-        }
-      }
+      const data = localStorage.getItem(key);
+      if (!data) return;
 
-      if (!parsed) {
-        const data = localStorage.getItem(key);
-        if (data) {
-          parsed = JSON.parse(data) as Annotation[];
-        }
-      }
-
+      const parsed = JSON.parse(data) as Annotation[];
       if (!Array.isArray(parsed)) return;
 
       // Batch creation for performance with many annotations
@@ -640,7 +592,6 @@ export class AnnotationPlugin implements RVViewerPlugin, AnnotationPluginAPI {
       let idx = 0;
 
       const processBatch = () => {
-        if (!parsed) return;
         const end = Math.min(idx + batchSize, parsed.length, MAX_ANNOTATIONS);
         for (; idx < end; idx++) {
           const ann = parsed[idx];

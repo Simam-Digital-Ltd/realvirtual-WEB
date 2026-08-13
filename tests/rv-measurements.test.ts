@@ -9,22 +9,6 @@ import {
 } from '../src/plugins/measurement-plugin';
 import { formatDistance } from '../src/plugins/rv-measurement-renderer';
 
-function installLocalStorageShim(): void {
-  if (globalThis.localStorage) return;
-  const data = new Map<string, string>();
-  Object.defineProperty(globalThis, 'localStorage', {
-    configurable: true,
-    value: {
-      clear: () => data.clear(),
-      getItem: (key: string) => data.get(key) ?? null,
-      setItem: (key: string, value: string) => { data.set(key, String(value)); },
-      removeItem: (key: string) => { data.delete(key); },
-      key: (index: number) => Array.from(data.keys())[index] ?? null,
-      get length() { return data.size; },
-    },
-  });
-}
-
 function makePlugin(): MeasurementPlugin {
   return new MeasurementPlugin();
 }
@@ -32,7 +16,6 @@ function makePlugin(): MeasurementPlugin {
 describe('MeasurementPlugin', () => {
   let plugin: MeasurementPlugin;
   beforeEach(() => {
-    installLocalStorageShim();
     localStorage.clear();
     plugin = makePlugin();
   });

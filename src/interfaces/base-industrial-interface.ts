@@ -27,13 +27,22 @@
 import type { RVViewerPlugin } from '../core/rv-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
-import type { SignalStore } from '../core/engine/rv-signal-store';
+import {
+  createSignalWriter,
+  type SignalStore,
+  type SignalWriter,
+} from '../core/engine/rv-signal-store';
 import type { InterfaceSettings } from './interface-settings-store';
 import { debug } from '../core/engine/rv-debug';
+import { reconnectDelay } from './reconnect-policy';
 
 // ── Public Types ─────────────────────────────────────────────────────────
 
-/** Signal direction from the PLC's perspective. */
+/**
+ * Signal direction from the PLC's perspective (same nomenclature as Unity/realvirtual):
+ *   'input'  = a PLC input  → the PLC reads it  → the viewer WRITES it (sent to PLC).
+ *   'output' = a PLC output → the PLC writes it → the viewer READS it (display only).
+ */
 export type SignalDirection = 'input' | 'output';
 
 /** Signal type matching Unity PLC signal types. */
@@ -45,10 +54,19 @@ export interface SignalDescriptor {
   name: string;
   /** Data type. */
   type: SignalType;
-  /** Direction: 'input' = PLC writes (Viewer reads), 'output' = Viewer writes (PLC reads). */
+  /** Direction (PLC perspective): 'input' = PLC reads it (viewer writes/sends), 'output' = PLC writes it (viewer reads). */
   direction: SignalDirection;
   /** Initial value at discovery time. */
   initialValue: boolean | number;
+  /** Optional protocol sub-source; part of provider identity (for example an MQTT topic). */
+  topic?: string;
+}
+
+/** Convert a discovered signal descriptor to the canonical SignalStore PLC type. */
+export function plcTypeForSignalDescriptor(signal: Pick<SignalDescriptor, 'type' | 'direction'>): string {
+  const direction = signal.direction === 'input' ? 'PLCInput' : 'PLCOutput';
+  const primitive = signal.type === 'bool' ? 'Bool' : signal.type === 'int' ? 'Int' : 'Float';
+  return `${direction}${primitive}`;
 }
 
 /** Connection state of an interface. */
@@ -60,12 +78,6 @@ export interface InterfaceStateChange {
   state: InterfaceConnectionState;
   error?: string;
 }
-
-// ── Reconnect Constants ──────────────────────────────────────────────────
-
-const RECONNECT_INITIAL_MS = 500;
-const RECONNECT_MAX_MS = 30_000;
-const RECONNECT_FACTOR = 2.0;
 
 // ── Abstract Base Class ──────────────────────────────────────────────────
 
@@ -83,12 +95,14 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
 
   protected viewer: RVViewer | null = null;
   protected signalStore: SignalStore | null = null;
+  protected signalWriter: SignalWriter | null = null;
   private _connectionState: InterfaceConnectionState = 'disconnected';
   private _discoveredSignals: SignalDescriptor[] = [];
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _reconnectAttempt = 0;
   private _settings: InterfaceSettings | null = null;
   private _outgoingSubscriptions: (() => void)[] = [];
+  private _providerProvenanceEnabled = true;
 
   // ── Incoming buffer (WS callback → Map → flush in onFixedUpdatePre) ──
 
@@ -103,8 +117,8 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
 
   /**
    * Buffer for outgoing signal values that have changed in the Viewer.
-   * Populated by SignalStore subscriptions on output signals.
-   * Drained and sent via sendSignals() in onFixedUpdatePost.
+   * Populated by SignalStore subscriptions on signals the viewer writes
+   * (direction 'input' = PLC inputs). Drained and sent via sendSignals() in onFixedUpdatePost.
    */
   protected readonly dirtyOutgoing = new Map<string, boolean | number>();
 
@@ -113,6 +127,11 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
   get connectionState(): InterfaceConnectionState { return this._connectionState; }
   get discoveredSignals(): ReadonlyArray<SignalDescriptor> { return this._discoveredSignals; }
   get isConnected(): boolean { return this._connectionState === 'connected'; }
+
+  /** Let an embedding owner provide finer-grained provider keys itself. */
+  setProviderProvenanceEnabled(enabled: boolean): void {
+    this._providerProvenanceEnabled = enabled;
+  }
 
   // ── Abstract Methods (protocol-specific) ──
 
@@ -147,8 +166,20 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
   // ── RVViewerPlugin Lifecycle ──
 
   onModelLoaded(_result: LoadResult, viewer: RVViewer): void {
+    this.unsubscribeFromOutgoingSignals();
     this.viewer = viewer;
     this.signalStore = viewer.signalStore ?? null;
+    this.signalWriter = this.signalStore
+      ? createSignalWriter(this.signalStore, `interface:${this.id}`, 'interface')
+      : null;
+
+    // A model reload replaces the SignalStore. Preserve the independent
+    // interface connection while rebuilding discovery, metadata and outgoing
+    // subscriptions against the new store.
+    if (this._discoveredSignals.length > 0) {
+      this.registerDiscoveredSignals(this._discoveredSignals);
+      this.subscribeToOutgoingSignals(this._discoveredSignals);
+    }
 
     // Auto-connect if settings say so and we're not already connected
     if (this._settings?.autoConnect && this._connectionState === 'disconnected') {
@@ -172,7 +203,7 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
       batch[name] = value;
     }
     this.pendingIncoming.clear();
-    this.signalStore.setMany(batch);
+    this.signalWriter?.setMany(batch);
   }
 
   /**
@@ -199,6 +230,7 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
     this.disconnect();
     this.viewer = null;
     this.signalStore = null;
+    this.signalWriter = null;
   }
 
   // ── Public API ──
@@ -223,7 +255,7 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
         const signals = await this.doDiscoverSignals();
         this._discoveredSignals = signals;
         this.registerDiscoveredSignals(signals);
-        this.subscribeToOutputSignals(signals);
+        this.subscribeToOutgoingSignals(signals);
       } catch (discErr) {
         console.warn(`[${this.id}] Signal discovery failed:`, discErr);
         // Connection succeeded even if discovery failed — user can retry
@@ -241,10 +273,10 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
     // Fix 4: Set state first — prevents onConnectionLost from triggering reconnect
     this._connectionState = 'disconnected'; // direct assignment, skip event for now
 
-    this.unsubscribeFromOutputSignals();
+    this.unsubscribeFromOutgoingSignals();
     this.pendingIncoming.clear();
     this.dirtyOutgoing.clear();
-    this._discoveredSignals = [];
+    this.setProviderConnectionState(false);
 
     try {
       this.doDisconnect();
@@ -265,11 +297,11 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
       throw new Error(`Cannot discover signals: ${this.id} is not connected`);
     }
 
-    this.unsubscribeFromOutputSignals();
+    this.unsubscribeFromOutgoingSignals();
     const signals = await this.doDiscoverSignals();
     this._discoveredSignals = signals;
     this.registerDiscoveredSignals(signals);
-    this.subscribeToOutputSignals(signals);
+    this.subscribeToOutgoingSignals(signals);
     return signals;
   }
 
@@ -322,8 +354,7 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
    * @returns Delay in milliseconds (capped at RECONNECT_MAX_MS)
    */
   getReconnectDelay(attempt: number): number {
-    const delay = RECONNECT_INITIAL_MS * Math.pow(RECONNECT_FACTOR, attempt);
-    return Math.min(delay, RECONNECT_MAX_MS);
+    return reconnectDelay(attempt);
   }
 
   // ── Internal Helpers ──
@@ -333,6 +364,7 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
     if (previous === state) return;
 
     this._connectionState = state;
+    this.setProviderConnectionState(state === 'connected');
 
     // Update viewer's global connection state
     if (state === 'connected') {
@@ -357,24 +389,50 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
   private registerDiscoveredSignals(signals: SignalDescriptor[]): void {
     if (!this.signalStore) return;
 
+    let registered = 0;
     for (const sig of signals) {
+      // If a signal with this name is already registered — most importantly a GLB
+      // MODEL signal carrying its real scene path — do NOT re-register it under the
+      // synthetic __iface__ placeholder. register() overwrites nameToPath, so doing
+      // so would clobber getPath()/path resolution for the model signal (it would
+      // resolve to "__iface__/<name>" instead of its scene node). The interface only
+      // needs the value in the store, which the model signal already provides; live
+      // values still flow through set(). A pure interface-only symbol (no model node)
+      // has no path yet and is registered with the __iface__ placeholder as before.
+      if (this.signalStore.getPath(sig.name) !== undefined) continue;
       // Fix 6: Use prefixed path to avoid collision with GLB model paths
-      this.signalStore.register(sig.name, `__iface__/${sig.name}`, sig.initialValue);
+      this.signalStore.register(
+        sig.name,
+        `__iface__/${sig.name}`,
+        sig.initialValue,
+        plcTypeForSignalDescriptor(sig),
+      );
+      registered++;
     }
-    debug('interface', `[${this.id}] Registered ${signals.length} signals in SignalStore`);
+    if (!this._providerProvenanceEnabled) return;
+    for (const sig of signals) {
+      this.signalStore.registerSignalProvider({
+        interfaceId: this.id,
+        ...(sig.topic !== undefined ? { topic: sig.topic } : {}),
+        signal: sig.name,
+      }, this.isConnected);
+    }
+    debug('interface', `[${this.id}] Registered ${registered}/${signals.length} signals in SignalStore (skipped already-known model signals)`);
   }
 
   /**
-   * Subscribe to output signals (Viewer → PLC) in the SignalStore.
-   * When a UI element or logic changes an output signal, it gets queued
+   * Subscribe to the outgoing signals (Viewer → PLC) in the SignalStore.
+   * These are PLC inputs (direction 'input' = the PLC reads them, the viewer writes them).
+   * When a UI element or logic changes such a signal, it gets queued
    * in dirtyOutgoing for the next onFixedUpdatePost cycle.
    */
-  private subscribeToOutputSignals(signals: SignalDescriptor[]): void {
-    this.unsubscribeFromOutputSignals();
+  private subscribeToOutgoingSignals(signals: SignalDescriptor[]): void {
+    this.unsubscribeFromOutgoingSignals();
     if (!this.signalStore) return; // Fix 1: null guard
 
     for (const sig of signals) {
-      if (sig.direction !== 'output') continue;
+      // Only signals the viewer WRITES are sent to the PLC = PLC inputs ('input').
+      if (sig.direction !== 'input') continue;
 
       const unsub = this.signalStore.subscribe(sig.name, (value) => {
         // Fix 7: Don't echo back values we just received from the remote
@@ -385,9 +443,23 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
     }
   }
 
-  private unsubscribeFromOutputSignals(): void {
+  private unsubscribeFromOutgoingSignals(): void {
     for (const unsub of this._outgoingSubscriptions) unsub();
     this._outgoingSubscriptions = [];
+  }
+
+  private setProviderConnectionState(connected: boolean): void {
+    if (!this.signalStore || !this._providerProvenanceEnabled) return;
+    if (this._discoveredSignals.length === 0) {
+      this.signalStore.setSignalProviderConnected({ interfaceId: this.id }, connected);
+      return;
+    }
+    for (const sig of this._discoveredSignals) {
+      this.signalStore.setSignalProviderConnected({
+        interfaceId: this.id,
+        ...(sig.topic !== undefined ? { topic: sig.topic } : {}),
+      }, connected);
+    }
   }
 
   private scheduleReconnect(): void {
@@ -421,6 +493,8 @@ export abstract class BaseIndustrialInterface implements RVViewerPlugin {
 
 /**
  * Converts a C# PLC signal type string to SignalDescriptor fields.
+ * Same nomenclature as Unity: a "PLCOutput*" is a PLC output (PLC writes, viewer reads) → 'output';
+ * a "PLCInput*" is a PLC input (PLC reads, viewer writes) → 'input'.
  * @param plcType e.g. "PLCInputBool", "PLCOutputFloat", "PLCInputInt"
  */
 export function parseSignalType(plcType: string): { type: SignalType; direction: SignalDirection } {

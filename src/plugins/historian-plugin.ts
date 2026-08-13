@@ -13,6 +13,7 @@ import { DriveDataRecorder } from "../core/engine/rv-drive-recorder";
 import { RVDrivesPlayback } from "../core/engine/rv-drives-playback";
 import { logInfo, logError } from "../core/engine/rv-debug";
 import { DataConnectService } from "../core/dataconnect-service";
+import { toCompactRecording } from "../core/recorder-to-compact";
 
 /**
  * HistorianPlugin
@@ -66,7 +67,7 @@ export class HistorianPlugin implements RVViewerPlugin {
   startTimeTravel(): void {
     if (!this._recorder || this._isTimeTraveling) return;
 
-    const recording = this._recorder.toCompactRecording();
+    const recording = toCompactRecording(this._recorder, this._viewer?.registry ?? null);
     if (recording.numberFrames < 2) return;
 
     this._playback = new RVDrivesPlayback(recording, this._viewer!.registry!);
@@ -96,7 +97,7 @@ export class HistorianPlugin implements RVViewerPlugin {
   async cloudSave(label: string = "Manual Snapshot"): Promise<void> {
     if (!this._recorder || !this._viewer) return;
     
-    const recording = this._recorder.toCompactRecording();
+    const recording = toCompactRecording(this._recorder, this._viewer?.registry ?? null);
     const blob = new Blob([JSON.stringify(recording)], { type: 'application/json' });
     const filename = `events/${this._viewer.currentModelUrl || 'unknown'}/${Date.now()}.json`;
     

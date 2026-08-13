@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io>
 
-import { Vector3, Object3D, Box3 } from 'three';
+import { Vector3, Object3D, Box3, Quaternion, Matrix4 } from 'three';
 import { unityPositionToGltf } from './rv-coordinate-utils';
+
+// Module-level scratch — pre-allocated to keep `AABB.update()` GC-free in the
+// transport hot path. Each `update()` call is single-threaded so reuse is safe.
+const _scratchQuat = new Quaternion();
+const _scratchOffset = new Vector3();
+const _scratchRotMat = new Matrix4();
 
 /**
  * Pre-allocated Axis-Aligned Bounding Box for fast overlap tests.
@@ -50,20 +56,26 @@ export class AABB {
 
   /**
    * Create AABB from mesh bounding box (fallback when no BoxCollider data).
+   *
+   * `localCenter` is captured in true node-local space (via `worldToLocal`)
+   * so `update()` can re-apply the node's current world rotation each tick —
+   * the AABB then tracks parent rotations (turntable platforms, planner-rotated
+   * library objects) instead of staying at a frozen world-axis offset.
    */
   static fromNode(node: Object3D): AABB {
     const aabb = new AABB();
     aabb.node = node;
     aabb.getPositionFn = (out: Vector3) => node.getWorldPosition(out);
+    node.updateMatrixWorld(true);
     const box = new Box3().setFromObject(node);
     const size = new Vector3();
     box.getSize(size);
     aabb.halfSize.copy(size).multiplyScalar(0.5);
-    // localCenter = box center relative to node position
+    // localCenter = box center in NODE-LOCAL space — re-rotated each update().
     const boxCenter = new Vector3();
     box.getCenter(boxCenter);
-    node.getWorldPosition(aabb.localCenter);
-    aabb.localCenter.subVectors(boxCenter, aabb.localCenter);
+    node.worldToLocal(boxCenter); // boxCenter is now in node-local space
+    aabb.localCenter.copy(boxCenter);
     aabb.update();
     return aabb;
   }
@@ -103,19 +115,53 @@ export class AABB {
     return aabb;
   }
 
-  /** Update world-space min/max from position source + local offset */
+  /** Update world-space min/max from position source + local offset.
+   *
+   *  When a backing `node` is available the local-space `localCenter` offset
+   *  is rotated by the node's current world quaternion before adding — this
+   *  keeps the AABB centered correctly when the parent (e.g. a LayoutObject
+   *  rotated by a Drive or the planner) rotates. The AABB itself remains
+   *  axis-aligned; only its centre moves on a circle around the parent pivot. */
   update(): void {
     if (this.getPositionFn) {
       this.getPositionFn(this.center);
-      // localCenter is small for most BoxColliders — add directly (AABB is axis-aligned)
-      this.center.add(this.localCenter);
+      if (this.node) {
+        // Rotate local offset by the node's current world rotation, then add.
+        this.node.getWorldQuaternion(_scratchQuat);
+        _scratchOffset.copy(this.localCenter).applyQuaternion(_scratchQuat);
+        this.center.add(_scratchOffset);
+      } else {
+        // No node available (e.g. InstancedMesh position callback) — assume
+        // localCenter is already in the same frame as the position.
+        this.center.add(this.localCenter);
+      }
     } else if (this.node) {
       // Legacy fallback (should not happen with new code)
       this.node.getWorldPosition(this.center);
-      this.center.add(this.localCenter);
+      this.node.getWorldQuaternion(_scratchQuat);
+      _scratchOffset.copy(this.localCenter).applyQuaternion(_scratchQuat);
+      this.center.add(_scratchOffset);
     }
     this.min.copy(this.center).sub(this.halfSize);
     this.max.copy(this.center).add(this.halfSize);
+  }
+
+  /**
+   * Set the world axis-aligned `halfSize` as the TIGHT enclosure of a box with
+   * the given LOCAL half-extents rotated by `worldQuat`:
+   * `worldHalf_i = Σ_j |R_ij|·localHalf_j`. Lets a moving box (a rotated MU, a
+   * spinning turntable belt) keep a collision/detection footprint that matches
+   * its current orientation instead of staying frozen at the pose it was built
+   * at. At 0°/180° this is identical to `localHalf`; at ±90° it swaps the axes.
+   * Call BEFORE `update()` (which derives min/max from `center ± halfSize`).
+   */
+  setHalfSizeFromRotatedExtents(localHalf: Vector3, worldQuat: Quaternion): void {
+    const e = _scratchRotMat.makeRotationFromQuaternion(worldQuat).elements;
+    this.halfSize.set(
+      Math.abs(e[0]) * localHalf.x + Math.abs(e[4]) * localHalf.y + Math.abs(e[8]) * localHalf.z,
+      Math.abs(e[1]) * localHalf.x + Math.abs(e[5]) * localHalf.y + Math.abs(e[9]) * localHalf.z,
+      Math.abs(e[2]) * localHalf.x + Math.abs(e[6]) * localHalf.y + Math.abs(e[10]) * localHalf.z,
+    );
   }
 
   /** Replace the position callback (used when InstancedMesh slot changes) */

@@ -3,7 +3,12 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Object3D } from 'three';
-import { GroupRegistry } from '../src/core/engine/rv-group-registry';
+import { GroupRegistry, ISOLATE_FOCUS_LAYER } from '../src/core/engine/rv-group-registry';
+
+/** True if `node.layers` has the ISOLATE_FOCUS_LAYER bit enabled. */
+function hasFocusLayer(node: Object3D): boolean {
+  return (node.layers.mask & (1 << ISOLATE_FOCUS_LAYER)) !== 0;
+}
 
 describe('GroupRegistry', () => {
   let registry: GroupRegistry;
@@ -58,42 +63,76 @@ describe('GroupRegistry', () => {
     expect(node.visible).toBe(true);
   });
 
-  it('isolate shows only target group', () => {
+  it('isolate tags only target group subtree with focus layer', () => {
     const a = new Object3D();
     const b = new Object3D();
+    const bChild = new Object3D();
+    b.add(bChild);
     registry.register('Conveyors', a);
     registry.register('Robots', b);
 
     registry.isolate('Robots');
-    expect(a.visible).toBe(false);
+
+    // Isolate state reflects the call.
+    expect(registry.isIsolateActive).toBe(true);
+    expect(registry.isolatedGroupName).toBe('Robots');
+    // Non-target group visibility is left alone — the viewer renders the
+    // dim backdrop via camera layers, not visibility culling.
+    expect(a.visible).toBe(true);
     expect(b.visible).toBe(true);
+    // Focus layer is set on the target subtree only.
+    expect(hasFocusLayer(b)).toBe(true);
+    expect(hasFocusLayer(bChild)).toBe(true);
+    expect(hasFocusLayer(a)).toBe(false);
   });
 
-  it('showAll restores all groups', () => {
+  it('isolate force-shows a defaultHidden target', () => {
+    const a = new Object3D(); a.visible = false;
+    registry.register('HiddenGroup', a);
+    registry.setDefaultHiddenGroups(['HiddenGroup']);
+
+    registry.isolate('HiddenGroup');
+
+    // Force-visible so the focus pass isn't culled by Three.js before
+    // layer testing kicks in.
+    expect(a.visible).toBe(true);
+    expect(hasFocusLayer(a)).toBe(true);
+  });
+
+  it('showAll clears focus layer and restores prior visibility', () => {
     const a = new Object3D();
     const b = new Object3D();
+    const bChild = new Object3D();
+    b.add(bChild);
     registry.register('Conveyors', a);
     registry.register('Robots', b);
 
     registry.isolate('Robots');
     registry.showAll();
+
+    expect(registry.isIsolateActive).toBe(false);
+    expect(registry.isolatedGroupName).toBeNull();
     expect(a.visible).toBe(true);
     expect(b.visible).toBe(true);
+    expect(hasFocusLayer(b)).toBe(false);
+    expect(hasFocusLayer(bChild)).toBe(false);
   });
 
-  it('sequential isolate calls update correctly', () => {
+  it('sequential isolate calls swap the focus layer', () => {
     const a = new Object3D();
     const b = new Object3D();
     registry.register('A', a);
     registry.register('B', b);
 
     registry.isolate('A');
-    expect(a.visible).toBe(true);
-    expect(b.visible).toBe(false);
+    expect(hasFocusLayer(a)).toBe(true);
+    expect(hasFocusLayer(b)).toBe(false);
+    expect(registry.isolatedGroupName).toBe('A');
 
     registry.isolate('B');
-    expect(a.visible).toBe(false);
-    expect(b.visible).toBe(true);
+    expect(hasFocusLayer(a)).toBe(false);
+    expect(hasFocusLayer(b)).toBe(true);
+    expect(registry.isolatedGroupName).toBe('B');
   });
 
   it('setVisible on unknown group is a no-op', () => {
@@ -152,5 +191,131 @@ describe('GroupRegistry', () => {
 
     expect(registry.get('GroupA')!.visible).toBe(true);
     expect(registry.get('GroupB')!.visible).toBe(false);
+  });
+
+  // ── External isolate channel (used by the selection-driven "Isolate") ──
+
+  it('setExternalIsolated tags the subtree and activates isolate', () => {
+    const root = new Object3D();
+    const child = new Object3D();
+    const grandChild = new Object3D();
+    child.add(grandChild);
+    root.add(child);
+    const other = new Object3D();
+
+    registry.setExternalIsolated([root]);
+
+    expect(registry.isIsolateActive).toBe(true);
+    expect(registry.externalIsolateActive).toBe(true);
+    // Whole subtree carries the focus layer — children come along implicitly.
+    expect(hasFocusLayer(root)).toBe(true);
+    expect(hasFocusLayer(child)).toBe(true);
+    expect(hasFocusLayer(grandChild)).toBe(true);
+    // Unrelated node is untouched.
+    expect(hasFocusLayer(other)).toBe(false);
+    // Subtree-membership drives the raycast isolation gate.
+    expect(registry.isInIsolatedSubtree(grandChild)).toBe(true);
+    expect(registry.isInIsolatedSubtree(other)).toBe(false);
+  });
+
+  it('setExternalIsolated(null) clears the focus layer and isolate state', () => {
+    const root = new Object3D();
+    const child = new Object3D();
+    root.add(child);
+
+    registry.setExternalIsolated([root]);
+    registry.setExternalIsolated(null);
+
+    expect(registry.isIsolateActive).toBe(false);
+    expect(registry.externalIsolateActive).toBe(false);
+    expect(hasFocusLayer(root)).toBe(false);
+    expect(hasFocusLayer(child)).toBe(false);
+    expect(registry.isInIsolatedSubtree(child)).toBe(false);
+  });
+
+  it('setExternalIsolated swaps roots, untagging the previous subtree', () => {
+    const a = new Object3D();
+    const b = new Object3D();
+
+    registry.setExternalIsolated([a]);
+    expect(hasFocusLayer(a)).toBe(true);
+
+    registry.setExternalIsolated([b]);
+    expect(hasFocusLayer(a)).toBe(false);
+    expect(hasFocusLayer(b)).toBe(true);
+    expect(registry.isInIsolatedSubtree(b)).toBe(true);
+  });
+
+  // --- register dedupe / unregister / getGroupNamesForNode (live editing) ---
+
+  it('register deduplicates — same node twice is a no-op', () => {
+    const node = new Object3D();
+    registry.register('Conveyors', node);
+    registry.register('Conveyors', node);
+    expect(registry.get('Conveyors')!.nodes).toHaveLength(1);
+  });
+
+  it('register applies the group\'s current visibility to a new root', () => {
+    const a = new Object3D();
+    const b = new Object3D();
+    registry.register('Robots', a);
+    registry.setVisible('Robots', false);
+    registry.register('Robots', b);
+    expect(b.visible).toBe(false);
+  });
+
+  it('unregister removes the node and reports change', () => {
+    const a = new Object3D();
+    const b = new Object3D();
+    registry.register('Conveyors', a);
+    registry.register('Conveyors', b);
+    expect(registry.unregister('Conveyors', a)).toBe(true);
+    expect(registry.get('Conveyors')!.nodes).toEqual([b]);
+  });
+
+  it('unregister returns false for unknown group or non-member node', () => {
+    const node = new Object3D();
+    registry.register('Conveyors', node);
+    expect(registry.unregister('Nope', node)).toBe(false);
+    expect(registry.unregister('Conveyors', new Object3D())).toBe(false);
+  });
+
+  it('unregister restores visibility when the group was hidden', () => {
+    const node = new Object3D();
+    registry.register('Robots', node);
+    registry.setVisible('Robots', false);
+    expect(node.visible).toBe(false);
+    registry.unregister('Robots', node);
+    expect(node.visible).toBe(true);
+  });
+
+  it('unregister deletes the group when its node list empties', () => {
+    const node = new Object3D();
+    registry.register('Robots', node);
+    registry.markAsKinematic('Robots');
+    registry.unregister('Robots', node);
+    expect(registry.get('Robots')).toBeUndefined();
+    expect(registry.getGroupNames()).not.toContain('Robots');
+    expect(registry.isKinematic('Robots')).toBe(false);
+  });
+
+  it('unregister of the isolated group\'s last node clears isolate state', () => {
+    const node = new Object3D();
+    registry.register('Robots', node);
+    registry.isolate('Robots');
+    expect(registry.isIsolateActive).toBe(true);
+    registry.unregister('Robots', node);
+    expect(registry.isIsolateActive).toBe(false);
+    expect(hasFocusLayer(node)).toBe(false);
+  });
+
+  it('getGroupNamesForNode returns sorted names of containing groups', () => {
+    const node = new Object3D();
+    const other = new Object3D();
+    registry.register('Zebra', node);
+    registry.register('Alpha', node);
+    registry.register('Other', other);
+    expect(registry.getGroupNamesForNode(node)).toEqual(['Alpha', 'Zebra']);
+    expect(registry.getGroupNamesForNode(new Object3D())).toEqual([]);
   });
 });

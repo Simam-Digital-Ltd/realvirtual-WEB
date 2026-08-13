@@ -21,6 +21,7 @@ import {
 } from '@mui/icons-material';
 import type { UISlotProps } from '../core/rv-ui-plugin';
 import type { HistorianPlugin } from '../plugins/historian-plugin';
+import { inferFixedDeltaTime } from '../core/recorder-to-compact';
 
 /**
  * TimelinePanel Component
@@ -80,7 +81,7 @@ export const TimelinePanel: React.FC<UISlotProps> = ({ viewer }) => {
   };
 
   const formatTime = (frame: number) => {
-    const seconds = frame * (plugin?.recorder?.toCompactRecording().fixedDeltaTime || 0.1);
+    const seconds = frame * (plugin?.recorder ? inferFixedDeltaTime(plugin.recorder) : 0.1);
     return `-${seconds.toFixed(1)}s`;
   };
 

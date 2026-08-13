@@ -21,18 +21,20 @@ import {
 import { useViewer } from '../../hooks/use-viewer';
 import { useMobileLayout } from '../../hooks/use-mobile-layout';
 import { useMachineControl } from '../../hooks/use-machine-control';
+import { useDropOrphanedPanelSlot } from '../../hooks/use-drop-orphaned-panel-slot';
 import { LeftPanel } from './LeftPanel';
 import { MACHINE_PANEL_WIDTH } from './layout-constants';
 import type { MachineControlPluginAPI, MachineState, MachineMode, MachineComponent, ComponentStatus } from '../types/plugin-types';
+import { ISA_GREEN, ISA_AMBER, ISA_RED } from './isa-colors';
 
 // ─── ISA-101 Inspired Colors ─────────────────────────────────────────────
 
 const C = {
-  green:   '#5FB37A',
-  blue:    '#3FB8C4',
-  orange:  '#D9A441',
-  red:     '#D9534F',
-  cyan:    '#3FB8C4',
+  green:   ISA_GREEN,
+  blue:    '#42a5f5',
+  orange:  ISA_AMBER,
+  red:     ISA_RED,
+  cyan:    '#4fc3f7',
   dimWhite: 'rgba(255,255,255,0.5)',
   faintWhite: 'rgba(255,255,255,0.25)',
   subtleBorder: 'rgba(255,255,255,0.06)',
@@ -140,7 +142,7 @@ function ControlButtons({ state, plugin }: { state: MachineState; plugin: Machin
             flex: 1, fontSize: 11, fontWeight: 700, textTransform: 'none',
             bgcolor: isRunning ? C.green : 'rgba(255,255,255,0.15)',
             color: isRunning ? '#fff' : undefined,
-            '&:hover': { bgcolor: isRunning ? '#5FB37A' : 'rgba(255,255,255,0.25)' },
+            '&:hover': { bgcolor: isRunning ? '#4caf50' : 'rgba(255,255,255,0.25)' },
           }}
         >
           {isRunning ? 'Running' : 'Start'}
@@ -154,8 +156,8 @@ function ControlButtons({ state, plugin }: { state: MachineState; plugin: Machin
         startIcon={<Warning sx={{ fontSize: '14px !important' }} />}
         sx={{
           fontSize: 12, fontWeight: 800, textTransform: 'none', letterSpacing: 0.5,
-          bgcolor: '#D9534F', color: '#fff',
-          '&:hover': { bgcolor: '#D9534F' },
+          bgcolor: '#d32f2f', color: '#fff',
+          '&:hover': { bgcolor: '#b71c1c' },
           '&.Mui-disabled': { bgcolor: 'rgba(211,47,47,0.3)', color: 'rgba(255,255,255,0.3)' },
         }}
       >
@@ -534,6 +536,11 @@ export function MachineControlPanel() {
 
   const handleClose = useCallback(() => { lpm.close('machine-control'); }, [lpm]);
   const handleModeChange = useCallback((mode: MachineMode) => { plugin?.setMode(mode); }, [plugin]);
+
+  // The per-model demo HMI plugin backs this slot; drop it if the slot was
+  // restored for a model that doesn't load the plugin (else its inset reserves
+  // an empty strip — see useDropOrphanedPanelSlot).
+  useDropOrphanedPanelSlot('machine-control', isOpen, !!plugin);
 
   if (!isOpen || !plugin) return null;
 

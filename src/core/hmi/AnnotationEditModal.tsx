@@ -28,7 +28,7 @@ import type { AnnotationPlugin } from '../../plugins/annotation-plugin';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-const COLORS = ['#D9A441', '#3FB8C4', '#5FB37A', '#D9A441', '#8B7BC7', '#3FB8C4', '#D9A441', '#8B7BC7', '#8A97A8'];
+const COLORS = ['#FF5722', '#2196F3', '#4CAF50', '#FFC107', '#9C27B0', '#00BCD4', '#FF9800', '#E91E63', '#607D8B'];
 
 // ── Component ──────────────────────────────────────────────────────────
 
@@ -41,7 +41,7 @@ export function AnnotationEditModal() {
   const annotation = editingId ? snap.annotations.find(a => a.id === editingId) : null;
 
   const [text, setText] = useState('');
-  const [color, setColor] = useState('#D9A441');
+  const [color, setColor] = useState('#FF5722');
 
   // Sync local state when editing annotation changes
   useEffect(() => {
@@ -144,7 +144,7 @@ export function AnnotationEditModal() {
                 borderColor: 'rgba(255,255,255,0.3)',
               },
               '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                borderColor: '#D9A441',
+                borderColor: '#FF5722',
               },
             }}
           />
@@ -186,7 +186,7 @@ export function AnnotationEditModal() {
           <IconButton
             size="small"
             onClick={handleDelete}
-            sx={{ color: 'rgba(255,255,255,0.4)', '&:hover': { color: '#D9534F' } }}
+            sx={{ color: 'rgba(255,255,255,0.4)', '&:hover': { color: '#ef5350' } }}
             title="Delete annotation"
           >
             <Delete sx={{ fontSize: 18 }} />

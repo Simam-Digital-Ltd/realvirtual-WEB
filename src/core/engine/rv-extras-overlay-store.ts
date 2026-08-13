@@ -43,6 +43,11 @@ function storageKey(glbName: string): string {
 /**
  * Load an overlay from localStorage for the given GLB name.
  * Returns null if no overlay is stored or if parsing fails.
+ *
+ * @deprecated The unified Scene model stores overlays inside `RvScene.overlay`
+ * (see `src/core/hmi/scene/rv-scene-types.ts`). This per-GLB keyspace is
+ * retained only as a boot-path fallback for direct `?model=` loads that did
+ * not go through SceneStore. New code should not write here.
  */
 export function loadOverlay(glbName: string): RVExtrasOverlay | null {
   try {
@@ -58,16 +63,11 @@ export function loadOverlay(glbName: string): RVExtrasOverlay | null {
 
 /**
  * Save an overlay to localStorage for the given GLB name.
+ *
+ * @deprecated See `loadOverlay`. Overlays now live on `RvScene.overlay`.
  */
 export function saveOverlay(glbName: string, overlay: RVExtrasOverlay): void {
   localStorage.setItem(storageKey(glbName), JSON.stringify(overlay));
-}
-
-/**
- * Clear (remove) the overlay for the given GLB name from localStorage.
- */
-export function clearOverlay(glbName: string): void {
-  localStorage.removeItem(storageKey(glbName));
 }
 
 // ─── Merge / Apply ──────────────────────────────────────────────────────
@@ -124,42 +124,6 @@ export function applyOverlayToNode(
   return changed;
 }
 
-// ─── Import / Export ────────────────────────────────────────────────────
-
-/**
- * Trigger a browser download of the overlay as a `.rv-overrides.json` file.
- */
-export function downloadOverlay(overlay: RVExtrasOverlay): void {
-  const json = JSON.stringify(overlay, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'overlay.rv-overrides.json';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-/**
- * Import an overlay from a File. Validates the schema field.
- * @throws Error if the file cannot be parsed or has an invalid schema.
- */
-export async function importOverlay(file: File): Promise<RVExtrasOverlay> {
-  const text = await file.text();
-  const parsed = JSON.parse(text) as RVExtrasOverlay;
-
-  if (parsed.$schema !== 'rv-extras-overlay/1.0') {
-    throw new Error(`Invalid overlay schema: expected 'rv-extras-overlay/1.0', got '${parsed.$schema}'`);
-  }
-  if (typeof parsed.nodes !== 'object' || parsed.nodes === null) {
-    throw new Error('Invalid overlay: missing or invalid "nodes" field');
-  }
-
-  return parsed;
-}
-
 // ─── Originals Sidecar (persist original GLB values for reset after reload) ──
 
 function originalsKey(glbName: string): string {
@@ -209,13 +173,6 @@ export function removeOriginals(glbName: string, keys: string[]): void {
   const originals = loadOriginals(glbName);
   for (const k of keys) originals.delete(k);
   saveOriginals(glbName, originals);
-}
-
-/**
- * Clear the entire originals sidecar for a GLB file.
- */
-export function clearOriginals(glbName: string): void {
-  localStorage.removeItem(originalsKey(glbName));
 }
 
 // ─── Query ──────────────────────────────────────────────────────────────

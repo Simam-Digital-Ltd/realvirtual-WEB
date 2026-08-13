@@ -10,19 +10,19 @@
 
 import { useEffect } from 'react';
 import { Box } from '@mui/material';
-import { ChartPanel } from '../../core/hmi/ChartPanel';
+import { FloatingPanel } from '../../core/hmi/FloatingPanel';
 import { useKpiData } from '../../hooks/use-kpi-data';
 import { useEChart } from '../../hooks/use-echart';
 import { createBaseChartOption, DARK_TOOLTIP_BASE } from '../../core/hmi/chart-theme';
 
 const COMPONENTS = [
-  { key: 'spindle', name: 'Spindle', color: '#D9534F' },
-  { key: 'coolant', name: 'Coolant', color: '#3FB8C4' },
-  { key: 'hydraulics', name: 'Hydraulics', color: '#D9A441' },
-  { key: 'robot', name: 'Robot', color: '#8B7BC7' },
-  { key: 'conveyorEntry', name: 'Conv. Entry', color: '#5FB37A' },
-  { key: 'conveyorExit', name: 'Conv. Exit', color: '#3FB8C4' },
-  { key: 'auxiliary', name: 'Auxiliary', color: '#8A97A8' },
+  { key: 'spindle', name: 'Spindle', color: '#ef4444' },
+  { key: 'coolant', name: 'Coolant', color: '#38bdf8' },
+  { key: 'hydraulics', name: 'Hydraulics', color: '#f59e0b' },
+  { key: 'robot', name: 'Robot', color: '#a78bfa' },
+  { key: 'conveyorEntry', name: 'Conv. Entry', color: '#22c55e' },
+  { key: 'conveyorExit', name: 'Conv. Exit', color: '#06b6d4' },
+  { key: 'auxiliary', name: 'Auxiliary', color: '#94a3b8' },
 ] as const;
 
 interface EnergyChartProps {
@@ -32,11 +32,11 @@ interface EnergyChartProps {
 
 export function EnergyChart({ open, onClose }: EnergyChartProps) {
   const kpi = useKpiData();
-  const { containerRef: chartRef, chartInstance } = useEChart({ open });
+  const { containerRef: chartRef, chartInstance, isReady } = useEChart({ open });
 
   // Set chart data
   useEffect(() => {
-    if (!open || !kpi) return;
+    if (!open || !kpi || !isReady) return;
     const timer = setTimeout(() => {
       const chart = chartInstance.current;
       if (!chart) return;
@@ -107,20 +107,20 @@ export function EnergyChart({ open, onClose }: EnergyChartProps) {
       );
     }, 100);
     return () => clearTimeout(timer);
-  }, [open, kpi]);
+  }, [open, kpi, isReady]);
 
   return (
-    <ChartPanel
+    <FloatingPanel
       open={open}
       onClose={onClose}
       title="Power Consumption"
-      titleColor="#D9534F"
+      titleColor="#ef5350"
       subtitle="Last 24h"
       defaultWidth={750}
       defaultHeight={360}
       zIndex={1400}
     >
       <Box ref={chartRef} sx={{ flex: 1, minHeight: 0 }} />
-    </ChartPanel>
+    </FloatingPanel>
   );
 }

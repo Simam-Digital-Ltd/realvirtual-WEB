@@ -7,15 +7,11 @@
   "defaultModel": "models/demo.glb",
 
   "visual": {
-    "shadows": true,
-    "shadowStrength": 0.5,
-    "lightIntensity": 1.0
-  },
-
-  "physics": {
-    "enabled": false,
-    "gravity": 9.81,
-    "friction": 1.5
+    "lightingMode": "default",
+    "orbitRotateSpeed": 1.0,
+    "orbitPanSpeed": 1.0,
+    "orbitZoomSpeed": 1.0,
+    "orbitDampingFactor": 0.08
   },
 
   "interface": {
@@ -37,5 +33,43 @@
 
   "analytics": {
     "googleAnalyticsId": ""
+  },
+
+  "diagnostics": {
+    "_comment": "AI error diagnosis + operator comment backend (CONNECT). Leave both URLs empty to keep the offline demo/fake path.",
+    "diagnoseUrl": "",
+    "notesUrl": ""
+  },
+
+  "pluginConfig": {
+    "_comment": "Per-plugin configuration. Missing keys fall back to built-in defaults.",
+    "orientationGizmo": {
+      "_comment": "Viewport orientation gizmo (top-right corner). Set enabled: false to hide.",
+      "enabled": true
+    },
+    "kiosk": {
+      "_comment": "Kiosk Mode — opt-in auto-demo after idle timeout. Default is DISABLED (backwards-compatible for existing deployments). Trade-show / showroom installations set enabled: true.",
+      "enabled": false,
+      "idleTimeoutSeconds": 60,
+      "hintIntervalSeconds": 15,
+      "exitOnAnyInput": true,
+      "pauseOnHidden": true,
+      "respectReducedMotion": true,
+      "cycleLimit": 0,
+      "cameraAnimationTimeoutMs": 5000,
+      "maxDwellMs": 60000,
+      "maxConcurrentMessages": 5
+    },
+    "gaussian-splat": {
+      "_comment": "Gaussian Splat overlay — load photorealistic 3D scans (.splat/.ply/.ksplat) as environment backdrop.",
+      "enabled": false,
+      "url": "",
+      "position": [0, 0, 0],
+      "rotation": [0, 0, 0],
+      "scale": 1.0,
+      "gpuAcceleratedSort": true,
+      "compressionLevel": 2,
+      "progressiveLoad": false
+    }
   }
 }

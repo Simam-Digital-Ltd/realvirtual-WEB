@@ -16,10 +16,10 @@ import { StepState } from '../engine/rv-logic-step';
 
 /** ISA-101 compliant state colors for LogicStep status dots and badges. */
 export const STEP_STATE_COLORS: Record<StepState, string> = {
-  [StepState.Active]:   '#5FB37A',  // ISA-101 running green
-  [StepState.Waiting]:  '#D9A441',  // ISA-101 transition amber
-  [StepState.Idle]:     '#8A97A8',  // ISA-101 stopped gray
-  [StepState.Finished]: '#3FB8C4',  // completion teal
+  [StepState.Active]:   '#2d9e5a',  // ISA-101 running green
+  [StepState.Waiting]:  '#f59e0b',  // ISA-101 transition amber
+  [StepState.Idle]:     '#6b7280',  // ISA-101 stopped gray
+  [StepState.Finished]: '#26a69a',  // completion teal
 };
 
 /** Short labels for LogicStep states (max 4 chars). */

@@ -5,7 +5,7 @@
  * DriveChartOverlay — Floating panel with a real-time ECharts chart
  * showing drive positions and/or speeds.
  *
- * Uses ChartPanel for the reusable drag/resize/title-bar infrastructure.
+ * Uses FloatingPanel for the reusable drag/resize/title-bar infrastructure.
  * Responds to drive filter events — only shows filtered drives.
  */
 
@@ -19,7 +19,7 @@ import { useDrives } from '../../hooks/use-drives';
 import { useDriveFilter } from '../../hooks/use-drive-filter';
 import { useMaintenanceMode } from '../../hooks/use-maintenance-mode';
 import { BOTTOM_BAR_HEIGHT } from '../../core/hmi/layout-constants';
-import { ChartPanel } from '../../core/hmi/ChartPanel';
+import { FloatingPanel } from '../../core/hmi/FloatingPanel';
 import { DriveRecorderPlugin } from '../drive-recorder-plugin';
 import { NodeRegistry } from '../../core/engine/rv-node-registry';
 import {
@@ -51,7 +51,7 @@ function ensureDriveRecorder(viewer: ReturnType<typeof useViewer>) {
   let plugin = viewer.getPlugin<DriveRecorderPlugin>('drive-recorder');
   if (!plugin) {
     plugin = new DriveRecorderPlugin();
-    viewer.use(plugin);
+    viewer.use(plugin, 'core');
   }
   return plugin;
 }
@@ -261,10 +261,10 @@ export function DriveChartOverlay() {
           sx={{
             height: 20,
             fontSize: 10,
-            color: '#D9A441',
+            color: '#ffa726',
             borderColor: 'rgba(255,167,38,0.3)',
-            '& .MuiChip-icon': { color: '#D9A441', ml: 0.5 },
-            '& .MuiChip-deleteIcon': { color: '#D9A441', fontSize: 14 },
+            '& .MuiChip-icon': { color: '#ffa726', ml: 0.5 },
+            '& .MuiChip-deleteIcon': { color: '#ffa726', fontSize: 14 },
           }}
           variant="outlined"
         />
@@ -276,7 +276,7 @@ export function DriveChartOverlay() {
         exclusive
         onChange={(_, v) => { if (v) setPeriod(v as TimePeriod); }}
         size="small"
-        sx={compactToggleGroupSx('#5FB37A', '102,187,106', { ml: 'auto' })}
+        sx={compactToggleGroupSx('#66bb6a', '102,187,106', { ml: 'auto' })}
       >
         {PERIOD_OPTIONS.map((p) => (
           <ToggleButton key={p} value={p}>
@@ -291,7 +291,7 @@ export function DriveChartOverlay() {
         exclusive
         onChange={(_, v) => { if (v) setMode(v as ChartMode); }}
         size="small"
-        sx={compactToggleGroupSx('#3FB8C4', '79,195,247')}
+        sx={compactToggleGroupSx('#4fc3f7', '79,195,247')}
       >
         <ToggleButton value="position">Position</ToggleButton>
         <ToggleButton value="speed">Speed</ToggleButton>
@@ -301,11 +301,11 @@ export function DriveChartOverlay() {
   );
 
   return (
-    <ChartPanel
+    <FloatingPanel
       open={open && !suppressed}
       onClose={() => viewer.toggleDriveChart(false)}
       title="Drive Monitor"
-      titleColor="#3FB8C4"
+      titleColor="#4fc3f7"
       subtitle={driveCount}
       defaultWidth={CHART_DEFAULT_WIDTH}
       defaultHeight={DEFAULT_H}
@@ -314,6 +314,6 @@ export function DriveChartOverlay() {
       toolbar={toolbar}
     >
       <Box ref={chartRef} sx={{ flex: 1, minHeight: 0 }} />
-    </ChartPanel>
+    </FloatingPanel>
   );
 }

@@ -33,7 +33,13 @@ import type { Annotation } from '../core/types/plugin-types';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-/** Three.js layer index for annotations — separate from drives (1), sensors (2), MU (3). */
+/**
+ * Three.js layer allocation used across the viewer:
+ *   0 — default: geometry, raycasting
+ *   2 — ISOLATE_FOCUS_LAYER (rv-group-registry): currently isolated group's subtree
+ *   6 — ANNOTATION_LAYER (this file): annotation pins, labels, connector lines
+ *   7 — MEASUREMENT_LAYER (rv-measurement-renderer): measurement markers, lines, distance labels
+ */
 export const ANNOTATION_LAYER = 6;
 
 /** Distance beyond which label text is hidden (show dot only). */
@@ -96,12 +102,8 @@ function getSelectionRingGeometry(): RingGeometry {
 // ── AnnotationRenderer ───────────────────────────────────────────────
 
 export class AnnotationRenderer {
-  /** Reserved temp-drawing id for the local user's live polyline preview. */
-  private static readonly LOCAL_PREVIEW_ID = '__local_preview__';
-
   readonly group = new Group();
   private _resources = new Map<string, AnnotationResources>();
-  private _tempDrawings = new Map<string, Line>();
   private _selectionRing: Mesh | null = null;
   private _selectionRingMaterial: MeshBasicMaterial | null = null;
   private _camera: Camera | null = null;
@@ -382,43 +384,6 @@ export class AnnotationRenderer {
       lineMaterial,
       lineGeometry,
     });
-  }
-
-  /** Update or create a temporary 'live' drawing line for a remote player. */
-  updateTempDrawing(playerId: string, points: [number, number, number][], color: string): void {
-    let line = this._tempDrawings.get(playerId);
-    if (!line) {
-      const mat = new LineBasicMaterial({ color: new Color(color), transparent: true, opacity: 0.6 });
-      const geo = new BufferGeometry();
-      line = new Line(geo, mat);
-      line.layers.set(ANNOTATION_LAYER);
-      this.group.add(line);
-      this._tempDrawings.set(playerId, line);
-    }
-
-    const vPoints = points.map(p => new Vector3(p[0], p[1], p[2]));
-    line.geometry.setFromPoints(vPoints);
-  }
-
-  /** Live preview of the local user's in-progress polyline (before it is committed). */
-  updateDrawingProgress(points: [number, number, number][]): void {
-    this.updateTempDrawing(AnnotationRenderer.LOCAL_PREVIEW_ID, points, '#D9A441');
-  }
-
-  /** Clear the local in-progress polyline preview (after commit or cancel). */
-  clearDrawingProgress(): void {
-    this.removeTempDrawing(AnnotationRenderer.LOCAL_PREVIEW_ID);
-  }
-
-  /** Remove temporary drawing for a player (called when they finish or cancel). */
-  removeTempDrawing(playerId: string): void {
-    const line = this._tempDrawings.get(playerId);
-    if (line) {
-      this.group.remove(line);
-      line.geometry.dispose();
-      (line.material as LineBasicMaterial).dispose();
-      this._tempDrawings.delete(playerId);
-    }
   }
 
   // ── Internal helpers ─────────────────────────────────────────────────

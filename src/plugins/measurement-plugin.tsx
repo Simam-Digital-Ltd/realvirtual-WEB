@@ -23,6 +23,7 @@ import { MeasurementRenderer, formatDistance as _formatDistance } from './rv-mea
 import { MEASUREMENT_LAYER } from '../core/engine/rv-constants';
 import { pointerToNDC } from '../core/engine/rv-pointer-utils';
 import { createStore } from '../core/hmi/create-store';
+import { modeContext } from '../core/rv-mode-manager';
 
 // Re-export formatDistance for tests and external consumers
 export { formatDistance } from './rv-measurement-renderer';
@@ -30,10 +31,10 @@ export { formatDistance } from './rv-measurement-renderer';
 // ── Constants ──────────────────────────────────────────────────────────
 
 const LS_PREFIX = 'rv-measurements-';
-const DEFAULT_COLOR = '#3FB8C4';
+const DEFAULT_COLOR = '#4fc3f7';
 const MEASUREMENT_COLORS = [
-  '#3FB8C4', '#5FB37A', '#D9A441', '#D9534F', '#8B7BC7',
-  '#3FB8C4', '#5FB37A', '#D9A441', '#8B7BC7', '#8B7BC7',
+  '#4fc3f7', '#66bb6a', '#ffa726', '#ef5350', '#ab47bc',
+  '#26c6da', '#9ccc65', '#ffca28', '#ec407a', '#7e57c2',
 ];
 
 // ── State machine ──────────────────────────────────────────────────────
@@ -102,7 +103,7 @@ function MeasureButton({ viewer: _v }: { viewer: RVViewerType }) {
       <IconButton
         size="small"
         onClick={handleClick}
-        sx={{ color: snap.measurementMode ? '#3FB8C4' : 'text.secondary' }}
+        sx={{ color: snap.measurementMode ? '#4fc3f7' : 'text.secondary' }}
       >
         <Straighten sx={{ fontSize: 18 }} />
       </IconButton>
@@ -116,7 +117,15 @@ export class MeasurementPlugin implements RVViewerPlugin, MeasurementPluginAPI {
   readonly id = 'measurements';
   readonly order = 50;
   readonly slots: UISlotEntry[] = [
-    { slot: 'button-group', component: MeasureButton, order: 55 },
+    // Without a rule ButtonPanel hides every entry in a focused workspace mode.
+    // Measuring is useful while authoring CAD assets too, so the Editor is
+    // explicitly allowed; Planner and DES stay focused on their own tools.
+    {
+      slot: 'button-group',
+      component: MeasureButton,
+      order: 55,
+      visibilityRule: { hiddenIn: [modeContext('planner'), modeContext('des')] },
+    },
   ];
 
   // ── State ──
@@ -565,7 +574,6 @@ export class MeasurementPlugin implements RVViewerPlugin, MeasurementPluginAPI {
     for (const hit of intersects) {
       if (!hit.object.visible) continue;
       if (this._isMeasurementObject(hit.object)) continue;
-      if (hit.object.userData?._rvKinGroupMerged) continue;
       return {
         point: hit.point,
         normal: hit.face?.normal?.clone().transformDirection(hit.object.matrixWorld) ?? null,

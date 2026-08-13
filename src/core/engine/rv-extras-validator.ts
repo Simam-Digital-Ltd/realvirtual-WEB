@@ -19,7 +19,7 @@
  *   // Logs: [Parity] Unhandled Drive field: "SpeedOverride" (value: 0)
  */
 
-import { getConsumedFieldsFromSchema } from './rv-component-registry';
+import { getConsumedFieldsFromSchema, getRegisteredCapabilities } from './rv-component-registry';
 
 /**
  * Fields consumed by each TypeScript parser (actively read and used).
@@ -40,14 +40,54 @@ const CONSUMED: Record<string, string[]> = {
   Grip: [],       // all fields in RVGrip.schema
   GripTarget: [], // all fields in RVGripTarget.schema
   ConnectSignal: [], // all fields in RVConnectSignal.schema
+  Lamp: ['OnColor'], // Unity Color is read raw; scalar fields are schema-derived
 
   // Drive behaviors — schema fields auto-derived
   Drive_Simple: [],       // all fields in RVDriveSimple.schema
   Drive_Cylinder: [],     // all fields in RVDriveCylinder.schema
   Drive_ErraticPosition: [], // all fields in RVErraticDriver.schema
 
-  // LayoutObject — layout planner marker component
-  LayoutObject: ['Label', 'CatalogId', 'Locked'],
+  // LayoutObject — layout planner marker component. `Visible` is editable
+  // from the Inspector and mirrors node.visible (handled in
+  // PropertyInspector.handleFieldEdit).
+  LayoutObject: ['Label', 'CatalogId', 'Locked', 'Visible'],
+
+  // Splat — Gaussian-Splat-specific tools, co-mounted with LayoutObject on
+  // splat placements (see scene-mutations.addSplatPlacedToScene). The
+  // Invert booleans persist via the standard rv-extras overlay; the
+  // visual effect is applied through `gaussian-splat-plugin.setSplatScale`
+  // on edit (PropertyInspector handleFieldEdit) and on restore
+  // (layout-planner _applySplatTransformFromUserData).
+  Splat: [
+    'InvertX', 'InvertY', 'InvertZ',
+    // Axis-aligned crop box in the splat's local frame — Splats outside
+    // [min,max] are culled in the vertex shader. Used e.g. to hide the
+    // ceiling of a captured room (lower CropMaxY) or floor noise (raise
+    // CropMinY). Defaults to ±1000 (effectively "no clip").
+    'CropMinX', 'CropMaxX',
+    'CropMinY', 'CropMaxY',
+    'CropMinZ', 'CropMaxZ',
+  ],
+
+  // Path — WebViewer-native path substrate (plan-268). The structured fields
+  // (segments/successors/align + the type/id discriminators) and the Phase-2
+  // zone attributes (zone/zoneCapacity, control-point model) are consumed by
+  // parsePathExtras() in rv-path.ts, not by the scalar factory schema.
+  Path: ['type', 'id', 'segments', 'successors', 'align', 'zone', 'zoneCapacity'],
+
+  // AASLink — Asset Administration Shell link (parsed by aas-link-plugin)
+  AASLink: ['AASId', 'Description', 'ServerUrl'],
+
+  // WebComponent — JS-in-GLB script component (plan-210 §7), parsed by
+  // parseWebComponent() in rv-web-component-registry.ts. Additional primitive
+  // fields become the `self.prop` bag (v1 shim) and may warn here until the
+  // plan-139 property layer lands.
+  WebComponent: ['Active', 'ApiVersion', 'Language', 'DesSafe', 'TypeId', 'Code'],
+
+  // WebPhysicsZone — StaticColliders is a rawFields string array (node paths)
+  // captured in the factory beforeSchema hook (rv-physics-zone.ts), not a
+  // schema field (the schema mapper has no string-array type).
+  WebPhysicsZone: ['StaticColliders'],
 
   // MU — no extras parsed yet (template nodes only)
   MU: [],
@@ -101,6 +141,7 @@ const CONSUMED: Record<string, string[]> = {
   LogicStep_GripPick: ['Grip', 'Blocking', 'Active'],
   LogicStep_GripPlace: ['Grip', 'Blocking', 'Active'],
   LogicStep_JumpOnSignal: ['Signal', 'JumpOn', 'JumpToStep', 'Active'],
+  LogicStep_IKPath: ['IKPath', 'Active'],
   LogicStep_SetActiveOnly: ['Active'],
   LogicStep_CinemachineCamera: ['Active'],
   LogicStep_StatStartCycle: ['Active'],
@@ -111,14 +152,51 @@ const CONSUMED: Record<string, string[]> = {
   // RuntimeMetadata — parsed by scene loader for tooltip content
   RuntimeMetadata: ['content'],
 
-  // Group — parsed by loadGLB group parsing
-  Group: ['GroupName', 'GroupNamePrefix'],
+  // CustomRuntimeInstruction — every authoring field the web viewer consumes
+  // renders as a primary editable row. `steps` is a nested raw list drawn by a
+  // custom inspector renderer (rv-custom-runtime-instruction-field-renderer);
+  // the rest (type/dismissible/Isolate/signal/BlinkSpeed) are schema fields.
+  // Listing them all keeps them out of the collapsed "N more fields" read-only
+  // dump so the instruction shows type + steps + targets up front.
+  CustomRuntimeInstruction: ['type', 'dismissible', 'Isolate', 'signal', 'BlinkSpeed', 'steps'],
 
-  // Pipeline components — parsed by loadGLB pipeline parsing
-  Pipe: ['resourceName', 'flowRate', 'source', 'destination', 'uvDirection'],
-  ResourceTank: ['resourceName', 'capacity', 'amount', 'pressure', 'temperature'],
-  Pump: ['flowRate', 'pipe'],
-  ProcessingUnit: ['connections'],
+  // Group — fields fully covered by the schema in rv-group-component.ts
+
+  // Kinematic — parsed by the scene loader (collect) + applyKinematicParenting
+  Kinematic: [
+    'IntegrateGroupEnable', 'GroupName', 'GroupNamePrefix', 'SimplifyHierarchy',
+    'KinematicParentEnable', 'Parent',
+  ],
+
+  // Pipeline components — parsed by loadGLB pipeline parsing (schemas in rv-pipe.ts / rv-tank.ts / rv-pump.ts / rv-processing-unit.ts)
+  Pipe: [
+    'resourceName', 'flowRate', 'source', 'destination', 'uvDirection', 'circuitId',
+    // Industry-typical instrumentation
+    'pressure', 'temperatureC', 'velocityMs', 'dnSize',
+  ],
+  ResourceTank: [
+    'resourceName', 'capacity', 'amount', 'pressure', 'temperature',
+    // Industry-typical instrumentation
+    'density', 'ph', 'agitatorOn', 'heatingOn',
+    'tempHighLimit', 'tempLowLimit', 'pressureHighLimit',
+  ],
+  Pump: [
+    'flowRate', 'pipe', 'circuitId', 'resourceName',
+    // Industry-typical instrumentation
+    'state', 'suctionPressure', 'dischargePressure',
+    'speedRpm', 'speedPercent', 'powerKw', 'currentA',
+    'bearingTempC', 'motorTempC', 'vibrationMmS',
+    'npshAvailable', 'npshRequired', 'runHours',
+  ],
+  ProcessingUnit: [
+    'connections',
+    // OEE & production telemetry
+    'state', 'availability', 'performance', 'quality',
+    'cycleTimeS', 'cycleTargetS', 'throughputPerHour',
+    'goodCount', 'scrapCount',
+    'mtbfHours', 'mttrMinutes', 'runHours', 'downHours',
+    'lastFault',
+  ],
 };
 
 /**
@@ -126,6 +204,15 @@ const CONSUMED: Record<string, string[]> = {
  * These are runtime status fields, Unity-only features, or component references
  * that have no WebViewer equivalent.
  */
+/**
+ * Universal Unity serialization metadata present on (almost) every exported
+ * component. These are never real component fields — no TypeScript parser
+ * consumes them — so they are ignored for ALL types instead of being repeated
+ * in every per-type IGNORED list. Without this, the dev-mode parity check spams
+ * ~3 lines per component per load (`_fullTypeName`, `_version`, `_enabled`).
+ */
+const GLOBAL_IGNORED: string[] = ['_fullTypeName', '_version', '_enabled'];
+
 const IGNORED: Record<string, string[]> = {
   Drive: [
     // Runtime status (read-only in C#, meaningless at load time)
@@ -134,10 +221,13 @@ const IGNORED: Record<string, string[]> = {
     'IsAtTargetSpeed', 'IsAtTarget', 'IsAtLowerLimit', 'IsAtUpperLimit',
     'IsSubDrive',
     // Features not implemented in WebViewer
+    // NOTE: JogForward / JogBackward / TargetPosition used to be listed here and
+    // were therefore dropped at load — an authored `JogForward: true` never
+    // reached the engine and the drive silently refused to move. They are now
+    // real schema fields (see rv-odt.json → $defs/Drive) applied by initDrive().
     'SpeedOverride', 'SpeedScaleTransportSurface',
     'JumpToLowerLimitOnUpperLimit', 'LimitRayCast',
     'SmoothAcceleration', 'Jerk', 'smoothMotion',
-    'JogForward', 'JogBackward', 'TargetPosition',
     'TargetStartMove', 'ResetDrive', '_StopDrive',
     'MoveThisRigidBody', 'UseInteract',
     // realvirtual component metadata
@@ -316,7 +406,7 @@ export function validateExtras(componentType: string, data: Record<string, unkno
   if (ignored.includes('*')) return;
 
   const ignoredSet = new Set(ignored);
-  const known = new Set([...consumed, ...ignoredSet]);
+  const known = new Set([...consumed, ...ignoredSet, ...GLOBAL_IGNORED]);
 
   for (const key of Object.keys(data)) {
     if (!known.has(key)) {
@@ -388,7 +478,17 @@ export function isKnownComponentType(componentType: string): boolean {
   if (componentType in CONSUMED) return true;
   if (componentType in IGNORED) return true;
   if (getConsumedFieldsFromSchema(componentType).length > 0) return true;
+  if (getRegisteredCapabilities().has(componentType)) return true;
   return false;
+}
+
+/**
+ * All component types with a manual CONSUMED entry. Used by the rv-ODT spec
+ * coverage test (tests/spec-loading.test.ts) to assert that every rv_extras
+ * surface consumed by the WebViewer has a $def in schema/v1/rv-odt.json.
+ */
+export function getValidatorConsumedTypes(): readonly string[] {
+  return Object.keys(CONSUMED);
 }
 
 /**

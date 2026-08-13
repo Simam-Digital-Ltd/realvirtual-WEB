@@ -16,15 +16,17 @@ import {
   Button,
   TextField,
   IconButton,
+  Tooltip,
   Divider,
   Collapse,
 } from '@mui/material';
-import { Close, PersonOutline, WifiOff, Wifi, Share, ExpandMore, ExpandLess } from '@mui/icons-material';
+import { Close, People, PersonOutline, WifiOff, Wifi, Share, ExpandMore, ExpandLess } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
 import { useMultiuser } from '../../hooks/use-multiuser';
-import { loadMultiuserSettings, saveMultiuserSettings } from './multiuser-settings-store';
+import { loadMultiuserSettings, saveMultiuserSettings, useMultiuserEnabled } from './multiuser-settings-store';
 import type { MultiuserPluginAPI } from '../types/plugin-types';
 import type { PlayerInfo } from '../engine/rv-avatar-manager';
+import { ISA_GREEN, ISA_RED } from './isa-colors';
 
 // ── Styling constants ─────────────────────────────────────────────────────
 
@@ -195,13 +197,13 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
       p: 1.25,
       zIndex: 9000,
       boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-      backdropFilter: 'blur(8px)',
+      backdropFilter: 'blur(calc(8px * var(--rv-ui-blur-scale, 1)))',
       pointerEvents: 'auto',
     }}>
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.75 }}>
         {isConnected
-          ? <Wifi sx={{ fontSize: 14, color: '#5FB37A', mr: 0.5 }} />
+          ? <Wifi sx={{ fontSize: 14, color: ISA_GREEN, mr: 0.5 }} />
           : <WifiOff sx={{ fontSize: 14, color: 'rgba(255,255,255,0.35)', mr: 0.5 }} />}
         <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)', flexGrow: 1 }}>
           Multiuser
@@ -242,7 +244,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
             startIcon={<Share sx={{ fontSize: 14 }} />}
             sx={{
               fontSize: 12, textTransform: 'none', mt: 0.25, py: 0.75,
-              bgcolor: '#3FB8C4', '&:hover': { bgcolor: '#3FB8C4' },
+              bgcolor: '#1565c0', '&:hover': { bgcolor: '#1976d2' },
               '&.Mui-disabled': { bgcolor: 'rgba(21,101,192,0.3)', color: 'rgba(255,255,255,0.3)' },
             }}
           >
@@ -252,7 +254,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
           {mu.statusMessage && (
             <Typography sx={{
               fontSize: 10, mt: 0.25, textAlign: 'center',
-              color: mu.status === 'error' ? '#D9534F' : 'rgba(255,255,255,0.45)',
+              color: mu.status === 'error' ? ISA_RED : 'rgba(255,255,255,0.45)',
             }}>
               {mu.statusMessage}
             </Typography>
@@ -294,7 +296,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
                     fontSize: 11, textTransform: 'none',
                     borderColor: 'rgba(255,255,255,0.15)',
                     color: 'rgba(255,255,255,0.65)',
-                    '&:hover': { borderColor: '#3FB8C4', color: '#3FB8C4', bgcolor: 'rgba(79,195,247,0.06)' },
+                    '&:hover': { borderColor: '#4fc3f7', color: '#4fc3f7', bgcolor: 'rgba(79,195,247,0.06)' },
                   }}
                 >
                   {mu.status === 'connecting' ? 'Connecting…' : 'Connect Direct'}
@@ -310,8 +312,8 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
         <Box>
           {/* Local player */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.3 }}>
-            <PersonOutline sx={{ fontSize: 12, color: '#3FB8C4' }} />
-            <Typography sx={{ fontSize: 11, color: '#3FB8C4', flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <PersonOutline sx={{ fontSize: 12, color: '#2196F3' }} />
+            <Typography sx={{ fontSize: 11, color: '#2196F3', flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {mu.localName} (You)
             </Typography>
             <Typography sx={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', flexShrink: 0 }}>
@@ -340,7 +342,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
               fontSize: 11, textTransform: 'none', mb: 0.5,
               borderColor: 'rgba(255,255,255,0.15)',
               color: 'rgba(255,255,255,0.65)',
-              '&:hover': { borderColor: '#3FB8C4', color: '#3FB8C4', bgcolor: 'rgba(79,195,247,0.06)' },
+              '&:hover': { borderColor: '#4fc3f7', color: '#4fc3f7', bgcolor: 'rgba(79,195,247,0.06)' },
             }}
           >
             {copied ? 'Link Copied!' : 'Share Session Link'}
@@ -353,7 +355,7 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
               fontSize: 11, textTransform: 'none',
               borderColor: 'rgba(255,255,255,0.15)',
               color: 'rgba(255,255,255,0.65)',
-              '&:hover': { borderColor: '#D9534F', color: '#D9534F', bgcolor: 'rgba(239,83,80,0.06)' },
+              '&:hover': { borderColor: ISA_RED, color: ISA_RED, bgcolor: 'rgba(239,83,80,0.06)' },
             }}
           >
             Disconnect
@@ -361,5 +363,42 @@ export function MultiuserPanel({ onClose }: MultiuserPanelProps) {
         </Box>
       )}
     </Box>
+  );
+}
+
+// ── Activity-bar button ─────────────────────────────────────────────────────
+
+/**
+ * MultiuserButton — the activity-bar entry point for Multiuser: a People icon
+ * (with a green dot when connected) that toggles the {@link MultiuserPanel}
+ * popup. Self-contained — owns its open state and only renders when the feature
+ * is enabled (reactive) and the multiuser plugin is present.
+ */
+export function MultiuserButton({ placement = 'right' }: { placement?: 'right' | 'top' }) {
+  const viewer = useViewer();
+  const enabled = useMultiuserEnabled();
+  const mu = useMultiuser();
+  const [open, setOpen] = useState(false);
+  const muPlugin = viewer.getPlugin<MultiuserPluginAPI>('multiuser');
+
+  if (!enabled || !muPlugin) return null;
+
+  return (
+    <>
+      <Tooltip title={open ? 'Close Multiuser' : 'Multiuser'} placement={placement}>
+        <IconButton
+          size="medium"
+          color={open ? 'primary' : 'inherit'}
+          onClick={() => setOpen((o) => !o)}
+          sx={{ position: 'relative' }}
+        >
+          <People />
+          {mu.connected && !open && (
+            <Box sx={{ position: 'absolute', top: 2, right: 2, width: 6, height: 6, borderRadius: '50%', bgcolor: ISA_GREEN }} />
+          )}
+        </IconButton>
+      </Tooltip>
+      {open && <MultiuserPanel onClose={() => setOpen(false)} />}
+    </>
   );
 }

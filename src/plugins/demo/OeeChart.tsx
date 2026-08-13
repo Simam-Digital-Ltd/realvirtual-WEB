@@ -10,18 +10,18 @@
 
 import { useEffect } from 'react';
 import { Box } from '@mui/material';
-import { ChartPanel } from '../../core/hmi/ChartPanel';
+import { FloatingPanel } from '../../core/hmi/FloatingPanel';
 import { useKpiData } from '../../hooks/use-kpi-data';
 import { useEChart } from '../../hooks/use-echart';
 import { createBaseChartOption, DARK_TOOLTIP_BASE } from '../../core/hmi/chart-theme';
 
 const CATEGORIES = [
-  { key: 'production', name: 'Production', color: '#5FB37A' },
-  { key: 'waiting', name: 'Waiting', color: '#D9A441' },
-  { key: 'blocked', name: 'Blocked', color: '#D9A441' },
-  { key: 'loading', name: 'Loading', color: '#3FB8C4' },
-  { key: 'toolchange', name: 'Toolchange', color: '#3FB8C4' },
-  { key: 'downtime', name: 'Downtime', color: '#D9534F' },
+  { key: 'production', name: 'Production', color: '#22c55e' },
+  { key: 'waiting', name: 'Waiting', color: '#f59e0b' },
+  { key: 'blocked', name: 'Blocked', color: '#f97316' },
+  { key: 'loading', name: 'Loading', color: '#38bdf8' },
+  { key: 'toolchange', name: 'Toolchange', color: '#06b6d4' },
+  { key: 'downtime', name: 'Downtime', color: '#ef4444' },
 ] as const;
 
 interface OeeChartProps {
@@ -31,11 +31,11 @@ interface OeeChartProps {
 
 export function OeeChart({ open, onClose }: OeeChartProps) {
   const kpi = useKpiData();
-  const { containerRef: chartRef, chartInstance } = useEChart({ open });
+  const { containerRef: chartRef, chartInstance, isReady } = useEChart({ open });
 
   // Set chart data
   useEffect(() => {
-    if (!open || !kpi) return;
+    if (!open || !kpi || !isReady) return;
     const timer = setTimeout(() => {
       const chart = chartInstance.current;
       if (!chart) return;
@@ -102,20 +102,20 @@ export function OeeChart({ open, onClose }: OeeChartProps) {
       );
     }, 100);
     return () => clearTimeout(timer);
-  }, [open, kpi]);
+  }, [open, kpi, isReady]);
 
   return (
-    <ChartPanel
+    <FloatingPanel
       open={open}
       onClose={onClose}
       title="OEE Breakdown"
-      titleColor="#5FB37A"
+      titleColor="#66bb6a"
       subtitle="Last 24h"
       defaultWidth={750}
       defaultHeight={340}
       zIndex={1400}
     >
       <Box ref={chartRef} sx={{ flex: 1, minHeight: 0 }} />
-    </ChartPanel>
+    </FloatingPanel>
   );
 }

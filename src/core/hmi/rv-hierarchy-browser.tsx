@@ -9,45 +9,77 @@
  * - Type filter buttons (All, Drives, Sensors, Signals, Logic)
  * - Component type badges with live signal values
  * - LogicStep status dots with ISA-101 colors and pulse animation
- * - Container progress counters (3/7 for Serial, 2/4 done for Parallel)
+ * - Container progress counters
  * - Click to select (updates plugin state)
  * - Resizable width (drag right edge)
  * - Node count footer
  * - Reveal-and-scroll: external code can call plugin.selectAndReveal(path)
  *   to expand ancestor tree nodes and scroll the selected node into view
+ *
+ * Composition (plan-177 Phase 5):
+ * - Tree/badge utilities live in `hierarchy-utils.ts`
+ * - Row components live in `HierarchyNodeRow.tsx`
+ * - Badge primitives live in `hierarchy-badge-components.tsx`
+ * - Signals sort toolbar lives in `SignalBrowser.tsx`
+ * - Long-press logic is the shared `useLongPress` hook
  */
 
-import { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore, useDeferredValue } from 'react';
 import { useEditorPlugin } from '../../hooks/use-editor-plugin';
 import { useSelection } from '../../hooks/use-selection';
-import { useSignalTick } from '../../hooks/use-signal-tick';
 import {
   Box,
   Typography,
   TextField,
-  IconButton,
   InputAdornment,
   Chip,
+  IconButton,
+  Collapse,
+  Badge,
   Tooltip,
+  Button,
 } from '@mui/material';
-import {
-  Search,
-  ExpandMore,
-  ChevronRight,
-} from '@mui/icons-material';
+import { Search, FilterList, Close as ClearIcon } from '@mui/icons-material';
 import { filterChipSx, RV_SCROLL_CLASS } from './shared-sx';
 import type { RVViewer } from '../rv-viewer';
+import type { SnapPointPlugin } from '../../plugins/snap-point';
 import type { ContextMenuTarget } from './context-menu-store';
-import { HIERARCHY_MIN_WIDTH, HIERARCHY_MAX_WIDTH, type EditableNodeInfo } from './rv-extras-editor';
+import { HIERARCHY_MIN_WIDTH, HIERARCHY_MAX_WIDTH } from './rv-extras-editor';
 import { LeftPanel } from './LeftPanel';
-import type { RVExtrasOverlay } from '../engine/rv-extras-overlay-store';
-import type { SignalStore } from '../engine/rv-signal-store';
-import type { RVLogicEngine, StepStateInfo } from '../engine/rv-logic-engine';
-import { StepState } from '../engine/rv-logic-step';
-import { STEP_STATE_COLORS, STEP_STATE_LABELS } from './rv-logic-step-colors';
-import { componentColor } from './rv-inspector-helpers';
+import { getSceneStore } from './scene/scene-store-singleton';
 import { useVirtualizer } from '@tanstack/react-virtual';
-// ─── CSS Pulse Animation ─────────────────────────────────────────────────
+import {
+  applyLazyInjection,
+  buildStructureTree,
+  computeAncestors,
+  countNodes,
+  filterTree,
+  flattenVisibleTree,
+  matchesTypeFilter,
+  sortSignalNodes,
+  type SignalSort,
+  type TreeNode,
+  type TypeFilter,
+} from './hierarchy-utils';
+import { FlatNodeRow, TreeNodeRow, rowDomId, type SelectMods, type DropZone } from './HierarchyNodeRow';
+import { usePointerRowHeight } from '../../hooks/use-pointer-row-height';
+import { getActiveEditTarget, subscribeEditTarget, getEditTargetVersion } from './rv-edit-target';
+import { getActiveAssetContext, subscribeActiveAsset, getActiveAssetVersion } from '../../plugins/asset-editor/active-asset-store';
+import { NodeRegistry } from '../engine/rv-node-registry';
+import type { Object3D } from 'three';
+import { SignalBrowser } from './SignalBrowser';
+import {
+  getHierarchyHeader,
+  subscribeHierarchyHeaders,
+  getHierarchyHeadersSnapshot,
+} from './hierarchy-header-registry';
+
+// Re-exports for backwards compatibility — external callers (and tests) may
+// import these symbols from `rv-hierarchy-browser`.
+export { computeAncestors } from './hierarchy-utils';
+export type { TreeNode, TypeFilter, SignalSort } from './hierarchy-utils';
+
+// ─── CSS pulse animation ─────────────────────────────────────────────────
 
 const PULSE_STYLE_ID = 'rv-pulse-keyframes';
 
@@ -70,9 +102,7 @@ function ensurePulseAnimation(): void {
   document.head.appendChild(style);
 }
 
-// ─── Type Filter ─────────────────────────────────────────────────────────
-
-type TypeFilter = 'all' | 'drives' | 'sensors' | 'signals' | 'logic';
+// ─── Type filter chips ───────────────────────────────────────────────────
 
 const TYPE_FILTERS: { key: TypeFilter; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -82,387 +112,41 @@ const TYPE_FILTERS: { key: TypeFilter; label: string }[] = [
   { key: 'logic', label: 'Logic' },
 ];
 
-function matchesTypeFilter(types: string[], filter: TypeFilter): boolean {
-  if (filter === 'all') return true;
-  if (filter === 'drives') return types.some(t => t === 'Drive' || t.startsWith('Drive_'));
-  if (filter === 'sensors') return types.some(t => t === 'Sensor');
-  if (filter === 'signals') return types.some(t => t.startsWith('PLCInput') || t.startsWith('PLCOutput'));
-  if (filter === 'logic') return types.some(t => t.startsWith('LogicStep_'));
-  return true;
+/** Empty result state with an in-place recovery action. `onClear` resets the
+ *  search + type filter in one click so the user never has to hunt for the tiny
+ *  clear-X and the funnel icon to escape a dead-end "No matching nodes". */
+function NoMatchState({ onClear }: { onClear?: () => void }) {
+  return (
+    <Box sx={{ textAlign: 'center', py: 4, px: 2 }}>
+      <Typography sx={{ fontSize: 12, color: 'text.disabled', mb: onClear ? 1 : 0 }}>
+        No matching nodes
+      </Typography>
+      {onClear && (
+        <Button size="small" onClick={onClear} sx={{ textTransform: 'none', fontSize: 11 }}>
+          Clear filters
+        </Button>
+      )}
+    </Box>
+  );
 }
 
-// ─── Signal Sort ─────────────────────────────────────────────────────────
-
-type SignalSort = 'name' | 'type';
-
-/** Sort signal nodes: 'name' = alphabetical by leaf name, 'type' = group by In/Out then alphabetical. */
-function sortSignalNodes(nodes: EditableNodeInfo[], sort: SignalSort): EditableNodeInfo[] {
-  const sorted = [...nodes];
-  if (sort === 'name') {
-    sorted.sort((a, b) => {
-      const nameA = (a.path.split('/').pop() ?? a.path).toLowerCase();
-      const nameB = (b.path.split('/').pop() ?? b.path).toLowerCase();
-      return nameA.localeCompare(nameB);
-    });
-  } else {
-    // Group by type: Outputs first, then Inputs
-    sorted.sort((a, b) => {
-      const aIsOut = a.types.some(t => t.startsWith('PLCOutput'));
-      const bIsOut = b.types.some(t => t.startsWith('PLCOutput'));
-      if (aIsOut !== bIsOut) return aIsOut ? -1 : 1;
-      const nameA = (a.path.split('/').pop() ?? a.path).toLowerCase();
-      const nameB = (b.path.split('/').pop() ?? b.path).toLowerCase();
-      return nameA.localeCompare(nameB);
-    });
-  }
-  return sorted;
-}
-
-// ─── Tree Data Structure ─────────────────────────────────────────────────
-
-interface TreeNode {
-  name: string;
-  path: string | null;
-  types: string[];
-  hasOverrides: boolean;
-  children: TreeNode[];
-}
-
-/** Internal tree node augmented with a child lookup map for O(1) insertion. */
-interface BuildTreeNode extends TreeNode {
-  _childMap?: Map<string, BuildTreeNode>;
-}
-
-function buildTree(
-  nodes: EditableNodeInfo[],
-  overlay: RVExtrasOverlay | null,
-): TreeNode[] {
-  const root: BuildTreeNode = { name: '', path: null, types: [], hasOverrides: false, children: [], _childMap: new Map() };
-
-  for (const info of nodes) {
-    const segments = info.path.split('/');
-    let current = root;
-
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      const isLast = i === segments.length - 1;
-
-      const fullPath = segments.slice(0, i + 1).join('/');
-      const childMap = current._childMap ?? (current._childMap = new Map());
-      let child = childMap.get(seg);
-      if (!child) {
-        child = {
-          name: seg,
-          path: fullPath,
-          types: isLast ? info.types : [],
-          hasOverrides: false,
-          children: [],
-          _childMap: new Map(),
-        };
-        childMap.set(seg, child);
-        current.children.push(child);
-      }
-
-      if (isLast) {
-        child.path = info.path;
-        child.types = info.types;
-        child.hasOverrides = overlay ? !!overlay.nodes[info.path] : false;
-      }
-
-      current = child;
-    }
-  }
-
-  // Clean up temporary lookup maps to reduce memory
-  function stripMaps(node: BuildTreeNode): void {
-    delete node._childMap;
-    for (const child of node.children) stripMaps(child as BuildTreeNode);
-  }
-  stripMaps(root);
-
-  // Flatten GLB root wrapper: if top level has a single child with no component types
-  // (the synthetic gltf.scene node like "demoglb"), skip it and show its children instead.
-  let topNodes = root.children;
-  while (topNodes.length === 1 && topNodes[0].types.length === 0 && topNodes[0].children.length > 0) {
-    topNodes = topNodes[0].children;
-  }
-
-  return topNodes;
-}
-
-function filterTree(nodes: TreeNode[], term: string): TreeNode[] {
-  if (!term) return nodes;
-  const lower = term.toLowerCase();
-
-  function filterRecursive(node: TreeNode): TreeNode | null {
-    const nameMatches = node.name.toLowerCase().includes(lower);
-    const pathMatches = node.path ? node.path.toLowerCase().includes(lower) : false;
-
-    const filteredChildren: TreeNode[] = [];
-    for (const child of node.children) {
-      const result = filterRecursive(child);
-      if (result) filteredChildren.push(result);
-    }
-
-    if (nameMatches || pathMatches || filteredChildren.length > 0) {
-      return { ...node, children: filteredChildren };
-    }
-    return null;
-  }
-
-  const result: TreeNode[] = [];
-  for (const node of nodes) {
-    const filtered = filterRecursive(node);
-    if (filtered) result.push(filtered);
-  }
-  return result;
-}
-
-function countNodes(nodes: EditableNodeInfo[], overlay: RVExtrasOverlay | null): { total: number; withOverrides: number } {
-  let withOverrides = 0;
-  if (overlay) {
-    for (const info of nodes) {
-      if (overlay.nodes[info.path]) withOverrides++;
-    }
-  }
-  return { total: nodes.length, withOverrides };
-}
-
-// ─── Signal Helpers ──────────────────────────────────────────────────────
-
-function isSignalType(type: string): boolean {
-  return type.startsWith('PLCInput') || type.startsWith('PLCOutput');
-}
-
-function isBoolSignal(type: string): boolean {
-  return type.includes('Bool');
-}
-
-/** Split types into [nonSignals, signals] so signals render last (right-most). */
-function splitTypes(types: string[]): [string[], string[]] {
-  const nonSignals: string[] = [];
-  const signals: string[] = [];
-  for (const t of types) {
-    if (isSignalType(t)) signals.push(t);
-    else nonSignals.push(t);
-  }
-  return [nonSignals, signals];
-}
-
-/** Format a signal value for badge display. */
-function formatSignalValue(type: string, signalStore: SignalStore | null, path: string | null): string {
-  if (!signalStore || !path) return '\u2014';
-  const value = signalStore.getByPath(path);
-  if (value === undefined) return '\u2014';
-
-  if (isBoolSignal(type)) {
-    return value === true ? '\u25CF' : '\u25CB'; // filled or hollow circle
-  }
-
-  if (typeof value === 'number') {
-    return type.includes('Int') ? Math.trunc(value).toString() : value.toFixed(1);
-  }
-  return '\u2014';
-}
-
-/** Get signal badge color based on live value. Bool: green when true, grey when false. */
-function signalBadgeColor(type: string, signalStore: SignalStore | null, path: string | null): string {
-  if (!signalStore || !path) return componentColor(type);
-  const value = signalStore.getByPath(path);
-  if (value === undefined) return componentColor(type);
-
-  if (isBoolSignal(type)) {
-    if (value === true) {
-      return type.startsWith('PLCInput') ? '#D9534F' : '#5FB37A';
-    }
-    return '#8A97A8';
-  }
-  return componentColor(type);
-}
-
-// ─── LogicStep Helpers ───────────────────────────────────────────────────
-
-function isLogicStepType(type: string): boolean {
-  return type.startsWith('LogicStep_');
-}
-
-/** Get badge color for a component type — dynamic for LogicStep types (Active/Waiting only). */
-function badgeColor(type: string, stepState?: StepState): string {
-  if (isLogicStepType(type) && (stepState === StepState.Active || stepState === StepState.Waiting)) {
-    return STEP_STATE_COLORS[stepState];
-  }
-  return componentColor(type);
-}
-
-/** Get step info from the logic engine for a given hierarchy path. */
-function getStepInfoForPath(engine: RVLogicEngine | null, path: string | null): StepStateInfo | null {
-  if (!engine || !path) return null;
-  return engine.getStepInfo(path);
-}
-
-/** Format container progress text. */
-function formatContainerProgress(info: StepStateInfo): string | null {
-  if (info.type === 'Delay' && info.state === StepState.Active && info.elapsed !== undefined && info.duration !== undefined) {
-    return `${info.elapsed.toFixed(1)}s/${info.duration.toFixed(1)}s`;
+/** Locate a node in the (filtered) tree by path, returning it plus the nearest
+ *  ancestor path — used by ArrowLeft/Right keyboard navigation to expand/collapse
+ *  or step to the parent. `parent` threads the last real path down the recursion. */
+function findTreeNode(
+  nodes: TreeNode[],
+  path: string,
+  parent: string | null = null,
+): { node: TreeNode; parentPath: string | null } | null {
+  for (const n of nodes) {
+    if (n.path === path) return { node: n, parentPath: parent };
+    const r = findTreeNode(n.children, path, n.path ?? parent);
+    if (r) return r;
   }
   return null;
 }
 
-// ─── Badge label ─────────────────────────────────────────────────────────
-
-/** Shorten verbose LogicStep type names to fit in compact badges. */
-function shortStepType(type: string): string {
-  const raw = type.replace('LogicStep_', '');
-  switch (raw) {
-    case 'SerialContainer':   return 'Serial';
-    case 'ParallelContainer': return 'Parallel';
-    case 'SetSignalBool':     return 'SetBool';
-    case 'WaitForSignalBool': return 'WaitBool';
-    case 'WaitForSensor':     return 'WaitSens';
-    case 'DriveToPosition':
-    case 'DriveTo':           return 'DriveTo';
-    case 'SetDriveSpeed':     return 'SetSpd';
-    case 'Enable':            return 'Enable';
-    case 'Delay':             return 'Delay';
-    case 'Pause':             return 'Pause';
-    default:                  return raw;
-  }
-}
-
-function badgeLabel(type: string, stepState?: StepState): string {
-  if (isLogicStepType(type)) {
-    const shortType = shortStepType(type);
-    // Only show state label for Active/Waiting — Idle and Finished are not shown
-    if (stepState === StepState.Active || stepState === StepState.Waiting) {
-      return `${shortType} ${STEP_STATE_LABELS[stepState]}`;
-    }
-    return shortType;
-  }
-  if (type === 'RuntimeMetadata') return 'Metadata';
-  if (type === 'ConnectSignal') return 'Conn';
-  if (type === 'TransportSurface') return 'TS';
-  if (type === 'DrivesRecorder') return 'Rec';
-  if (type === 'ReplayRecording') return 'Replay';
-  if (type === 'PLCOutputBool') return 'OutBool';
-  if (type === 'PLCOutputFloat') return 'OutFloat';
-  if (type === 'PLCOutputInt') return 'OutInt';
-  if (type === 'PLCInputBool') return 'InBool';
-  if (type === 'PLCInputFloat') return 'InFloat';
-  if (type === 'PLCInputInt') return 'InInt';
-  if (type.startsWith('PLCOutput')) return 'Out:' + type.replace('PLCOutput', '');
-  if (type.startsWith('PLCInput')) return 'In:' + type.replace('PLCInput', '');
-  if (type.startsWith('Drive_')) return type.replace('Drive_', 'D:');
-  return type;
-}
-
-// ─── Badge Chip ─────────────────────────────────────────────────────────
-
-function BadgeChip({ color, label }: { color: string; label: string }) {
-  return (
-    <Chip
-      label={label}
-      size="small"
-      sx={{
-        height: 14,
-        fontSize: 8,
-        fontWeight: 600,
-        letterSpacing: 0.3,
-        bgcolor: color + '22',
-        color: color,
-        border: `1px solid ${color}44`,
-        flexShrink: 0,
-        maxWidth: 100,
-        '& .MuiChip-label': { px: 0.4, py: 0, overflow: 'hidden', textOverflow: 'ellipsis' },
-      }}
-    />
-  );
-}
-
-// ─── Step Status Dot ─────────────────────────────────────────────────────
-
-function StepStateDot({ stepState }: { stepState: StepState }) {
-  // Only show dot for Active (pulsing green) and Waiting (pulsing amber). No dot for Idle/Finished.
-  if (stepState === StepState.Idle || stepState === StepState.Finished) return null;
-  return (
-    <Box
-      sx={{
-        width: 8,
-        height: 8,
-        borderRadius: '50%',
-        bgcolor: STEP_STATE_COLORS[stepState],
-        flexShrink: 0,
-        mr: 0.5,
-        animation: 'rv-pulse 1.5s ease-in-out infinite',
-      }}
-    />
-  );
-}
-
-// ─── Container Progress Badge ─────────────────────────────────────────────
-
-function ContainerProgressBadge({ text }: { text: string }) {
-  return (
-    <Typography
-      component="span"
-      sx={{
-        fontSize: 8,
-        fontFamily: 'monospace',
-        color: 'text.secondary',
-        ml: 0.25,
-        flexShrink: 0,
-      }}
-    >
-      {text}
-    </Typography>
-  );
-}
-
-// ─── Badges Row ─────────────────────────────────────────────────────────
-
-/** Renders component badges + signal badges (signals always right-most with live values). */
-const NodeBadges = memo(function NodeBadges({
-  types,
-  signalStore,
-  path,
-  stepInfo,
-}: {
-  types: string[];
-  signalStore: SignalStore | null;
-  path: string | null;
-  stepInfo?: StepStateInfo | null;
-}) {
-  const [nonSignalTypes, signalTypes] = useMemo(() => splitTypes(types), [types]);
-
-  if (nonSignalTypes.length === 0 && signalTypes.length === 0) return null;
-
-  const stepState = stepInfo?.state;
-  const progressText = stepInfo ? formatContainerProgress(stepInfo) : null;
-
-  return (
-    <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 1, ml: 'auto', alignItems: 'center', overflow: 'hidden', minWidth: 0 }}>
-      {nonSignalTypes.map((type) => (
-        <BadgeChip
-          key={type}
-          color={badgeColor(type, isLogicStepType(type) ? stepState : undefined)}
-          label={badgeLabel(type, isLogicStepType(type) ? stepState : undefined)}
-        />
-      ))}
-      {progressText && <ContainerProgressBadge text={progressText} />}
-      {signalTypes.length > 0 && nonSignalTypes.length > 0 && (
-        <Box sx={{ width: 2, flexShrink: 0 }} />
-      )}
-      {signalTypes.map((type) => (
-        <BadgeChip
-          key={type}
-          color={signalBadgeColor(type, signalStore, path)}
-          label={`${badgeLabel(type)} ${formatSignalValue(type, signalStore, path)}`}
-        />
-      ))}
-    </Box>
-  );
-});
-
-// ─── Hierarchy expand state persistence ──────────────────────────────────
+// ─── Hierarchy expand-state persistence ──────────────────────────────────
 
 const LS_KEY_TREE_EXPANDED = 'rv-hierarchy-expanded';
 
@@ -483,368 +167,7 @@ function persistTreeExpandedSet(expanded: Set<string>): void {
   }, 300);
 }
 
-// ─── Ancestor path computation ──────────────────────────────────────────
-
-/** Compute all ancestor path segments for a given path.
- *  E.g. "A/B/C/D" -> ["A", "A/B", "A/B/C"] */
-export function computeAncestors(path: string): string[] {
-  const segments = path.split('/');
-  const ancestors: string[] = [];
-  for (let i = 0; i < segments.length - 1; i++) {
-    ancestors.push(segments.slice(0, i + 1).join('/'));
-  }
-  return ancestors;
-}
-
-// ─── Tree Node Renderer (lifted expand state) ───────────────────────────
-
-interface TreeNodeRowProps {
-  node: TreeNode;
-  depth: number;
-  selectedPaths: Set<string>;
-  expanded: Set<string>;
-  onToggleExpand: (key: string) => void;
-  onSelect: (path: string, shiftKey?: boolean) => void;
-  onDoubleClick: (path: string) => void;
-  onHover: (path: string | null) => void;
-  onContextMenu?: (e: React.MouseEvent, path: string) => void;
-  signalStore: SignalStore | null;
-  logicEngine: RVLogicEngine | null;
-  /** Incrementing tick to bust memo cache for live step/signal updates. */
-  liveTick: number;
-}
-
-const TreeNodeRow = memo(function TreeNodeRow({
-  node,
-  depth,
-  selectedPaths,
-  expanded,
-  onToggleExpand,
-  onSelect,
-  onDoubleClick,
-  onHover,
-  onContextMenu,
-  signalStore,
-  logicEngine,
-  liveTick,
-}: TreeNodeRowProps) {
-  const expandKey = node.path ?? node.name;
-  const isExpanded = expanded.has(expandKey);
-  const hasChildren = node.children.length > 0;
-  const hasComponents = node.types.length > 0;
-  const isSelected = hasComponents && !!node.path && selectedPaths.has(node.path);
-
-  // Check if this node has a LogicStep component
-  const hasLogicStep = node.types.some(isLogicStepType);
-  const stepInfo = hasLogicStep ? getStepInfoForPath(logicEngine, node.path) : null;
-
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    if (hasComponents && node.path) {
-      onSelect(node.path, e.shiftKey);
-    } else {
-      onToggleExpand(expandKey);
-    }
-  }, [hasComponents, node.path, onSelect, onToggleExpand, expandKey]);
-
-  const handleDblClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (node.path) onDoubleClick(node.path);
-  }, [node.path, onDoubleClick]);
-
-  const handleExpandClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    onToggleExpand(expandKey);
-  }, [onToggleExpand, expandKey]);
-
-  const handleMouseEnter = useCallback(() => {
-    if (node.path) onHover(node.path);
-  }, [node.path, onHover]);
-
-  const handleMouseLeave = useCallback(() => {
-    onHover(null);
-  }, [onHover]);
-
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    if (node.path && onContextMenu) {
-      e.preventDefault();
-      e.stopPropagation();
-      onContextMenu(e, node.path);
-    }
-  }, [node.path, onContextMenu]);
-
-  // Long-press state for touch context menu
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressPosRef = useRef<{ x: number; y: number } | null>(null);
-
-  const cancelRowLongPress = useCallback(() => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-    longPressPosRef.current = null;
-  }, []);
-
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.pointerType === 'touch' && node.path && onContextMenu) {
-      cancelRowLongPress();
-      longPressPosRef.current = { x: e.clientX, y: e.clientY };
-      longPressTimerRef.current = setTimeout(() => {
-        longPressTimerRef.current = null;
-        if (node.path && onContextMenu) {
-          onContextMenu(
-            { clientX: longPressPosRef.current!.x, clientY: longPressPosRef.current!.y, preventDefault: () => {}, stopPropagation: () => {} } as unknown as React.MouseEvent,
-            node.path,
-          );
-          navigator.vibrate?.(50);
-        }
-      }, 500);
-    }
-  }, [node.path, onContextMenu, cancelRowLongPress]);
-
-  const handlePointerMoveRow = useCallback((e: React.PointerEvent) => {
-    if (longPressTimerRef.current && longPressPosRef.current) {
-      const dx = e.clientX - longPressPosRef.current.x;
-      const dy = e.clientY - longPressPosRef.current.y;
-      if (dx * dx + dy * dy > 64) cancelRowLongPress(); // 8px threshold
-    }
-  }, [cancelRowLongPress]);
-
-  return (
-    <>
-      <Box
-        data-path={node.path ?? undefined}
-        onClick={handleClick}
-        onDoubleClick={handleDblClick}
-        onContextMenu={handleContextMenu}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMoveRow}
-        onPointerUp={cancelRowLongPress}
-        onPointerLeave={cancelRowLongPress}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          pl: depth * 1 + 0.5,
-          pr: 2,
-          py: 0,
-          cursor: 'pointer',
-          userSelect: 'none',
-          borderRadius: 0.5,
-          minWidth: 0,
-          bgcolor: isSelected ? 'rgba(79, 195, 247, 0.15)' : 'transparent',
-          '&:hover': {
-            bgcolor: isSelected ? 'rgba(79, 195, 247, 0.2)' : 'rgba(255, 255, 255, 0.04)',
-          },
-          minHeight: 20,
-        }}
-      >
-        {hasChildren ? (
-          <IconButton size="small" onClick={handleExpandClick} sx={{ p: 0, mr: 0.25, color: 'text.secondary' }}>
-            {isExpanded ? <ExpandMore sx={{ fontSize: 14 }} /> : <ChevronRight sx={{ fontSize: 14 }} />}
-          </IconButton>
-        ) : (
-          <Box sx={{ width: 16, flexShrink: 0 }} />
-        )}
-
-        {/* Status dot for LogicStep nodes */}
-        {stepInfo && <StepStateDot stepState={stepInfo.state} />}
-
-        <Tooltip title={node.name} placement="top" enterDelay={400} slotProps={{ tooltip: { sx: { fontSize: 10 } } }}>
-          <Typography
-            sx={{
-              fontSize: 12,
-              lineHeight: 1.3,
-              fontWeight: hasComponents ? 400 : 500,
-              color: isSelected ? 'primary.main' : hasComponents ? 'text.primary' : 'text.secondary',
-              flex: 1,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              minWidth: 60,
-              mr: 0.25,
-            }}
-          >
-            {node.name}
-          </Typography>
-        </Tooltip>
-
-        {hasComponents && (
-          <NodeBadges types={node.types} signalStore={signalStore} path={node.path} stepInfo={stepInfo} />
-        )}
-
-      </Box>
-
-      {hasChildren && isExpanded && node.children.map((child, i) => (
-        <TreeNodeRow
-          key={child.name + '-' + i}
-          node={child}
-          depth={depth + 1}
-          selectedPaths={selectedPaths}
-          expanded={expanded}
-          onToggleExpand={onToggleExpand}
-          onSelect={onSelect}
-          onDoubleClick={onDoubleClick}
-          onHover={onHover}
-          onContextMenu={onContextMenu}
-          signalStore={signalStore}
-          logicEngine={logicEngine}
-          liveTick={liveTick}
-        />
-      ))}
-    </>
-  );
-});
-
-// ─── Flat Node Row (type-filtered view) ──────────────────────────────────
-
-const FLAT_ROW_HEIGHT = 20;
-
-interface FlatNodeRowProps {
-  info: EditableNodeInfo;
-  selectedPaths: Set<string>;
-  onSelect: (path: string, shiftKey?: boolean) => void;
-  onDoubleClick: (path: string) => void;
-  onHover: (path: string | null) => void;
-  onContextMenu?: (e: React.MouseEvent, path: string) => void;
-  signalStore: SignalStore | null;
-  logicEngine: RVLogicEngine | null;
-  /** Relative indentation depth (0 = top-level in filtered view). */
-  depth?: number;
-  /** Absolute positioning style from virtualizer (when virtualized). */
-  virtualStyle?: React.CSSProperties;
-}
-
-const FlatNodeRow = memo(function FlatNodeRow({ info, selectedPaths, onSelect, onDoubleClick, onHover, onContextMenu, signalStore, logicEngine, depth = 0, virtualStyle }: FlatNodeRowProps) {
-  const name = info.path.split('/').pop() ?? info.path;
-  const isSelected = selectedPaths.has(info.path);
-
-  const hasLogicStep = info.types.some(isLogicStepType);
-  const stepInfo = hasLogicStep ? getStepInfoForPath(logicEngine, info.path) : null;
-  const isContainer = info.types.some(t => t === 'LogicStep_SerialContainer' || t === 'LogicStep_ParallelContainer');
-
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    onSelect(info.path, e.shiftKey);
-  }, [info.path, onSelect]);
-
-  const handleDblClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    onDoubleClick(info.path);
-  }, [info.path, onDoubleClick]);
-
-  const handleCtxMenu = useCallback((e: React.MouseEvent) => {
-    if (onContextMenu) {
-      e.preventDefault();
-      e.stopPropagation();
-      onContextMenu(e, info.path);
-    }
-  }, [info.path, onContextMenu]);
-
-  const handleMouseEnter = useCallback(() => onHover(info.path), [info.path, onHover]);
-  const handleMouseLeave = useCallback(() => onHover(null), [onHover]);
-
-  // Long-press state for touch context menu
-  const flatLpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flatLpPosRef = useRef<{ x: number; y: number } | null>(null);
-
-  const cancelFlatLp = useCallback(() => {
-    if (flatLpTimerRef.current) {
-      clearTimeout(flatLpTimerRef.current);
-      flatLpTimerRef.current = null;
-    }
-    flatLpPosRef.current = null;
-  }, []);
-
-  const handleFlatPointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.pointerType === 'touch' && onContextMenu) {
-      cancelFlatLp();
-      flatLpPosRef.current = { x: e.clientX, y: e.clientY };
-      flatLpTimerRef.current = setTimeout(() => {
-        flatLpTimerRef.current = null;
-        if (onContextMenu) {
-          onContextMenu(
-            { clientX: flatLpPosRef.current!.x, clientY: flatLpPosRef.current!.y, preventDefault: () => {}, stopPropagation: () => {} } as unknown as React.MouseEvent,
-            info.path,
-          );
-          navigator.vibrate?.(50);
-        }
-      }, 500);
-    }
-  }, [info.path, onContextMenu, cancelFlatLp]);
-
-  const handleFlatPointerMove = useCallback((e: React.PointerEvent) => {
-    if (flatLpTimerRef.current && flatLpPosRef.current) {
-      const dx = e.clientX - flatLpPosRef.current.x;
-      const dy = e.clientY - flatLpPosRef.current.y;
-      if (dx * dx + dy * dy > 64) cancelFlatLp(); // 8px threshold
-    }
-  }, [cancelFlatLp]);
-
-  return (
-    <Box
-      data-path={info.path}
-      onClick={handleClick}
-      onDoubleClick={handleDblClick}
-      onContextMenu={handleCtxMenu}
-      onPointerDown={handleFlatPointerDown}
-      onPointerMove={handleFlatPointerMove}
-      onPointerUp={cancelFlatLp}
-      onPointerLeave={cancelFlatLp}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      style={virtualStyle}
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        pl: depth > 0 ? 1 : 0.5,
-        pr: 2,
-        py: 0,
-        cursor: 'pointer',
-        userSelect: 'none',
-        borderRadius: 0.5,
-        bgcolor: isSelected ? 'rgba(79, 195, 247, 0.15)' : isContainer ? 'rgba(255, 255, 255, 0.04)' : 'transparent',
-        '&:hover': {
-          bgcolor: isSelected ? 'rgba(79, 195, 247, 0.2)' : 'rgba(255, 255, 255, 0.06)',
-        },
-        height: FLAT_ROW_HEIGHT,
-        minWidth: 0,
-        // Container rows get top margin for visual group separation
-        ...(isContainer && { mt: '4px' }),
-        // Left border line for indented children (more prominent)
-        ...(depth > 0 && {
-          borderLeft: '2px solid rgba(79, 195, 247, 0.25)',
-          ml: `${(depth - 1) * 14 + 8}px`,
-        }),
-      }}
-    >
-      {/* Status dot for LogicStep nodes — only Active/Waiting */}
-      {stepInfo && <StepStateDot stepState={stepInfo.state} />}
-
-      <Tooltip title={name} placement="top" enterDelay={400} slotProps={{ tooltip: { sx: { fontSize: 10 } } }}>
-        <Typography
-          sx={{
-            fontSize: 12,
-            lineHeight: 1.3,
-            color: isSelected ? 'primary.main' : 'text.primary',
-            fontWeight: isContainer ? 600 : 400,
-            flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            minWidth: 60,
-            mr: 0.5,
-          }}
-        >
-          {name}
-        </Typography>
-      </Tooltip>
-
-      <NodeBadges types={info.types} signalStore={signalStore} path={info.path} stepInfo={stepInfo} />
-    </Box>
-  );
-});
-
-// ─── Main Component ──────────────────────────────────────────────────────
+// ─── Main component ──────────────────────────────────────────────────────
 
 export interface HierarchyBrowserProps {
   viewer: RVViewer;
@@ -853,6 +176,21 @@ export interface HierarchyBrowserProps {
 export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
   const { plugin, state } = useEditorPlugin();
   const selection = useSelection();
+
+  // Read the active model name from SceneStore — used as the panel title so
+  // the Hierarchy header mirrors the Models window's "current scene" framing.
+  const sceneStore = getSceneStore();
+  const sceneSnap = useSyncExternalStore(
+    sceneStore?.subscribe ?? (() => () => {}),
+    sceneStore?.getSnapshot ?? (() => null),
+  );
+  const modelName = sceneSnap?.draft?.name ?? 'Hierarchy';
+
+  // Mode-registered top-of-hierarchy card (e.g. the asset editor's document
+  // card in mode:editor). Reactive to both mode switches and registration.
+  useSyncExternalStore(viewer.modes.subscribe, viewer.modes.getSnapshot);
+  useSyncExternalStore(subscribeHierarchyHeaders, getHierarchyHeadersSnapshot);
+  const HierarchyHeaderCard = getHierarchyHeader(viewer.modes.activeMode);
 
   // Ensure pulse animation CSS is injected
   useEffect(() => { ensurePulseAnimation(); }, []);
@@ -866,6 +204,8 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
   );
 
   const [searchTerm, setSearchTerm] = useState('');
+  const deferredTerm = useDeferredValue(searchTerm);
+  const isSearchPending = searchTerm !== deferredTerm;
   const [typeFilter, setTypeFilterRaw] = useState<TypeFilter>(() => {
     try { const v = localStorage.getItem('rv-hierarchy-type-filter'); return (v as TypeFilter) ?? 'all'; } catch { return 'all'; }
   });
@@ -873,6 +213,22 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     setTypeFilterRaw(v);
     try { localStorage.setItem('rv-hierarchy-type-filter', v); } catch { /* */ }
   }, []);
+  // Search + type-filter controls are collapsed behind the header filter icon.
+  // Start expanded when a persisted type filter is active, so the user
+  // immediately sees WHY the tree is filtered.
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(() => typeFilter !== 'all');
+  const filtersOpenedByUser = useRef(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const toggleFilters = useCallback(() => {
+    filtersOpenedByUser.current = true;
+    setFiltersOpen(o => !o);
+  }, []);
+  // Autofocus the search field when the USER opens the section (not when it
+  // auto-opens on mount due to a persisted filter — that would steal focus).
+  useEffect(() => {
+    if (filtersOpen && filtersOpenedByUser.current) searchInputRef.current?.focus();
+  }, [filtersOpen]);
+
   const [signalSort, setSignalSortRaw] = useState<SignalSort>(() => {
     try { const v = localStorage.getItem('rv-hierarchy-signal-sort'); return (v as SignalSort) ?? 'name'; } catch { return 'name'; }
   });
@@ -881,15 +237,14 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     try { localStorage.setItem('rv-hierarchy-signal-sort', v); } catch { /* */ }
   }, []);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const rowHeight = usePointerRowHeight();
 
   const signalStore = viewer.signalStore;
   const logicEngine = viewer.logicEngine;
 
-  // Consolidated live data polling at 200ms (for both signals and step states)
-  const liveTick = useSignalTick(signalStore, 200);
-
   // ── Lifted expand state (shared across all TreeNodeRows) ──
   const [expanded, setExpanded] = useState<Set<string>>(() => loadTreeExpanded());
+  const [pendingKeyboardPath, setPendingKeyboardPath] = useState<string | null>(null);
 
   const onToggleExpand = useCallback((key: string) => {
     setExpanded(prev => {
@@ -900,24 +255,23 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     });
   }, []);
 
-  // Flat list when type filter is active OR search is active (bypasses tree hierarchy)
+  // Flat list ONLY when a type filter is active (Drives/Sensors/Signals/Logic).
+  // A plain "All" search stays in TREE mode and goes through filterTree, so it
+  // matches name + full path + component metadata (AAS/Metadata) instead of the
+  // leaf-name-only match this flat path does. Search within a type filter keeps
+  // the flat leaf/path match (the list is already scoped to one category).
   const flatFiltered = useMemo(() => {
-    if (typeFilter === 'all' && !searchTerm) return null;
-    let nodes = typeFilter !== 'all'
-      ? state.editableNodes.filter(n => matchesTypeFilter(n.types, typeFilter))
-      : state.editableNodes;
-    if (searchTerm) {
-      const lower = searchTerm.toLowerCase();
-      nodes = nodes.filter(n => {
-        const leafName = n.path.split('/').pop() ?? n.path;
-        return leafName.toLowerCase().includes(lower);
-      });
+    if (typeFilter === 'all') return null;
+    let nodes = state.editableNodes.filter(n => matchesTypeFilter(n.types, typeFilter));
+    if (deferredTerm) {
+      const lower = deferredTerm.toLowerCase();
+      nodes = nodes.filter(n => n.path.toLowerCase().includes(lower));
     }
     if (typeFilter === 'signals') {
       nodes = sortSignalNodes(nodes, signalSort);
     }
     return nodes;
-  }, [state.editableNodes, typeFilter, searchTerm, signalSort]);
+  }, [state.editableNodes, typeFilter, deferredTerm, signalSort]);
 
   // Compute relative depth for flat filtered nodes (for indentation in Logic view)
   const flatDepths = useMemo(() => {
@@ -936,10 +290,10 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     count: flatFiltered?.length ?? 0,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: (index) => {
-      if (!flatFiltered) return FLAT_ROW_HEIGHT;
+      if (!flatFiltered) return rowHeight;
       const info = flatFiltered[index];
       const isContainer = info.types.some(t => t === 'LogicStep_SerialContainer' || t === 'LogicStep_ParallelContainer');
-      return isContainer ? FLAT_ROW_HEIGHT + 4 : FLAT_ROW_HEIGHT;
+      return isContainer ? rowHeight + 4 : rowHeight;
     },
     overscan: 10,
   });
@@ -953,9 +307,17 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     const revealPath = state.revealPath;
     if (!revealPath) return;
 
-    // Expand all ancestor tree nodes
     const ancestors = computeAncestors(revealPath);
-    if (ancestors.length > 0) {
+    if (state.revealCollapseOthers) {
+      // Exclusive reveal: the revealed node's ancestor chain becomes the ONLY
+      // expanded set — every other branch (incl. other top-level nodes) collapses.
+      setExpanded(() => {
+        const next = new Set(ancestors);
+        persistTreeExpandedSet(next);
+        return next;
+      });
+    } else if (ancestors.length > 0) {
+      // Expand all ancestor tree nodes
       setExpanded(prev => {
         const next = new Set(prev);
         let changed = false;
@@ -975,37 +337,266 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     requestAnimationFrame(() => {
       setTimeout(() => {
         if (flatFiltered) {
-          // Flat virtualized list — find index and scroll via virtualizer
+          // Flat virtualized list — find index and scroll via virtualizer.
+          // `center` keeps the revealed row around the middle of the viewport
+          // instead of just nudging it to the nearest edge.
           const idx = flatFiltered.findIndex(n => n.path === revealPath);
-          if (idx >= 0) flatVirtualizerRef.current.scrollToIndex(idx, { align: 'auto' });
+          if (idx >= 0) flatVirtualizerRef.current.scrollToIndex(idx, { align: 'center' });
         } else {
-          // Tree mode — use DOM query
-          const container = scrollContainerRef.current;
-          if (!container) return;
-          const el = container.querySelector(`[data-path="${CSS.escape(revealPath)}"]`);
-          if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          // Tree mode — use DOM query. `block: 'center'` positions the node
+          // near the middle of the scroll container rather than the nearest edge.
+          const idx = visibleRowsRef.current.findIndex((row) => row.node.path === revealPath);
+          if (idx >= 0) treeVirtualizerRef.current.scrollToIndex(idx, { align: 'center' });
         }
       }, 150);
     });
-  }, [state.revealPath, plugin, flatFiltered]);
+  }, [state.revealPath, state.revealCollapseOthers, plugin, flatFiltered]);
 
-  // Tree view (only when typeFilter === 'all')
-  const tree = useMemo(
-    () => typeFilter === 'all' ? buildTree(state.editableNodes, state.overlay) : [],
+  // ── Keep the focused node visible across hierarchy view changes ──
+  // Toggling the type filter (e.g. Drives filter on/off) rebuilds the tree/flat
+  // view; the selected node's ancestors may be collapsed or the node may fall
+  // outside the viewport. Re-reveal the current selection so the focused element
+  // stays visible. primaryPath is read via ref so this fires only on filter
+  // changes (and mount), not on every selection change.
+  const primaryPathRef = useRef(selection.primaryPath);
+  primaryPathRef.current = selection.primaryPath;
+  useEffect(() => {
+    const p = primaryPathRef.current;
+    if (p) plugin.requestReveal(p);
+  }, [typeFilter, plugin]);
+
+  // Same for the search filter, but only when it is CLEARED (non-empty -> empty).
+  // Revealing on every keystroke would scroll the list away while typing; we only
+  // want to bring the selection back once the user removes the search filter.
+  const prevSearchRef = useRef(searchTerm);
+  useEffect(() => {
+    const wasFiltering = prevSearchRef.current.length > 0;
+    prevSearchRef.current = searchTerm;
+    if (wasFiltering && searchTerm.length === 0) {
+      const p = primaryPathRef.current;
+      if (p) plugin.requestReveal(p);
+    }
+  }, [searchTerm, plugin]);
+
+  // Build the expensive path structure independently from expansion changes.
+  const structureTree = useMemo(
+    () => typeFilter === 'all' ? buildStructureTree(state.editableNodes, state.overlay) : [],
     [state.editableNodes, state.overlay, typeFilter],
   );
 
-  const filteredTree = useMemo(
-    () => typeFilter === 'all' ? filterTree(tree, searchTerm) : [],
-    [tree, searchTerm, typeFilter],
+  // Expanded LayoutObject/CADLink raw children are injected persistently so
+  // unaffected branches retain their structural node identity.
+  const tree = useMemo(
+    () => typeFilter === 'all'
+      ? applyLazyInjection(structureTree, viewer, expanded, state.overlay)
+      : [],
+    [structureTree, typeFilter, viewer, expanded, state.overlay],
   );
+
+  const filteredTree = useMemo(
+    () => typeFilter === 'all' ? filterTree(tree, deferredTerm, viewer) : [],
+    [tree, deferredTerm, typeFilter, viewer],
+  );
+
+  // While an "All" search is active, filterTree prunes to matching branches +
+  // their ancestors, but rows still render children only when their expand key
+  // is in the expanded set. Auto-expand every node in the pruned tree so matches
+  // buried under collapsed ancestors are actually visible; when not searching,
+  // the user's own expand state applies.
+  const searchExpanded = useMemo(() => {
+    if (!deferredTerm || typeFilter !== 'all') return null;
+    const keys = new Set<string>();
+    const walk = (n: TreeNode) => { keys.add(n.path ?? n.name); n.children.forEach(walk); };
+    filteredTree.forEach(walk);
+    return keys;
+  }, [deferredTerm, typeFilter, filteredTree]);
+  const renderExpanded = searchExpanded ?? expanded;
+
+  const visibleRows = useMemo(
+    () => flattenVisibleTree(filteredTree, renderExpanded),
+    [filteredTree, renderExpanded],
+  );
+
+  const treeRowVirtualizer = useVirtualizer({
+    count: visibleRows.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => rowHeight,
+    getItemKey: (index) => visibleRows[index]?.rowKey ?? index,
+    overscan: 10,
+  });
+  const treeVirtualizerRef = useRef(treeRowVirtualizer);
+  treeVirtualizerRef.current = treeRowVirtualizer;
+  const visibleRowsRef = useRef(visibleRows);
+  visibleRowsRef.current = visibleRows;
+
+  // Match count for the footer + first match for Enter, in tree-search mode
+  // (flat mode reports its own count/first-result). Counts path-bearing nodes in
+  // the pruned tree — an approximation that includes kept ancestors, but it
+  // communicates "narrowed" honestly instead of showing the full total.
+  const [treeVisibleCount, firstTreeMatchPath] = useMemo((): [number | null, string | null] => {
+    if (typeFilter !== 'all' || !deferredTerm) return [null, null];
+    let count = 0;
+    let first: string | null = null;
+    const walk = (n: TreeNode) => {
+      if (n.path) { count++; if (!first) first = n.path; }
+      n.children.forEach(walk);
+    };
+    filteredTree.forEach(walk);
+    return [count, first];
+  }, [typeFilter, deferredTerm, filteredTree]);
+
+  // ── Editor eye toggles (asset editor only) ──
+  // The EditTarget installs asynchronously after mode activation — subscribe
+  // so the eyes appear/disappear with it. Rows re-render on visibility ops
+  // through editor-structure-changed → refreshEditableNodes → new tree.
+  useSyncExternalStore(subscribeEditTarget, getEditTargetVersion);
+  const canToggleVisibility = !!getActiveEditTarget().setNodeVisible;
+
+  const getNodeVisible = useCallback(
+    (path: string) => viewer.registry?.getNode(path)?.visible ?? true,
+    [viewer],
+  );
+
+  const getEffectiveVisible = useCallback((path: string) => {
+    let cur = viewer.registry?.getNode(path) ?? null;
+    while (cur && cur !== viewer.scene) {
+      if (!cur.visible) return false;
+      cur = cur.parent;
+    }
+    return true;
+  }, [viewer]);
+
+  const onToggleVisible = useCallback((path: string) => {
+    const node = viewer.registry?.getNode(path);
+    if (!node || node === viewer.currentModelRoot) return; // asset root stays visible
+    getActiveEditTarget().setNodeVisible?.(path, !node.visible);
+  }, [viewer]);
+
+  // ── Drag & drop reorder / reparent (asset editor only) ──
+  // Unity-style: drag a row and drop it BETWEEN two rows to reorder it as a
+  // sibling, or ONTO a row to reparent it as that node's child (world transform
+  // preserved). Enabled only in the plain tree view (no type filter / search,
+  // where sibling order and indices are unambiguous) while an asset document is
+  // active. All the heavy lifting — world-preserving TRS, undo, GLB round-trip —
+  // lives in AssetDocument.reparentNodes; this only computes the target slot.
+  useSyncExternalStore(subscribeActiveAsset, getActiveAssetVersion);
+  const dndEnabled = typeFilter === 'all' && !deferredTerm && !!getActiveAssetContext();
+
+  const dragPathsRef = useRef<string[]>([]);
+  const [dropTarget, setDropTarget] = useState<{ path: string; zone: DropZone } | null>(null);
+  const dropTargetRef = useRef<{ path: string; zone: DropZone } | null>(null);
+  const autoExpandRef = useRef<{ path: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+
+  const clearAutoExpand = useCallback(() => {
+    if (autoExpandRef.current) { clearTimeout(autoExpandRef.current.timer); autoExpandRef.current = null; }
+  }, []);
+
+  const clearDrag = useCallback(() => {
+    dragPathsRef.current = [];
+    dropTargetRef.current = null;
+    setDropTarget(null);
+    clearAutoExpand();
+  }, [clearAutoExpand]);
+
+  /** Resolve a hovered (row, zone) into the target parent path + sibling index
+   *  the drag would land at, or null when the move is illegal (dropping a node
+   *  onto itself/a descendant, or a same-parent reorder to its own slot). The
+   *  index is expressed against the parent's children with the moved nodes
+   *  excluded — exactly what AssetDocument.reparentNodes expects. */
+  const resolveDrop = useCallback(
+    (targetPath: string, zone: DropZone): { parentPath: string | null; index?: number } | null => {
+      const registry = viewer.registry;
+      const dragged = dragPathsRef.current;
+      if (!registry || dragged.length === 0) return null;
+      const targetNode = registry.getNode(targetPath);
+      if (!targetNode) return null;
+      const draggedNodes = dragged
+        .map((p) => registry.getNode(p))
+        .filter((n): n is Object3D => !!n);
+      if (draggedNodes.length === 0) return null;
+      // True when `n` is one of the dragged nodes or lives inside one — the new
+      // parent must never be a dragged node or its descendant (would be a cycle).
+      const insideDragged = (n: Object3D | null): boolean => {
+        for (let c: Object3D | null = n; c; c = c.parent) {
+          if (draggedNodes.includes(c)) return true;
+        }
+        return false;
+      };
+
+      if (zone === 'onto') {
+        if (insideDragged(targetNode)) return null;
+        return { parentPath: targetPath }; // target becomes the new parent (append)
+      }
+
+      const parent = targetNode.parent;
+      if (!parent || insideDragged(parent)) return null;
+      const childIndex = parent.children.indexOf(targetNode);
+      const rawInsert = zone === 'before' ? childIndex : childIndex + 1;
+
+      // Dropping immediately above/below the single node being dragged (within
+      // its own parent) is a no-op — reject so no indicator shows.
+      if (draggedNodes.length === 1 && draggedNodes[0].parent === parent) {
+        const selfIdx = parent.children.indexOf(draggedNodes[0]);
+        if (rawInsert === selfIdx || rawInsert === selfIdx + 1) return null;
+      }
+
+      // Convert the full-array insertion point to the moved-nodes-excluded index.
+      let excludedBefore = 0;
+      for (const dn of draggedNodes) {
+        if (dn.parent === parent && parent.children.indexOf(dn) < rawInsert) excludedBefore++;
+      }
+      const index = Math.max(0, rawInsert - excludedBefore);
+      const parentPath = parent === viewer.currentModelRoot
+        ? null
+        : NodeRegistry.computeNodePath(parent);
+      return { parentPath, index };
+    },
+    [viewer],
+  );
+
+  const handleRowDragOver = useCallback((path: string, zone: DropZone, e: React.DragEvent) => {
+    const res = resolveDrop(path, zone);
+    if (!res) {
+      // Illegal target — no preventDefault so the browser shows a no-drop cursor.
+      if (dropTargetRef.current) { dropTargetRef.current = null; setDropTarget(null); }
+      clearAutoExpand();
+      return;
+    }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const cur = dropTargetRef.current;
+    if (cur?.path !== path || cur.zone !== zone) {
+      dropTargetRef.current = { path, zone };
+      setDropTarget({ path, zone });
+      clearAutoExpand();
+      // Hovering ONTO a collapsed node briefly springs it open so you can drop
+      // into deep trees (Unity spring-loaded folders).
+      if (zone === 'onto' && !expanded.has(path)) {
+        const node = viewer.registry?.getNode(path);
+        if (node && node.children.length > 0) {
+          autoExpandRef.current = { path, timer: setTimeout(() => onToggleExpand(path), 600) };
+        }
+      }
+    }
+  }, [resolveDrop, clearAutoExpand, expanded, viewer, onToggleExpand]);
+
+  const handleRowDrop = useCallback((path: string, zone: DropZone, e: React.DragEvent) => {
+    e.preventDefault();
+    const res = resolveDrop(path, zone);
+    const paths = dragPathsRef.current.slice();
+    clearDrag();
+    if (!res || paths.length === 0) return;
+    const ctx = getActiveAssetContext();
+    if (!ctx) return;
+    void ctx.doc.reparentNodes(paths, res.parentPath, res.index !== undefined ? { index: res.index } : undefined);
+  }, [resolveDrop, clearDrag]);
 
   const counts = useMemo(
     () => countNodes(state.editableNodes, state.overlay),
     [state.editableNodes, state.overlay],
   );
 
-  const displayCount = flatFiltered !== null ? flatFiltered.length : counts.total;
+  const displayCount = flatFiltered !== null ? flatFiltered.length : (treeVisibleCount ?? counts.total);
 
   // ── Hover highlight (orange, temporary) ──
   // Selection highlight (cyan, persistent) is handled by SelectionManager.
@@ -1013,42 +604,216 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
 
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Snap 3D-highlight (A5) ──
+  // A snap Empty has no mesh, so the outline highlighter shows nothing. When a
+  // hierarchy row is a snap node, drive the snap-point plugin's marker highlight
+  // instead (hover = temporary, select = persistent). The snap id is the node's
+  // Object3D.uuid (== SnapPoint.id).
+  const snapIdForPath = useCallback((path: string | null): string | null => {
+    if (!path) return null;
+    const node = viewer.registry?.getNode(path);
+    if (!node) return null;
+    const reg = viewer.getPlugin<SnapPointPlugin>('snap-point')?.getRegistry();
+    return reg?.getById(node.uuid) ? node.uuid : null;
+  }, [viewer]);
+
+  const highlightSnap = useCallback((snapId: string | null) => {
+    viewer.getPlugin<SnapPointPlugin>('snap-point')?.highlightSnap(snapId);
+  }, [viewer]);
+
   const handleHover = useCallback((path: string | null) => {
     if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
-    if (!path) { viewer.highlighter.clear(); return; }
+    if (!path) { viewer.highlighter.clear(); highlightSnap(null); return; }
     hoverTimerRef.current = setTimeout(() => {
       hoverTimerRef.current = null;
       const node = viewer.registry?.getNode(path);
       if (node) {
-        viewer.highlighter.highlight(node, true, { includeChildDrives: true });
+        // Hover shows the plain hover highlight only - no attention pulse. The
+        // blinking glow hull on top of it read as a second, competing overlay.
+        viewer.highlighter.highlight(node, true, { includeChildDrives: false });
+        // Snap node → also show the 3D marker highlight (temporary hover).
+        highlightSnap(snapIdForPath(path));
       } else {
         viewer.highlighter.clear();
+        highlightSnap(null);
       }
     }, 80);
-  }, [viewer]);
+  }, [viewer, highlightSnap, snapIdForPath]);
+
+  // Refs so handleSelect stays referentially stable (memoized rows) while the
+  // Shift-range still reads the CURRENT visible row order.
+  const anchorRef = useRef<string | null>(null);
+  const flatFilteredRef = useRef(flatFiltered);
+  flatFilteredRef.current = flatFiltered;
+  const filteredTreeRef = useRef(filteredTree);
+  filteredTreeRef.current = filteredTree;
+  // Track the EFFECTIVE expansion (search auto-expand included) so a Shift-range
+  // over visibleTreePaths matches exactly the rows the user currently sees.
+  const expandedRef = useRef(renderExpanded);
+  expandedRef.current = renderExpanded;
+  const searchExpandedRef = useRef(searchExpanded);
+  searchExpandedRef.current = searchExpanded;
+
+  // The flat, render-order list of visible row paths — the ground truth for
+  // keyboard Arrow navigation (flat list in a type filter, else the expanded
+  // tree). Kept in a ref so the key handler stays referentially stable.
+  const visibleOrder = useMemo(
+    () => flatFiltered
+      ? flatFiltered.map((n) => n.path)
+      : visibleRows.flatMap((row) => row.node.path ? [row.node.path] : []),
+    [flatFiltered, visibleRows],
+  );
+  const visibleOrderRef = useRef(visibleOrder);
+  visibleOrderRef.current = visibleOrder;
+
+  const flatVirtualItems = flatRowVirtualizer.getVirtualItems();
+  const treeVirtualItems = treeRowVirtualizer.getVirtualItems();
+  const mountedPaths = new Set<string>();
+  if (flatFiltered) {
+    for (const item of flatVirtualItems) {
+      const path = flatFiltered[item.index]?.path;
+      if (path) mountedPaths.add(path);
+    }
+  } else {
+    for (const item of treeVirtualItems) {
+      const path = visibleRows[item.index]?.node.path;
+      if (path) mountedPaths.add(path);
+    }
+  }
 
   const handleSelect = useCallback(
-    (path: string, shiftKey = false) => {
-      if (shiftKey) {
-        viewer.selectionManager.toggleWithChildren(path);
+    (path: string, mods?: SelectMods) => {
+      const sm = viewer.selectionManager;
+      if (mods?.toggle) {
+        // Ctrl/Cmd+click — toggle this node in/out of the selection.
+        sm.toggle(path);
+        anchorRef.current = path;
+      } else if (mods?.shift && anchorRef.current && anchorRef.current !== path) {
+        // Shift+click — contiguous range over the currently visible rows,
+        // anchored at the last plain/toggle click. Missing indices (anchor
+        // deleted / filtered away) fall back to a plain select.
+        const flat = flatFilteredRef.current;
+        const order = flat
+          ? flat.map((n) => n.path)
+          : visibleRowsRef.current.flatMap((row) => row.node.path ? [row.node.path] : []);
+        const a = order.indexOf(anchorRef.current);
+        const b = order.indexOf(path);
+        if (a >= 0 && b >= 0) {
+          sm.selectPaths(order.slice(Math.min(a, b), Math.max(a, b) + 1));
+          // Anchor stays — repeated shift-clicks re-range from the same anchor.
+        } else {
+          sm.select(path);
+          anchorRef.current = path;
+        }
       } else {
-        viewer.selectionManager.select(path);
+        sm.select(path);
+        anchorRef.current = path;
       }
-      plugin.selectNode(path, true);
+      // Persistent snap highlight on select; clears when a non-snap is selected.
+      highlightSnap(snapIdForPath(path));
+      // Single click selects only — it does NOT force the property inspector
+      // open (that is the double-click gesture, see handleDoubleClick). If the
+      // inspector is already open it follows the new selection; if closed it
+      // stays closed. `getSnapshot()` reads the live value (this callback is
+      // memoized and would otherwise close over a stale `showInspector`).
+      plugin.selectNode(path, plugin.getSnapshot().showInspector);
     },
-    [viewer, plugin],
+    [viewer, plugin, highlightSnap, snapIdForPath],
   );
+
+  const handleRowDragStart = useCallback((path: string, e: React.DragEvent) => {
+    // Dragging a row that is part of a multi-selection moves the whole set;
+    // dragging an unselected row moves (and selects) just that row.
+    const sel = selectedPathsSet;
+    const paths = sel.has(path) && sel.size > 1 ? [...selection.selectedPaths] : [path];
+    if (!sel.has(path)) handleSelect(path);
+    dragPathsRef.current = paths;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', paths.join('\n')); } catch { /* jsdom */ }
+  }, [selectedPathsSet, selection.selectedPaths, handleSelect]);
 
   const handleDoubleClick = useCallback(
     (path: string) => {
+      // Double click is the gesture that opens the property inspector. The node
+      // is already selected by the preceding click of the double-click sequence,
+      // so this just flips the inspector visible for it.
+      plugin.selectNode(path, true);
       if (!viewer.registry) return;
       const node = viewer.registry.getNode(path);
       if (node) {
         viewer.fitToNodes([node]); // viewer auto-applies panel offset
       }
     },
-    [viewer],
+    [viewer, plugin],
   );
+
+  // Keyboard navigation for the tree (WAI-ARIA tree pattern). The container
+  // holds focus and tracks the active row via aria-activedescendant; arrows move
+  // selection through the visible row order, Enter opens the inspector, and
+  // Left/Right expand/collapse (or step to parent/child) in tree mode. All paths
+  // reuse the existing select/open/expand handlers, so behavior matches the mouse.
+  const handleTreeKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const key = e.key;
+      if (!['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Enter', 'Home', 'End'].includes(key)) return;
+      const order = visibleOrderRef.current;
+      if (order.length === 0) return;
+      const cur = primaryPathRef.current;
+      const idx = cur ? order.indexOf(cur) : -1;
+      const selectAt = (i: number) => {
+        const bounded = Math.max(0, Math.min(order.length - 1, i));
+        const p = order[bounded];
+        if (!p) return;
+        if (flatFilteredRef.current) {
+          flatVirtualizerRef.current.scrollToIndex(bounded, { align: 'center' });
+        } else {
+          const rowIndex = visibleRowsRef.current.findIndex((row) => row.node.path === p);
+          if (rowIndex >= 0) treeVirtualizerRef.current.scrollToIndex(rowIndex, { align: 'center' });
+        }
+        setPendingKeyboardPath(p);
+      };
+      switch (key) {
+        case 'ArrowDown': e.preventDefault(); selectAt(idx < 0 ? 0 : idx + 1); break;
+        case 'ArrowUp': e.preventDefault(); selectAt(idx < 0 ? 0 : idx - 1); break;
+        case 'Home': e.preventDefault(); selectAt(0); break;
+        case 'End': e.preventDefault(); selectAt(order.length - 1); break;
+        case 'Enter': e.preventDefault(); if (cur) handleDoubleClick(cur); break;
+        case 'ArrowRight':
+        case 'ArrowLeft': {
+          e.preventDefault();
+          // Flat mode (type filter) has no hierarchy — step like Up/Down.
+          if (flatFilteredRef.current || !cur) { selectAt(key === 'ArrowRight' ? idx + 1 : idx - 1); break; }
+          const found = findTreeNode(filteredTreeRef.current, cur);
+          if (!found) break;
+          const { node, parentPath } = found;
+          const expandKey = node.path ?? node.name;
+          const expandable = node.children.length > 0 || node.canExpandLazy === true;
+          // During a search everything is force-expanded (searchExpanded), so
+          // toggling the real expand set does nothing visible — just navigate.
+          const searching = !!searchExpandedRef.current;
+          const isExp = expandedRef.current.has(expandKey);
+          if (key === 'ArrowRight') {
+            if (expandable && !isExp && !searching) onToggleExpand(expandKey);
+            else if (expandable) selectAt(idx + 1); // already open → first child
+          } else if (expandable && isExp && !searching) {
+            onToggleExpand(expandKey);
+          } else if (parentPath) {
+            selectAt(order.indexOf(parentPath));
+          }
+          break;
+        }
+      }
+    },
+    [handleSelect, handleDoubleClick, onToggleExpand, plugin],
+  );
+
+  // Keyboard navigation scrolls first. Selection (and therefore the ARIA
+  // anchor) is committed only after the target row is mounted by the virtualizer.
+  useEffect(() => {
+    if (!pendingKeyboardPath || !mountedPaths.has(pendingKeyboardPath)) return;
+    handleSelect(pendingKeyboardPath);
+    setPendingKeyboardPath(null);
+  }, [pendingKeyboardPath, mountedPaths, handleSelect]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, path: string) => {
@@ -1070,117 +835,203 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
     [viewer],
   );
 
-  // Clear hover highlight when panel closes
+  // Clear hover + snap highlight when panel closes / unmounts
   useEffect(() => {
-    return () => { viewer.highlighter.clear(); };
-  }, [viewer]);
+    return () => { viewer.highlighter.clear(); highlightSnap(null); };
+  }, [viewer, highlightSnap]);
 
   const handleClose = useCallback(() => {
     viewer.highlighter.clear();
+    highlightSnap(null);
     plugin.togglePanel();
-  }, [plugin, viewer]);
+  }, [plugin, viewer, highlightSnap]);
+
+  // One-click escape from a dead-end result: reset search + type filter.
+  const clearAllFilters = useCallback(() => {
+    setSearchTerm('');
+    setTypeFilter('all');
+  }, [setTypeFilter]);
 
   const isFlat = flatFiltered !== null;
+  const activeDescendant = selection.primaryPath && mountedPaths.has(selection.primaryPath)
+    ? rowDomId(selection.primaryPath)
+    : undefined;
+
+  // A filter is "active" when it actually narrows the tree — drives the badge
+  // dot on the header filter icon so a collapsed-but-filtering state is never
+  // invisible to the user.
+  const hasActiveFilters = searchTerm.length > 0 || typeFilter !== 'all';
 
   return (
     <LeftPanel
-      title="Hierarchy"
+      title={
+        <Typography
+          variant="subtitle2"
+          sx={{
+            fontWeight: 600,
+            fontSize: '0.8rem',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={modelName}
+        >
+          {modelName}
+        </Typography>
+      }
       onClose={handleClose}
+      toolbar={
+        <Tooltip title={filtersOpen ? 'Hide search & filter' : 'Search & filter'} disableInteractive>
+          <IconButton
+            size="small"
+            onClick={toggleFilters}
+            sx={{
+              p: 0.25,
+              flexShrink: 0,
+              color: filtersOpen || hasActiveFilters ? 'primary.main' : 'text.secondary',
+              bgcolor: filtersOpen ? 'rgba(79, 195, 247, 0.12)' : 'transparent',
+              '&:hover': { bgcolor: filtersOpen ? 'rgba(79, 195, 247, 0.18)' : 'rgba(255, 255, 255, 0.08)' },
+            }}
+          >
+            <Badge
+              color="primary"
+              variant="dot"
+              invisible={!hasActiveFilters}
+              sx={{ '& .MuiBadge-badge': { minWidth: 6, height: 6, top: 1, right: 1 } }}
+            >
+              <FilterList sx={{ fontSize: 16 }} />
+            </Badge>
+          </IconButton>
+        </Tooltip>
+      }
       width={state.panelWidth}
       resizable
       minWidth={HIERARCHY_MIN_WIDTH}
       maxWidth={HIERARCHY_MAX_WIDTH}
       onResize={(w) => plugin.setPanelWidth(w)}
+      headerSx={{ px: 1.5, py: 1.25 }}
       footer={
         <Box sx={{ px: 1, py: 0.25, display: 'flex', alignItems: 'center' }}>
           <Typography sx={{ fontSize: 10, color: 'text.disabled' }}>
-            {isFlat
+            {isFlat || treeVisibleCount !== null
               ? `${displayCount} of ${counts.total} node${counts.total !== 1 ? 's' : ''}`
               : `${counts.total} node${counts.total !== 1 ? 's' : ''}`}
             {counts.withOverrides > 0 && (
               <> &middot; {counts.withOverrides} with override{counts.withOverrides !== 1 ? 's' : ''}</>
             )}
+            {isSearchPending && <> &middot; filtering&hellip;</>}
           </Typography>
         </Box>
       }
     >
-      {/* Search */}
-      <Box sx={{ px: 0.75, py: 0.5, borderBottom: '1px solid rgba(255, 255, 255, 0.05)', flexShrink: 0 }}>
-        <TextField
-          size="small"
-          fullWidth
-          placeholder="Search nodes..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && flatFiltered && flatFiltered.length > 0) {
-              handleSelect(flatFiltered[0].path);
-            }
-          }}
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search sx={{ fontSize: 16, color: 'text.disabled' }} />
-                </InputAdornment>
-              ),
-              sx: { fontSize: 12, height: 26 },
-            },
-          }}
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              bgcolor: 'rgba(255, 255, 255, 0.04)',
-              '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.08)' },
-              '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.15)' },
-              '&.Mui-focused fieldset': { borderColor: 'primary.main' },
-            },
-          }}
-        />
-      </Box>
+      {/* Mode-registered header card (asset editor document card in editor mode) */}
+      {HierarchyHeaderCard && <HierarchyHeaderCard />}
 
-      {/* Type filter buttons */}
-      <Box sx={{ display: 'flex', gap: 0.25, px: 0.75, py: 0.5, borderBottom: '1px solid rgba(255, 255, 255, 0.05)', flexShrink: 0 }}>
-        {TYPE_FILTERS.map(({ key, label }) => (
-          <Chip
-            key={key}
-            label={label}
+      {/* Search + type filter — collapsed behind the header filter icon.
+          Children stay mounted while collapsed so an active search/type filter
+          keeps narrowing the tree (the badge dot on the icon signals this). */}
+      <Collapse in={filtersOpen} timeout={150} sx={{ flexShrink: 0 }}>
+        {/* Search */}
+        <Box sx={{ px: 0.75, pt: 0.5, pb: 0.25 }}>
+          <TextField
             size="small"
-            onClick={() => setTypeFilter(key)}
-            sx={filterChipSx(typeFilter === key)}
+            fullWidth
+            placeholder="Search nodes..."
+            value={searchTerm}
+            inputRef={searchInputRef}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                // Select the first match: flat list in a type filter, otherwise
+                // the first node of the pruned tree in an "All" search.
+                if (flatFiltered && flatFiltered.length > 0) handleSelect(flatFiltered[0].path);
+                else if (firstTreeMatchPath) handleSelect(firstTreeMatchPath);
+              }
+              // Escape: clear the search first; a second Escape collapses the section.
+              if (e.key === 'Escape') {
+                if (searchTerm) setSearchTerm('');
+                else setFiltersOpen(false);
+              }
+            }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start" sx={{ mr: 0.5 }}>
+                    <Search sx={{ fontSize: 16, color: 'text.disabled' }} />
+                  </InputAdornment>
+                ),
+                endAdornment: searchTerm ? (
+                  <InputAdornment position="end">
+                    <IconButton
+                      size="small"
+                      onClick={() => { setSearchTerm(''); searchInputRef.current?.focus(); }}
+                      sx={{ p: 0.25, color: 'text.disabled' }}
+                    >
+                      <ClearIcon sx={{ fontSize: 13 }} />
+                    </IconButton>
+                  </InputAdornment>
+                ) : undefined,
+                sx: { fontSize: 12, height: 26, pl: 1.25 },
+              },
+            }}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                bgcolor: 'rgba(255, 255, 255, 0.04)',
+                '& fieldset': { borderColor: 'rgba(255, 255, 255, 0.08)' },
+                '&:hover fieldset': { borderColor: 'rgba(255, 255, 255, 0.15)' },
+                '&.Mui-focused fieldset': { borderColor: 'primary.main' },
+              },
+            }}
           />
-        ))}
-      </Box>
+        </Box>
 
-      {/* Signal sort buttons (only when Signals filter active) */}
-      {typeFilter === 'signals' && (
-        <Box sx={{ display: 'flex', gap: 0.25, px: 0.75, py: 0.25, borderBottom: '1px solid rgba(255, 255, 255, 0.05)', flexShrink: 0, alignItems: 'center' }}>
-          {([['name', 'A\u2013Z'], ['type', 'In / Out']] as const).map(([key, label]) => (
+        {/* Type filter buttons */}
+        <Box sx={{ display: 'flex', gap: 0.25, px: 0.75, pt: 0.25, pb: 0.5, borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+          {TYPE_FILTERS.map(({ key, label }) => (
             <Chip
               key={key}
               label={label}
               size="small"
-              onClick={() => setSignalSort(key)}
-              sx={filterChipSx(signalSort === key, 16, 8)}
+              onClick={() => setTypeFilter(key)}
+              sx={filterChipSx(typeFilter === key)}
             />
           ))}
         </Box>
+      </Collapse>
+
+      {/* Signal sort buttons (only when Signals filter active) */}
+      {typeFilter === 'signals' && (
+        <SignalBrowser sort={signalSort} onSortChange={setSignalSort} />
       )}
 
-      {/* Tree / Flat list — own scroll container for useVirtualizer compatibility */}
+      {/* Tree / Flat list — own scroll container for useVirtualizer compatibility.
+          Also the ARIA tree: it holds focus and tracks the active row via
+          aria-activedescendant; handleTreeKeyDown drives arrow navigation. */}
       <Box
         ref={scrollContainerRef}
         className={RV_SCROLL_CLASS}
+        role="tree"
+        aria-label="Scene hierarchy"
+        aria-multiselectable
+        tabIndex={0}
+        aria-activedescendant={activeDescendant}
+        onKeyDown={handleTreeKeyDown}
+        // Clicking a row selects it but doesn't focus this div (rows aren't
+        // focusable), so focus it on pointer-down to keep keyboard nav working
+        // right after a mouse click. preventScroll: don't jump the list.
+        onMouseDown={() => scrollContainerRef.current?.focus({ preventScroll: true })}
         sx={{
           flex: 1,
           overflow: 'auto',
           py: 0.5,
+          '&:focus-visible': { outline: '1px solid rgba(79,195,247,0.5)', outlineOffset: '-1px' },
         }}
       >
         {isFlat ? (
           // Virtualized flat list (type filter active — no tree hierarchy)
           flatFiltered.length > 0 ? (
-            <div style={{ height: flatRowVirtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
-              {flatRowVirtualizer.getVirtualItems().map((virtualRow) => {
+            <div role="presentation" style={{ height: flatRowVirtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+              {flatVirtualItems.map((virtualRow) => {
                 const info = flatFiltered[virtualRow.index];
                 return (
                   <FlatNodeRow
@@ -1193,7 +1044,12 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
                     onContextMenu={handleContextMenu}
                     signalStore={signalStore}
                     logicEngine={logicEngine}
+                    viewer={viewer}
+                    getNodeVisible={canToggleVisibility ? getNodeVisible : undefined}
+                    getEffectiveVisible={canToggleVisibility ? getEffectiveVisible : undefined}
+                    onToggleVisible={canToggleVisibility ? onToggleVisible : undefined}
                     depth={typeFilter === 'logic' ? (flatDepths.get(info.path) ?? 0) : 0}
+                    rowHeight={rowHeight}
                     virtualStyle={{
                       position: 'absolute',
                       top: 0,
@@ -1207,34 +1063,60 @@ export function HierarchyBrowser({ viewer }: HierarchyBrowserProps) {
               })}
             </div>
           ) : (
-            <Typography sx={{ fontSize: 12, color: 'text.disabled', textAlign: 'center', py: 4 }}>
-              No matching nodes
-            </Typography>
+            <NoMatchState onClear={clearAllFilters} />
           )
         ) : (
           // Tree view (All filter)
-          filteredTree.length > 0 ? (
-            filteredTree.map((node, i) => (
-              <TreeNodeRow
-                key={node.name + '-' + i}
-                node={node}
-                depth={0}
-                selectedPaths={selectedPathsSet}
-                expanded={expanded}
-                onToggleExpand={onToggleExpand}
-                onSelect={handleSelect}
-                onDoubleClick={handleDoubleClick}
-                onHover={handleHover}
-                onContextMenu={handleContextMenu}
-                signalStore={signalStore}
-                logicEngine={logicEngine}
-                liveTick={liveTick}
-              />
-            ))
-          ) : (
+          visibleRows.length > 0 ? (
+            <div role="presentation" style={{ height: treeRowVirtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+              {treeVirtualItems.map((virtualRow) => {
+                const row = visibleRows[virtualRow.index];
+                return (
+                  <TreeNodeRow
+                    key={row.rowKey}
+                    row={row}
+                    selectedPaths={selectedPathsSet}
+                    expanded={renderExpanded}
+                    onToggleExpand={onToggleExpand}
+                    onSelect={handleSelect}
+                    onDoubleClick={handleDoubleClick}
+                    onHover={handleHover}
+                    onContextMenu={handleContextMenu}
+                    signalStore={signalStore}
+                    logicEngine={logicEngine}
+                    viewer={viewer}
+                    rowHeight={rowHeight}
+                    virtualStyle={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: virtualRow.size,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                    getNodeVisible={canToggleVisibility ? getNodeVisible : undefined}
+                    getEffectiveVisible={canToggleVisibility ? getEffectiveVisible : undefined}
+                    onToggleVisible={canToggleVisibility ? onToggleVisible : undefined}
+                    dndEnabled={dndEnabled}
+                    dropZone={dropTarget && dropTarget.path === row.node.path ? dropTarget.zone : null}
+                    onRowDragStart={handleRowDragStart}
+                    onRowDragOver={handleRowDragOver}
+                    onRowDrop={handleRowDrop}
+                    onRowDragEnd={clearDrag}
+                  />
+                );
+              })}
+            </div>
+          ) : isSearchPending ? (
             <Typography sx={{ fontSize: 12, color: 'text.disabled', textAlign: 'center', py: 4 }}>
-              {state.editableNodes.length === 0 ? 'No model loaded' : 'No matching nodes'}
+              Filtering&hellip;
             </Typography>
+          ) : state.editableNodes.length === 0 ? (
+            <Typography sx={{ fontSize: 12, color: 'text.disabled', textAlign: 'center', py: 4 }}>
+              No model loaded
+            </Typography>
+          ) : (
+            <NoMatchState onClear={hasActiveFilters ? clearAllFilters : undefined} />
           )
         )}
       </Box>

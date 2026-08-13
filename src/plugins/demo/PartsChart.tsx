@@ -10,7 +10,7 @@
 
 import { useEffect } from 'react';
 import { Box } from '@mui/material';
-import { ChartPanel } from '../../core/hmi/ChartPanel';
+import { FloatingPanel } from '../../core/hmi/FloatingPanel';
 import { useKpiData } from '../../hooks/use-kpi-data';
 import { movingAverage } from '../../core/hmi/kpi-utils';
 import { useEChart } from '../../hooks/use-echart';
@@ -23,17 +23,17 @@ interface PartsChartProps {
 
 function barColor(value: number, target: number): string {
   const ratio = value / target;
-  if (ratio >= 1) return '#5FB37A';     // Green: at or above target
-  if (ratio >= 0.85) return '#D9A441';  // Amber: 85-99%
-  return '#D9534F';                      // Red: below 85%
+  if (ratio >= 1) return '#22c55e';     // Green: at or above target
+  if (ratio >= 0.85) return '#f59e0b';  // Amber: 85-99%
+  return '#ef4444';                      // Red: below 85%
 }
 
 export function PartsChart({ open, onClose }: PartsChartProps) {
   const kpi = useKpiData();
-  const { containerRef: chartRef, chartInstance } = useEChart({ open });
+  const { containerRef: chartRef, chartInstance, isReady } = useEChart({ open });
 
   useEffect(() => {
-    if (!open || !kpi) return;
+    if (!open || !kpi || !isReady) return;
     const timer = setTimeout(() => {
       const chart = chartInstance.current;
       if (!chart) return;
@@ -69,10 +69,10 @@ export function PartsChart({ open, onClose }: PartsChartProps) {
               markLine: {
                 silent: true,
                 symbol: 'none',
-                lineStyle: { type: 'dashed', color: '#3FB8C4', width: 1.5 },
+                lineStyle: { type: 'dashed', color: '#60a5fa', width: 1.5 },
                 label: {
                   formatter: `Target: ${target}`,
-                  color: '#3FB8C4',
+                  color: '#60a5fa',
                   fontSize: 10,
                 },
                 data: [{ yAxis: target }],
@@ -84,8 +84,8 @@ export function PartsChart({ open, onClose }: PartsChartProps) {
               data: ma.map((v) => Math.round(v)),
               smooth: true,
               symbol: 'none',
-              lineStyle: { color: '#8B7BC7', width: 2 },
-              itemStyle: { color: '#8B7BC7' },
+              lineStyle: { color: '#a78bfa', width: 2 },
+              itemStyle: { color: '#a78bfa' },
             },
           ],
         },
@@ -93,20 +93,20 @@ export function PartsChart({ open, onClose }: PartsChartProps) {
       );
     }, 100);
     return () => clearTimeout(timer);
-  }, [open, kpi]);
+  }, [open, kpi, isReady]);
 
   return (
-    <ChartPanel
+    <FloatingPanel
       open={open}
       onClose={onClose}
       title="Parts per Hour"
-      titleColor="#3FB8C4"
+      titleColor="#4fc3f7"
       subtitle="Last 24h"
       defaultWidth={700}
       defaultHeight={340}
       zIndex={1400}
     >
       <Box ref={chartRef} sx={{ flex: 1, minHeight: 0 }} />
-    </ChartPanel>
+    </FloatingPanel>
   );
 }

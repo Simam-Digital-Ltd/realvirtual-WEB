@@ -13,12 +13,12 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Vector3, Raycaster, Object3D, Euler, MathUtils } from 'three';
-import type { RVViewerPlugin } from '../core/rv-plugin';
+import { Vector3, Raycaster, Object3D, Euler } from 'three';
+import { applyMouseLook, type LookState } from './_shared/camera-look';
+import { BaseViewerPlugin } from '../core/rv-base-plugin';
 import type { RVViewer } from '../core/rv-viewer';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
 import type { UISlotEntry } from '../core/rv-ui-plugin';
-import { isMobileDevice } from '../hooks/use-mobile-layout';
 import { loadVisualSettings } from '../core/hmi/visual-settings-store';
 import { activateContext, deactivateContext } from '../core/hmi/ui-context-store';
 import type { WebXRPlugin } from './webxr-plugin';
@@ -37,9 +37,6 @@ const DEFAULT_SPRINT_SPEED = 5.0;
 const DEFAULT_SENSITIVITY = 0.002;
 const DEFAULT_EYE_HEIGHT = 1.7;
 
-/** Max pitch angle in radians (slightly less than 90° to avoid gimbal lock). */
-const MAX_PITCH = MathUtils.degToRad(85);
-
 // ─── Key codes for WASD + arrows ────────────────────────────────────────
 
 const FORWARD_KEYS = new Set(['KeyW', 'ArrowUp']);
@@ -47,7 +44,6 @@ const BACKWARD_KEYS = new Set(['KeyS', 'ArrowDown']);
 const LEFT_KEYS = new Set(['KeyA', 'ArrowLeft']);
 const RIGHT_KEYS = new Set(['KeyD', 'ArrowRight']);
 const SPRINT_KEYS = new Set(['ShiftLeft', 'ShiftRight']);
-const TOGGLE_KEY = 'KeyF';
 
 // ─── Reusable vectors (pre-allocated, zero GC in update loop) ───────────
 
@@ -77,7 +73,7 @@ export function useFpvActive(): boolean {
 
 // ─── FPV Plugin ─────────────────────────────────────────────────────────
 
-export class FpvPlugin implements RVViewerPlugin {
+export class FpvPlugin extends BaseViewerPlugin {
   readonly id = 'fpv';
   readonly order = 5; // Before drive physics
 
@@ -104,9 +100,8 @@ export class FpvPlugin implements RVViewerPlugin {
   private _currentGroundY = 0;
   private _hasGroundHit = false;
 
-  // Camera Euler angles (yaw = Y rotation, pitch = X rotation)
-  private _yaw = 0;
-  private _pitch = 0;
+  // Camera look state (yaw = Y rotation, pitch = X rotation), shared helper.
+  private _look: LookState = { yaw: 0, pitch: 0 };
 
   // Right-click drag state
   private _isLooking = false;
@@ -132,9 +127,6 @@ export class FpvPlugin implements RVViewerPlugin {
   private _onBlur: (() => void) | null = null;
   private _onVisibilityChange: (() => void) | null = null;
 
-  // XR event unsubs
-  private _unsubs: (() => void)[] = [];
-
   // ── Lifecycle ──────────────────────────────────────────────────────
 
   onModelLoaded(_result: LoadResult, viewer: RVViewer): void {
@@ -155,19 +147,17 @@ export class FpvPlugin implements RVViewerPlugin {
     this._setupEventListeners(viewer);
 
     // Listen for XR session start to exit FPV
-    const unsubXrStart = viewer.on('xr-session-start', () => {
+    this.sub(viewer.on('xr-session-start', () => {
       if (this._active) this.exit();
-    });
-    this._unsubs.push(unsubXrStart);
+    }));
   }
 
-  onModelCleared(viewer: RVViewer): void {
+  override onModelCleared(viewer: RVViewer): void {
     // Exit FPV if active (scene geometry gone, ground cache stale)
     if (this._active) this._exitImmediate();
     this._groundTargets = [];
-    // Clean up XR event listeners
-    this._unsubs.forEach((u) => u());
-    this._unsubs = [];
+    // Clean up XR event listeners + future subs registered via this.sub()
+    super.onModelCleared(viewer);
     this._viewer = viewer;
   }
 
@@ -210,12 +200,12 @@ export class FpvPlugin implements RVViewerPlugin {
     viewer.markRenderDirty();
   }
 
-  dispose(): void {
+  override dispose(): void {
     if (this._active) this._exitImmediate();
     this._removeOverlay();
     this._removeEventListeners();
-    this._unsubs.forEach((u) => u());
-    this._unsubs = [];
+    // Flush XR event subs + any future subs registered via this.sub()
+    super.dispose();
   }
 
   // ── Public API ─────────────────────────────────────────────────────
@@ -297,8 +287,8 @@ export class FpvPlugin implements RVViewerPlugin {
     // Initialize yaw/pitch from current camera orientation
     const euler = new Euler();
     euler.setFromQuaternion(viewer.camera.quaternion, 'YXZ');
-    this._yaw = euler.y;
-    this._pitch = euler.x;
+    this._look.yaw = euler.y;
+    this._look.pitch = euler.x;
 
     // Position camera at current orbit position but at eye height
     const camPos = viewer.camera.position;
@@ -413,7 +403,7 @@ export class FpvPlugin implements RVViewerPlugin {
 
     this._overlay.innerHTML = `
       <div style="text-align: center; max-width: 400px;">
-        <div style="font-size: 36px; margin-bottom: 16px;">&#5FB37A;</div>
+        <div style="font-size: 36px; margin-bottom: 16px;">&#127918;</div>
         <div style="font-size: 20px; font-weight: 600; margin-bottom: 8px;">Click to Enter</div>
         <div style="font-size: 16px; margin-bottom: 24px;">First-Person View</div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; color: rgba(255,255,255,0.8);">
@@ -450,17 +440,8 @@ export class FpvPlugin implements RVViewerPlugin {
 
   private _applyMouseLook(movementX: number, movementY: number): void {
     if (!this._viewer) return;
-
-    this._yaw -= movementX * this.sensitivity;
-    this._pitch -= movementY * this.sensitivity;
-
-    // Clamp pitch to avoid flipping
-    this._pitch = MathUtils.clamp(this._pitch, -MAX_PITCH, MAX_PITCH);
-
-    // Apply rotation via Euler (YXZ order: yaw first, then pitch)
-    const euler = new Euler(this._pitch, this._yaw, 0, 'YXZ');
-    this._viewer.camera.quaternion.setFromEuler(euler);
-
+    // Shared GC-free yaw/pitch accumulation → camera quaternion (YXZ, clamped).
+    applyMouseLook(this._look, movementX, movementY, this.sensitivity, this._viewer.camera.quaternion);
     this._viewer.markRenderDirty();
   }
 
@@ -472,21 +453,15 @@ export class FpvPlugin implements RVViewerPlugin {
 
     const canvas = viewer.renderer.domElement;
 
-    // Keyboard
+    // Keyboard — WASD/sprint while active. FPV is entered via the BottomBar
+    // button (or programmatic toggle()); no global hotkey: F is reserved for
+    // "frame selection" in the viewer's keybindings.
     this._onKeyDown = (e: KeyboardEvent) => {
       // Input focus guard: skip WASD when typing in input/textarea
       const tag = (document.activeElement as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
-      if (!this._active) {
-        // F key toggle (only when not in input)
-        if (e.code === TOGGLE_KEY && !isMobileDevice()) {
-          e.preventDefault();
-          this.toggle();
-        }
-        return;
-      }
-
+      if (!this._active) return;
       this._keys.add(e.code);
     };
 

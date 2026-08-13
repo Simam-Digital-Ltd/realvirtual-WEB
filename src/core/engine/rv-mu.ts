@@ -6,11 +6,33 @@ import {
   InstancedMesh, DynamicDrawUsage,
 } from 'three';
 import type { BufferGeometry, Material } from 'three';
+import type { Mesh } from 'three';
 import { AABB } from './rv-aabb';
+import { classifyShadows } from './rv-mesh-classifier';
+import { registerCapabilities } from './rv-component-registry';
 import type { RVTransportSurface } from './rv-transport-surface';
+import type { MUDissolve, MUGrow } from './rv-mu-dissolve';
+import { getTslMaterials } from './materials/material-factory';
+import type { MuComputeTransforms } from './materials/rv-mu-compute-tsl';
 
 // Pre-allocated temp vector for getWorldPosition (no GC in hot path)
 const _tmpWorldPos = new Vector3();
+// Pre-allocated scratch for the rotation-aware AABB-extent recompute in updateAABB().
+const _aabbWorldQuat = new Quaternion();
+
+// ─── Engine-wide numeric MU identity (plan-259 / plan-210 gap) ─────────────
+// Every MU — clone AND instanced — gets a stable numeric `id` at construction.
+// This is the id space `ScriptMuRef.id` uses across the script SDK boundary,
+// bridged to the string `InstancedMovingUnit.muId` for instanced MUs.
+let _nextEngineMuId = 1;
+/** Mint the next engine-wide numeric MU id (monotonic, never reused). */
+export function nextEngineMuId(): number {
+  return _nextEngineMuId++;
+}
+
+/** Subsystems that may hold an MU in place (plan-259 O1b owner tag).
+ *  'grip' = RVGrip fix/unfix; 'connection' = typed connection (StopOnExit). */
+export type MuHolder = 'grip' | 'connection';
 
 /**
  * IMUAccessor — Unified interface abstracting over clone-based and
@@ -28,6 +50,15 @@ export interface IMUAccessor {
   rotateOnAxis(axis: Vector3, angle: number): void;
   getName(): string;
   readonly isInstanced: boolean;
+  /** True while the physics provider owns this MU's pose (plan-276 F4) — the
+   *  kinematic transport pipeline skips it (like `isGripped`, but provider-
+   *  owned). Set by the transport manager at the conveyor-end handover;
+   *  cleared by the physics plugin on the settle return (F7). */
+  physicsOwned: boolean;
+  /** Physics-provider body handle (`String(mu.id)`); null while kinematic.
+   *  Read by `IPhysicsMUHook.onMUDisposed` to free the body on any dispose
+   *  path (F14) — hence part of the accessor interface. */
+  physicsBodyId: string | null;
 }
 
 /**
@@ -44,17 +75,91 @@ export class RVMovingUnit implements IMUAccessor {
   /** Which transport surface is currently moving this MU (null = free) */
   currentSurface: RVTransportSurface | null = null;
 
+  /** Most recent surface that drove this MU; survives the MU running off the end
+   *  (when `currentSurface` becomes null) so the end-of-line vanish can still
+   *  check THAT surface's outgoing-snap connectivity. */
+  lastSurface?: RVTransportSurface | null;
+
   /** Marked for removal by Sink */
   markedForRemoval = false;
 
-  /** When true, this MU is attached to a Grip and should not be moved by transport or consumed by sinks */
-  isGripped = false;
+  /** True while the accumulation gap clamp (plan-255) shortened this MU's
+   *  advance this tick (it is jammed behind another MU). Diagnostic only —
+   *  reset to false by the transport manager before each transport step. */
+  blocked = false;
+
+  /** Stable engine-wide numeric MU id (script SDK `mu.id` id space). */
+  readonly id = nextEngineMuId();
+
+  /** Owner tag (plan-259 O1b): which subsystem currently holds this MU in
+   *  place. `'grip'` = attached to an RVGrip; `'connection'` = held by a typed
+   *  connection (StopOnExit). Each subsystem only releases what it holds
+   *  itself — replaces the ownerless `isGripped` bool. Null = free. */
+  heldBy: MuHolder | null = null;
+
+  /** True while ANY subsystem holds this MU (transport skips it, sinks don't
+   *  consume it). Derived from the `heldBy` owner tag — read-only by design:
+   *  writers must set `heldBy` so ownership stays unambiguous. */
+  get isGripped(): boolean {
+    return this.heldBy !== null;
+  }
 
   /** The original parent before gripping (for restoring on ungrip) */
   parentBeforeGrip: Object3D | null = null;
 
+  /** True while the physics provider owns this MU's pose (plan-276 F4).
+   *  The kinematic transport loop, accumulation queries and grips skip it. */
+  physicsOwned = false;
+
+  /** Physics-provider body handle (`String(this.id)`); null while kinematic. */
+  physicsBodyId: string | null = null;
+
   /** Whether this MU uses InstancedMesh rendering (false = clone-based) */
   readonly isInstanced = false;
+
+  /** Tick id (RVTransportSurface._currentTickId) of the most recent successful
+   *  `surface.transportMU(this, …)` call. Used by `RVTransportSurface` to
+   *  decide whether to carry the MU along with a rotating parent: rotation is
+   *  only applied when the MU was on the same surface in the immediately
+   *  previous tick (`lastSurfaceTickId === currentTickId - 1`), so a freshly
+   *  entered MU is not snapped by a phantom one-tick rotation. */
+  lastSurfaceTickId?: number;
+
+  /** True once this MU has been carried by any transport surface. Gates the
+   *  end-of-line vanish so freshly-spawned MUs (not yet on a belt) aren't
+   *  deleted. See `RVTransportManager.vanishMUsAtEndOfLine`. */
+  everOnSurface?: boolean;
+
+  /** True while the MU's current (or most recent) transport surface belongs to a
+   *  planner-placed layout object. End-of-line vanish is scoped to layout
+   *  objects, and this remembers membership across the moment the MU runs off the
+   *  surface (when `currentSurface` becomes null). See
+   *  `RVTransportManager.vanishMUsAtEndOfLine`. */
+  onLayoutObject?: boolean;
+
+  /** Seconds spent off ALL transport surfaces (the vanish dwell timer). Reset
+   *  to 0 whenever a surface picks the MU up again. */
+  offSurfaceTime?: number;
+
+  /** Seconds elapsed in the end-of-line dissolve animation (set once the dwell
+   *  timer expires; counts up to `RVTransportManager.vanishDurationSec`). */
+  vanishElapsed?: number;
+
+  /** Active dissolve effect (cloned burn materials) while this MU is vanishing.
+   *  Disposed on removal or if the MU is picked up again before it finishes. */
+  dissolve?: MUDissolve | null;
+
+  /** Active spawn grow-out effect (cloned clip materials) while this MU is
+   *  growing out of its source. Distance/vector based: a fixed world clip plane
+   *  the MU slides through as it travels. Disposed once fully emerged or on
+   *  removal. */
+  grow?: MUGrow | null;
+
+  /** MU half-extents in its OWN local frame (spawn orientation), captured at
+   *  construction. `updateAABB()` re-derives the world axis-aligned footprint
+   *  from this under the MU's CURRENT world rotation, so a pallet turned 90° at
+   *  a turntable corner keeps a detection box that matches the visible mesh. */
+  private readonly _localHalf: Vector3;
 
   constructor(node: Object3D, sourceName: string, halfSize?: Vector3, localCenter?: Vector3) {
     this.node = node;
@@ -65,6 +170,7 @@ export class RVMovingUnit implements IMUAccessor {
     } else {
       this.aabb = AABB.fromNode(node);
     }
+    this._localHalf = this.aabb.halfSize.clone();
   }
 
   // ─── IMUAccessor implementation (clone mode) ────────────────────
@@ -106,8 +212,14 @@ export class RVMovingUnit implements IMUAccessor {
 
   // ─── Lifecycle ──────────────────────────────────────────────────
 
-  /** Update AABB world position after transport movement */
+  /** Update AABB world position after transport movement. Re-derives the world
+   *  axis-aligned extent from the MU's local half-extents under its current world
+   *  rotation, so the detection/collision footprint follows the part as it is
+   *  turned (e.g. by a turntable) — otherwise a rotated part is detected at the
+   *  wrong point (a light-barrier beam breaks ~half-a-part-length off). */
   updateAABB(): void {
+    this.node.getWorldQuaternion(_aabbWorldQuat);
+    this.aabb.setHalfSizeFromRotatedExtents(this._localHalf, _aabbWorldQuat);
     this.aabb.update();
   }
 
@@ -119,6 +231,12 @@ export class RVMovingUnit implements IMUAccessor {
    * and all other MU clones. Template geometries are disposed in clearModel().
    */
   dispose(): void {
+    // Restore + free any end-of-line dissolve materials we cloned (the originals
+    // are shared with the template and must stay alive).
+    this.dissolve?.dispose();
+    this.dissolve = null;
+    this.grow?.dispose();
+    this.grow = null;
     this.node.parent?.remove(this.node);
     // Do NOT dispose geometry here — it is shared by reference with the
     // template via Object3D.clone(). Disposing would corrupt all clones.
@@ -183,8 +301,32 @@ export class InstancedMovingUnit implements IMUAccessor {
   /** Which transport surface is currently moving this MU (null = free) */
   currentSurface: RVTransportSurface | null = null;
 
+  /** See `RVMovingUnit.lastSurface`. */
+  lastSurface?: RVTransportSurface | null;
+
   /** Marked for removal by Sink */
   markedForRemoval = false;
+
+  /** See `RVMovingUnit.blocked`. */
+  blocked = false;
+
+  /** See `RVMovingUnit.physicsOwned` (plan-276 F4). */
+  physicsOwned = false;
+
+  /** See `RVMovingUnit.physicsBodyId`. */
+  physicsBodyId: string | null = null;
+
+  /** See `RVMovingUnit.lastSurfaceTickId`. */
+  lastSurfaceTickId?: number;
+
+  /** See `RVMovingUnit.everOnSurface`. */
+  everOnSurface?: boolean;
+
+  /** See `RVMovingUnit.onLayoutObject`. */
+  onLayoutObject?: boolean;
+
+  /** See `RVMovingUnit.offSurfaceTime`. */
+  offSurfaceTime?: number;
 
   /** Pool that owns this instance */
   private pool: MUInstancePool;
@@ -194,6 +336,10 @@ export class InstancedMovingUnit implements IMUAccessor {
 
   /** Stable unique ID for this MU instance */
   readonly muId: string;
+
+  /** Stable engine-wide numeric MU id (script SDK `mu.id` id space) — the
+   *  numeric bridge to the string `muId` (plan-259 Phase 2). */
+  readonly id = nextEngineMuId();
 
   /** Template name for display */
   private templateName: string;
@@ -220,7 +366,11 @@ export class InstancedMovingUnit implements IMUAccessor {
       halfSize,
       localCenter,
     );
+    this._localHalf = halfSize.clone();
   }
+
+  /** MU half-extents in its own local frame (see RVMovingUnit._localHalf). */
+  private readonly _localHalf: Vector3;
 
   /** @internal Called by MUInstancePool._grow() to update the backing mesh after pool resize. */
   _updateNode(mesh: InstancedMesh): void {
@@ -283,6 +433,10 @@ export class InstancedMovingUnit implements IMUAccessor {
   // ─── Lifecycle ──────────────────────────────────────────────────
 
   updateAABB(): void {
+    // Pool quaternions are stored in WORLD space (instances are root-parented),
+    // so the per-instance quaternion is the world rotation directly. Re-derive the
+    // world axis-aligned extent so a rotated part is detected at the right point.
+    this.aabb.setHalfSizeFromRotatedExtents(this._localHalf, this.getQuaternion());
     this.aabb.update();
   }
 
@@ -341,6 +495,17 @@ export class MUInstancePool {
    *  Used by RaycastManager to update its target list. */
   onMeshChanged?: (oldMesh: InstancedMesh, newMesh: InstancedMesh) => void;
 
+  // ── GPU compute path (plan-271 Phase 4 SPIKE — opt-in, real WebGPU only) ──
+  /** Per-pool compute handle (created lazily on the first compute-path
+   *  frame from the pre-warmed TSL module; null on the CPU default path). */
+  private _compute: MuComputeTransforms | null = null;
+  /** Latched after a compute-path failure — the pool then stays on the CPU
+   *  path for its lifetime (fail-safe, warned once). */
+  private _computeFailed = false;
+  /** True while the GPU holds fresher matrices than the CPU-side
+   *  `instanceMatrix.array` mirror (raycast syncs lazily, see below). */
+  private _cpuMatricesStale = false;
+
   constructor(
     geometry: BufferGeometry,
     material: Material | Material[],
@@ -360,6 +525,12 @@ export class MUInstancePool {
     this.instancedMesh.instanceMatrix.setUsage(DynamicDrawUsage);
     this.instancedMesh.count = 0; // Start with no visible instances
     this.instancedMesh.frustumCulled = true; // Per-pool frustum culling via computed bounding sphere
+    // Shadows: opaque pools cast (per material alpha), all receive — matches
+    // the static-scene policy so spawned MUs cast/receive like everything else.
+    // No extra shadow-map dirtying needed: the sim loop already sets
+    // _shadowsDirty on MU movement (transport drive isRunning) and spawn/despawn.
+    this.instancedMesh.castShadow = classifyShadows(this.instancedMesh as unknown as Mesh);
+    this.instancedMesh.receiveShadow = true;
     this.instancedMesh.name = `__muPool_${templateName}`;
     // Tag for raycast manager identification
     this.instancedMesh.userData._muPool = this;
@@ -451,13 +622,11 @@ export class MUInstancePool {
       this.instancedMesh.getMatrixAt(lastSlot, _tmpMat4);
       this.instancedMesh.setMatrixAt(slot, _tmpMat4);
 
-      // Update the moved MU's slot index
+      // Update the moved MU's slot index. Its AABB position callback (set once
+      // at spawn) reads `slotIndex` at call time, so no re-registration needed.
       const movedMU = this.slotToMU[lastSlot]!;
       movedMU.slotIndex = slot;
       this.slotToMU[slot] = movedMU;
-
-      // Update AABB position callback (slotIndex changed)
-      movedMU.aabb.setPositionFn((out: Vector3) => movedMU.getWorldPosition(out));
     }
 
     // Clear last slot
@@ -486,9 +655,25 @@ export class MUInstancePool {
   /**
    * Recompose all instance matrices from parallel arrays.
    * Call once per frame after all transport/physics updates.
+   *
+   * `computeRenderer` (plan-271 Phase 4 spike): when a real-WebGPU renderer is
+   * passed (opt-in, wired through `RVTransportManager.muComputeRenderer`), the
+   * compose loop runs as a GPU compute kernel instead — the CPU
+   * positions/quaternions arrays stay the single source of truth, only the
+   * matrix composition moves to the GPU. Omitted/undefined = CPU path
+   * (unchanged default).
    */
-  updateInstanceMatrix(): void {
+  updateInstanceMatrix(computeRenderer?: unknown): void {
     if (!this._dirty) return;
+
+    if (computeRenderer !== undefined && computeRenderer !== null
+      && !this._computeFailed && this._tryComputePath(computeRenderer)) {
+      this._dirty = false;
+      // Bounding sphere stays CPU-side from the truth arrays — NO GPU readback
+      // in the frame path (plan-271 §5.2).
+      this._updateBoundingSphere();
+      return;
+    }
 
     for (let i = 0; i < this.activeCount; i++) {
       _tmpPos.set(this.positions[i * 3], this.positions[i * 3 + 1], this.positions[i * 3 + 2]);
@@ -498,11 +683,77 @@ export class MUInstancePool {
     }
 
     this.instancedMesh.instanceMatrix.needsUpdate = true;
+    this._cpuMatricesStale = false;
     this._dirty = false;
 
     // Recompute bounding sphere to cover all active instances for frustum culling.
     // Uses positions array directly (O(n) but n = activeCount, typically small).
     this._updateBoundingSphere();
+  }
+
+  // ── GPU compute path internals (plan-271 Phase 4 SPIKE) ──────────────
+
+  /** Run one compute-path frame. Returns false (and latches the fail flag)
+   *  when the TSL module is unavailable or the dispatch throws — the caller
+   *  then falls through to the unchanged CPU loop. */
+  private _tryComputePath(renderer: unknown): boolean {
+    try {
+      if (!this._compute) {
+        const tsl = getTslMaterials();
+        if (!tsl || typeof tsl.createMuComputeTransforms !== 'function') {
+          this._computeFailed = true;
+          console.warn(`[MUInstancePool] "${this.templateName}": compute path requested but the TSL module is not pre-warmed — staying on the CPU path.`);
+          return false;
+        }
+        this._compute = tsl.createMuComputeTransforms(this.maxInstances);
+      }
+      // No-op unless the pool grew (`_grow()` also calls this eagerly with
+      // the explicit old-buffer dispose, see there).
+      this._compute.ensureCapacity(this.maxInstances);
+      this._compute.writeFrom(this.positions, this.quaternions, this.activeCount);
+      this._compute.computeAndApply(renderer, this.instancedMesh);
+      this._cpuMatricesStale = true;
+      this._installRaycastSync();
+      return true;
+    } catch (err) {
+      console.warn(`[MUInstancePool] "${this.templateName}": GPU compute path failed — falling back to the CPU path permanently for this pool:`, err);
+      this._computeFailed = true;
+      try {
+        this._compute?.dispose(); // detaches + destroys buffers
+      } catch { /* best effort */ }
+      this._compute = null;
+      return false;
+    }
+  }
+
+  /** Wrap `mesh.raycast` so three's `getMatrixAt`-based InstancedMesh
+   *  raycasting keeps working under the compute path: the CPU
+   *  `instanceMatrix.array` mirror is recomposed lazily from the truth arrays
+   *  ONLY when a ray actually tests this mesh (throttled pointer moves) — the
+   *  frame path itself never pays for it. Installed once per mesh (re-applied
+   *  automatically after a `_grow()` mesh swap). */
+  private _installRaycastSync(): void {
+    const mesh = this.instancedMesh as InstancedMesh & { __rvComputeRaycastSync?: boolean };
+    if (mesh.__rvComputeRaycastSync) return;
+    mesh.__rvComputeRaycastSync = true;
+    const base = mesh.raycast.bind(mesh);
+    mesh.raycast = (raycaster, intersects) => {
+      this._syncCpuMatricesForRaycast();
+      base(raycaster, intersects);
+    };
+  }
+
+  /** Recompose the CPU-side matrix mirror from positions/quaternions (no
+   *  `needsUpdate` — the GPU already holds the composed matrices). */
+  private _syncCpuMatricesForRaycast(): void {
+    if (!this._cpuMatricesStale) return;
+    for (let i = 0; i < this.activeCount; i++) {
+      _tmpPos.set(this.positions[i * 3], this.positions[i * 3 + 1], this.positions[i * 3 + 2]);
+      _tmpQuat.set(this.quaternions[i * 4], this.quaternions[i * 4 + 1], this.quaternions[i * 4 + 2], this.quaternions[i * 4 + 3]);
+      _tmpMat4.compose(_tmpPos, _tmpQuat, _oneVec);
+      this.instancedMesh.setMatrixAt(i, _tmpMat4);
+    }
+    this._cpuMatricesStale = false;
   }
 
   /** Compute a bounding sphere encompassing all active instance positions + geometry radius. */
@@ -556,6 +807,8 @@ export class MUInstancePool {
     newMesh.instanceMatrix.setUsage(DynamicDrawUsage);
     newMesh.count = this.activeCount;
     newMesh.frustumCulled = true;
+    newMesh.castShadow = this.instancedMesh.castShadow; // preserve across the swap
+    newMesh.receiveShadow = this.instancedMesh.receiveShadow;
     newMesh.name = this.instancedMesh.name;
     newMesh.userData._muPool = this;
 
@@ -607,6 +860,24 @@ export class MUInstancePool {
     this.maxInstances = newMax;
     this._dirty = true;
 
+    // Compute path (plan-271 Phase 4): grow the storage buffers now —
+    // `ensureCapacity` EXPLICITLY disposes the replaced GPU buffers (unlike
+    // the CPU arrays above, dropping the references would leak GPUBuffers).
+    // The new mesh is (re-)attached + raycast-wrapped on the next compute
+    // frame (`_tryComputePath`), before it is ever rendered.
+    if (this._compute) {
+      try {
+        this._compute.ensureCapacity(newMax);
+      } catch (err) {
+        console.warn(`[MUInstancePool] "${this.templateName}": compute buffer growth failed — CPU fallback:`, err);
+        this._computeFailed = true;
+        try {
+          this._compute.dispose();
+        } catch { /* best effort */ }
+        this._compute = null;
+      }
+    }
+
     // Notify external listeners (e.g. RaycastManager) about mesh replacement
     this.onMeshChanged?.(oldMesh, newMesh);
   }
@@ -615,6 +886,15 @@ export class MUInstancePool {
   dispose(): void {
     if (this.instancedMesh.parent) {
       this.instancedMesh.parent.remove(this.instancedMesh);
+    }
+    // Compute-path storage buffers are POOL-SPECIFIC GPU resources — dispose
+    // them explicitly (plan-271 finding 14). This is deliberately different
+    // from geometry/material below, which are template-shared.
+    if (this._compute) {
+      try {
+        this._compute.dispose();
+      } catch { /* best effort */ }
+      this._compute = null;
     }
     // Don't dispose geometry/material — shared with template
     this.activeCount = 0;
@@ -656,3 +936,12 @@ export function analyzeTemplate(template: Object3D): {
   // Multi-mesh or no mesh -> clone fallback
   return null;
 }
+
+// Register capabilities for MU
+registerCapabilities('MU', {
+  hoverable: true,
+  selectable: true,
+  badgeColor: '#78909c',
+  hoverEnabledByDefault: true,
+  exclusiveHoverGroup: true,
+});

@@ -26,10 +26,10 @@ import {
   formatRefSignalValue,
   formatSensorStatus,
   componentColor,
-  BADGE_COLORS,
   getRefSignalColor,
   getSensorRefColor,
 } from './rv-inspector-helpers';
+import { SignalBadge, type SignalDirection } from './rv-signal-badge';
 
 // ── navigateToRef ────────────────────────────────────────────────────────
 
@@ -56,9 +56,29 @@ export function ReferenceDisplay({ value, viewer, signalStore }: {
 
   const handleClick = useCallback(() => navigateToRef(viewer, value.path), [viewer, value.path]);
 
-  // Signal references -> single combined badge with live value, gray when off
+  // Signal references -> the unified interactive SignalBadge (plan-246): same
+  // hover tooltip (with click-to-navigate on the title), click-to-force,
+  // Shift+Drag linking and global chip variant as every other signal chip.
+  // Falls back to the legacy static chip only when the store name can't be
+  // resolved (e.g. signal not registered) or no viewer is available.
   if (isSignalRefType(value.componentType)) {
-    const liveColor = isLinked ? getRefSignalColor(shortType, signalStore, value.path) : '#D9534F';
+    const signalName = signalStore?.nameForPath(value.path) ?? undefined;
+    if (viewer && signalName) {
+      const direction: SignalDirection = shortType.startsWith('PLCOutput') ? 'output'
+        : shortType.startsWith('PLCInput') ? 'input' : 'unknown';
+      return (
+        <SignalBadge
+          viewer={viewer}
+          signalName={signalName}
+          displayName={shortName}
+          direction={direction}
+          plcType={shortType}
+        />
+      );
+    }
+
+    // Fallback: legacy static chip (navigate-on-click) when the store name is unresolved.
+    const liveColor = isLinked ? getRefSignalColor(shortType, signalStore, value.path) : '#ef5350';
     const typeLabel = signalTypeLabel(shortType);
     const valueStr = formatRefSignalValue(shortType, signalStore, value.path);
 
@@ -86,7 +106,7 @@ export function ReferenceDisplay({ value, viewer, signalStore }: {
 
   // Sensor references -> gray when not occupied, green when occupied
   if (isSensorRefType(value.componentType)) {
-    const liveColor = isLinked ? getSensorRefColor(signalStore, value.path) : '#D9534F';
+    const liveColor = isLinked ? getSensorRefColor(signalStore, value.path) : '#ef5350';
     const statusStr = formatSensorStatus(signalStore, value.path);
     return (
       <Tooltip title={`${isLinked ? 'Linked' : 'Unlinked'} \u2192 ${value.path}\nClick to navigate`} placement="top">
@@ -124,7 +144,7 @@ export function ReferenceDisplay({ value, viewer, signalStore }: {
           fontWeight: 500,
           cursor: 'pointer',
           bgcolor: isLinked ? 'rgba(102,187,106,0.1)' : 'rgba(239,83,80,0.1)',
-          color: isLinked ? '#5FB37A' : '#D9534F',
+          color: isLinked ? '#66bb6a' : '#ef5350',
           border: `1px solid ${isLinked ? 'rgba(102,187,106,0.3)' : 'rgba(239,83,80,0.3)'}`,
           '& .MuiChip-label': { px: 0.5, overflow: 'hidden', textOverflow: 'ellipsis' },
           '& .MuiChip-icon': { color: 'inherit', ml: 0.25 },
@@ -143,11 +163,11 @@ export function ScriptableObjectDisplay({ value }: { value: Record<string, unkno
   return (
     <Tooltip title={`ScriptableObject: ${name}`} placement="top">
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.375, overflow: 'hidden' }}>
-        <Link sx={{ fontSize: 12, color: '#8B7BC7', flexShrink: 0 }} />
+        <Link sx={{ fontSize: 12, color: '#7e57c2', flexShrink: 0 }} />
         <Typography sx={{
           fontSize: 10,
           fontFamily: 'monospace',
-          color: '#8B7BC7',
+          color: '#7e57c2',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',

@@ -13,7 +13,6 @@ import {
   Box,
   Typography,
   IconButton,
-  Divider,
   Paper,
 } from '@mui/material';
 import {
@@ -30,16 +29,19 @@ import {
   getAnnotationSnapshot,
 } from '../../plugins/annotation-plugin';
 import {
+  ANNOTATION_PANEL_WIDTH,
   LEFT_PANEL_TOP,
   LEFT_PANEL_LEFT,
   LEFT_PANEL_BOTTOM,
   LEFT_PANEL_ZINDEX,
 } from './layout-constants';
+import { WINDOW_DARK_BG } from './LeftPanel';
+import { useViewportInsets } from '../../hooks/use-viewport-insets';
+import { useDropOrphanedPanelSlot } from '../../hooks/use-drop-orphaned-panel-slot';
+import { ISA_RED } from './isa-colors';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-const PANEL_WIDTH = 280;
-const BG = 'rgba(18,22,30,0.96)';
 const BORDER = 'rgba(255,255,255,0.07)';
 
 // ── Panel Component ────────────────────────────────────────────────────
@@ -51,6 +53,7 @@ export function AnnotationPanel() {
 
   const lpm = viewer.leftPanelManager;
   const isOpen = useSyncExternalStore(lpm.subscribe, lpm.getSnapshot).activePanel === 'annotations';
+  const topOffset = useViewportInsets().top;
 
   const handleClose = useCallback(() => {
     lpm.close('annotations');
@@ -68,6 +71,11 @@ export function AnnotationPanel() {
     plugin?.focusAnnotation(id);
   }, [plugin]);
 
+  // The per-model annotation plugin backs this slot; drop it if the slot was
+  // restored for a model that doesn't load the plugin (else its inset reserves
+  // an empty strip — see useDropOrphanedPanelSlot).
+  useDropOrphanedPanelSlot('annotations', isOpen, !!plugin);
+
   if (!isOpen || !plugin) return null;
 
   return (
@@ -77,12 +85,12 @@ export function AnnotationPanel() {
       sx={{
         position: 'fixed',
         left: LEFT_PANEL_LEFT,
-        top: LEFT_PANEL_TOP,
+        top: LEFT_PANEL_TOP + topOffset,
         bottom: LEFT_PANEL_BOTTOM,
-        width: PANEL_WIDTH,
-        bgcolor: BG,
-        border: `1px solid ${BORDER}`,
-        borderRadius: 1,
+        width: ANNOTATION_PANEL_WIDTH,
+        backgroundColor: `${WINDOW_DARK_BG} !important`,
+        borderRight: `1px solid ${BORDER}`,
+        borderRadius: 0,
         zIndex: LEFT_PANEL_ZINDEX,
         display: 'flex',
         flexDirection: 'column',
@@ -90,18 +98,16 @@ export function AnnotationPanel() {
         pointerEvents: 'auto',
       }}
     >
-      {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', p: 1, gap: 0.5 }}>
-        <PushPin sx={{ fontSize: 14, color: '#D9A441' }} />
-        <Typography sx={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)', flexGrow: 1 }}>
+      {/* Unified header (matches LeftPanel) */}
+      <Box sx={{ display: 'flex', alignItems: 'center', px: 1.5, py: 1.25, gap: 0.5, borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
+        <PushPin sx={{ fontSize: 16, color: '#FF5722' }} />
+        <Typography variant="subtitle2" sx={{ fontSize: '0.8rem', fontWeight: 600, color: 'text.primary', flexGrow: 1 }}>
           Annotations ({snap.annotations.length})
         </Typography>
-        <IconButton size="small" onClick={handleClose} sx={{ color: 'rgba(255,255,255,0.4)', p: 0.25 }}>
-          <Close sx={{ fontSize: 14 }} />
+        <IconButton size="small" onClick={handleClose} sx={{ color: 'text.secondary', p: 0.25 }}>
+          <Close sx={{ fontSize: 16 }} />
         </IconButton>
       </Box>
-
-      <Divider sx={{ borderColor: BORDER }} />
 
       {/* Annotation list */}
       <Box sx={{ flex: 1, overflow: 'auto', py: 0.5 }}>
@@ -158,14 +164,14 @@ export function AnnotationPanel() {
               <IconButton
                 size="small"
                 onClick={(e) => { e.stopPropagation(); handleStartEdit(ann); }}
-                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#3FB8C4' } }}
+                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#4fc3f7' } }}
               >
                 <EditNote sx={{ fontSize: 12 }} />
               </IconButton>
               <IconButton
                 size="small"
                 onClick={(e) => { e.stopPropagation(); handleDelete(ann.id); }}
-                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: '#D9534F' } }}
+                sx={{ color: 'rgba(255,255,255,0.3)', p: 0.2, '&:hover': { color: ISA_RED } }}
               >
                 <Delete sx={{ fontSize: 12 }} />
               </IconButton>

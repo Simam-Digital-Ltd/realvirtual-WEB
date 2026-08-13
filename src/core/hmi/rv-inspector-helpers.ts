@@ -10,29 +10,64 @@
  */
 
 import { getConsumedFields, getIgnoredFields, isKnownComponentType } from '../engine/rv-extras-validator';
+import { getCapabilities } from '../engine/rv-component-registry';
+import { COLLISION_ROLES } from '../engine/rv-collision-role';
 import type { SignalStore } from '../engine/rv-signal-store';
-import type { NodeRegistry } from '../engine/rv-node-registry';
-import type { RVDrive } from '../engine/rv-drive';
+import { readSignalValue, formatValue } from './rv-value-resolver';
+import {
+  SIGNAL_VALUE_NEUTRAL,
+  signalDirectionFromType,
+  signalValueColor,
+  signalValueColorForValue,
+} from './signal-colors';
+import type { SvgIconComponent } from '@mui/icons-material';
+import {
+  Settings,
+  RadioButtonChecked,
+  ViewStream,
+  PlayArrow,
+  Stop,
+  PanTool,
+  Sensors,
+  Widgets,
+} from '@mui/icons-material';
 
 // ── Hidden component types (not shown in inspector or hierarchy) ──────────
 
-/** Component types that are always hidden (internal/structural). */
-const ALWAYS_HIDDEN = new Set([
-  'rigidbody', 'renderer', 'colliders', 'BoxCollider',
-  'Group', 'Kinematic',
-  'RuntimeUIWindow', 'RuntimeInteractable',
-]);
-
 /**
  * Returns true if a component type should be hidden in the inspector.
- * Hides:
- * - Internal/structural types (rigidbody, renderer, colliders)
- * - Component types completely unknown to the WebViewer (not in CONSUMED,
- *   IGNORED, or schema registry) — e.g. RuntimeUIWindow, RuntimeInteractable
+ * Uses the capabilities registry (inspectorVisible) as the primary check.
+ * Falls back to the validator for types without capabilities.
  */
 export function isHiddenComponentType(type: string): boolean {
-  if (ALWAYS_HIDDEN.has(type)) return true;
+  // If the type has explicit capabilities, use inspectorVisible
+  const caps = getCapabilities(type);
+  if (!caps.inspectorVisible) return true;
+  // Fall back to unknown-component check
   return !isKnownComponentType(type);
+}
+
+/**
+ * Extract the component type keys from a `userData.realvirtual` object.
+ *
+ * Component types are object-valued keys (non-null, non-array). Scalar values
+ * like the `name` marker are skipped. Hidden types (`_highlightOverlay` etc.)
+ * are dropped by default; pass `{ filterHidden: false }` for raw extraction.
+ */
+export function extractComponentTypes(
+  rv: unknown,
+  options?: { filterHidden?: boolean },
+): string[] {
+  if (!rv || typeof rv !== 'object' || Array.isArray(rv)) return [];
+  const filterHidden = options?.filterHidden ?? true;
+  const types: string[] = [];
+  for (const [key, value] of Object.entries(rv as Record<string, unknown>)) {
+    if (filterHidden && isHiddenComponentType(key)) continue;
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      types.push(key);
+    }
+  }
+  return types;
 }
 
 // ── Enum options ─────────────────────────────────────────────────────────
@@ -45,18 +80,88 @@ const DIRECTION_OPTIONS = [
 
 const ACTIVE_OPTIONS = ['Always', 'Connected', 'Disconnected'];
 
-/** Map of field names to their enum options. */
+/** plan-394 — the six preset collision roles (English, not localized). */
+const COLLISION_ROLE_OPTIONS = [...COLLISION_ROLES];
+
+/** Map of field names to their enum options. Indexed by the BARE field name
+ *  across all component types — which is why the collision field is called
+ *  `CollisionRole` and not `Role` (a generic `Role` would turn every
+ *  same-named field of any other component into this dropdown). */
 export const ENUM_FIELDS: Record<string, string[]> = {
   Direction: DIRECTION_OPTIONS,
   TransportDirection: DIRECTION_OPTIONS,
   RayCastDirection: DIRECTION_OPTIONS,
   Active: ACTIVE_OPTIONS,
+  CollisionRole: COLLISION_ROLE_OPTIONS,
+  CollisionRoleForMUs: COLLISION_ROLE_OPTIONS,
 };
+
+// ── Field units ──────────────────────────────────────────────────────────
+
+/**
+ * Units shown inside numeric inputs (right-aligned, e.g. "mm", "mm/s", "°", "s").
+ * Keyed by either the component-qualified field (`"Drive.TargetSpeed"`) or the
+ * bare field name (`"TargetSpeed"`). A qualified key wins over a bare key, so a
+ * field can carry different units per component. Extend this map to add units —
+ * `getFieldUnit()` is the single lookup point.
+ */
+export const FIELD_UNITS: Record<string, string> = {
+  // Distances / positions (millimetres)
+  StartPosition: 'mm',
+  TargetPosition: 'mm',
+  CurrentPosition: 'mm',
+  Offset: 'mm',
+  Position: 'mm',
+  MinPos: 'mm',
+  MaxPos: 'mm',
+  LowerLimit: 'mm',
+  UpperLimit: 'mm',
+  'Source.GenerateIfDistance': 'mm',
+  // Speeds (mm/s)
+  TargetSpeed: 'mm/s',
+  CurrentSpeed: 'mm/s',
+  Speed: 'mm/s',
+  // Accelerations (mm/s²)
+  Acceleration: 'mm/s²',
+  // Times (seconds)
+  Interval: 's',
+  TimeIn: 's',
+  TimeOut: 's',
+  Delay: 's',
+};
+
+/** Resolve the unit suffix for a numeric field, or undefined if none. Prefers a
+ *  component-qualified entry (`Type.Field`) over a bare `Field` entry. */
+export function getFieldUnit(componentType: string, fieldName: string): string | undefined {
+  const base = baseComponentType(componentType);
+  return FIELD_UNITS[`${base}.${fieldName}`] ?? FIELD_UNITS[fieldName];
+}
 
 // ── Hidden fields ────────────────────────────────────────────────────────
 
-/** Fields hidden from the inspector (redundant with header or always empty). */
+/** Fields hidden from the inspector across ALL component types (redundant
+ *  with header or always empty). */
 export const HIDDEN_FIELD_NAMES = new Set(['Name']);
+
+/** Per-component-type fields hidden from the inspector. These values still
+ *  live in userData (and are persisted by the overlay), but the Inspector
+ *  doesn't render rows for them — typically because:
+ *    • A universal `ObjectHeaderSection` already exposes them (Locked,
+ *      Visible), or
+ *    • A registered ComponentAction (button) renders the control instead
+ *      (Splat.InvertX/Y/Z → Invert X/Y/Z buttons). */
+export const HIDDEN_FIELDS_PER_TYPE: Record<string, ReadonlySet<string>> = {
+  LayoutObject: new Set(['Locked', 'Visible']),
+  Splat: new Set(['InvertX', 'InvertY', 'InvertZ']),
+};
+
+/** True if the given field should be hidden in the inspector, considering
+ *  both the global and per-type lists. */
+export function isFieldHidden(componentType: string, fieldName: string): boolean {
+  if (HIDDEN_FIELD_NAMES.has(fieldName)) return true;
+  const perType = HIDDEN_FIELDS_PER_TYPE[componentType];
+  return !!perType?.has(fieldName);
+}
 
 // ── Component type suffix stripping ──────────────────────────────────────
 
@@ -123,24 +228,47 @@ export function classifyField(componentType: string, fieldName: string): FieldSt
 // ── Badge color map (shared between hierarchy browser and inspector) ──────
 
 export const BADGE_COLORS: Record<string, string> = {
-  Drive: '#3FB8C4',
-  TransportSurface: '#D9A441',
-  Sensor: '#5FB37A',
-  Source: '#8B7BC7',
-  Sink: '#D9534F',
-  MU: '#8A97A8',
-  DrivesRecorder: '#8B7BC7',
-  ReplayRecording: '#3FB8C4',
-  Metadata: '#D9A441',
-  RuntimeMetadata: '#D9A441',
+  Drive: '#4fc3f7',
+  TransportSurface: '#ffa726',
+  Sensor: '#66bb6a',
+  Source: '#ab47bc',
+  Sink: '#ef5350',
+  MU: '#78909c',
+  DrivesRecorder: '#7e57c2',
+  ReplayRecording: '#26a69a',
+  Metadata: '#ffb74d',
+  RuntimeMetadata: '#ffb74d',
 };
 
 export function componentColor(type: string): string {
+  // Prefix-based fallbacks for dynamic/generated type names
   if (type.startsWith('LogicStep_')) return '#8d6e63';
-  if (type.startsWith('PLCInput')) return '#D9534F';
-  if (type.startsWith('PLCOutput')) return '#5FB37A';
-  if (type.startsWith('Drive_')) return '#3FB8C4';
-  return BADGE_COLORS[type] ?? '#8A97A8';
+  if (type.startsWith('PLCInput')) return '#ef5350';
+  if (type.startsWith('PLCOutput')) return '#66bb6a';
+  if (type.startsWith('Drive_')) return '#29b6f6';
+  // Registry has priority, then legacy BADGE_COLORS map
+  const caps = getCapabilities(type);
+  if (caps.badgeColor !== '#90a4ae') return caps.badgeColor;
+  return BADGE_COLORS[type] ?? '#90a4ae';
+}
+
+/**
+ * MUI icon component for a component type — the visual counterpart to
+ * {@link componentColor}. Used as a small leading glyph next to a signal badge
+ * to show which component a signal is bound to (plan-234 §3.1b). Returns a
+ * component reference (not JSX), so the caller renders it and applies the
+ * `componentColor(type)` tint. Unknown types fall back to a generic `Widgets`.
+ */
+export function componentTypeIcon(type: string): SvgIconComponent {
+  const base = baseComponentType(type);
+  if (base === 'Drive' || base.startsWith('Drive')) return Settings;
+  if (base === 'Sensor') return RadioButtonChecked;
+  if (base === 'TransportSurface') return ViewStream;
+  if (base === 'Source') return PlayArrow;
+  if (base === 'Sink') return Stop;
+  if (base === 'Gripper') return PanTool;
+  if (base === 'WebSensor') return Sensors;
+  return Widgets;
 }
 
 // ── Format display value for read-only fields ─────────────────────────────
@@ -183,12 +311,10 @@ export function signalTypeLabel(type: string): string {
 }
 
 export function formatRefSignalValue(shortType: string, signalStore: SignalStore | null, path: string): string {
-  if (!signalStore) return '\u2014';
-  const value = signalStore.getByPath(path);
-  if (value === undefined) return '\u2014';
-  if (shortType.includes('Bool')) return value === true ? '\u25CF' : '\u25CB';
-  if (typeof value === 'number') return shortType.includes('Int') ? Math.trunc(value).toString() : value.toFixed(1);
-  return '\u2014';
+  return formatValue(readSignalValue(signalStore, path), {
+    boolStyle: 'glyph',
+    intLike: shortType.includes('Int'),
+  });
 }
 
 // ── Sensor reference helpers ────────────────────────────────────────────
@@ -199,29 +325,32 @@ export function isSensorRefType(componentType: string): boolean {
 }
 
 export function formatSensorStatus(signalStore: SignalStore | null, path: string): string {
-  if (!signalStore) return '';
-  const value = signalStore.getByPath(path);
+  const value = readSignalValue(signalStore, path);
   if (value === undefined) return '';
-  return value === true ? '\u25CF' : '\u25CB';
+  return formatValue(value, { boolStyle: 'glyph' });
 }
 
-/** Get color for a signal reference chip — gray when off, component color when on. */
+/**
+ * Colour of a signal reference chip — a signal-VALUE surface (plan-341 §2.3):
+ * hue = direction, intensity = state, neutral when there is no reading.
+ * Non-signal reference types keep their component colour.
+ */
 export function getRefSignalColor(shortType: string, signalStore: SignalStore | null, path: string): string {
-  if (!signalStore) return '#8A97A8';
+  const dir = signalDirectionFromType(shortType);
+  if (dir === 'unknown') return componentColor(shortType);
+  if (!signalStore) return SIGNAL_VALUE_NEUTRAL;
   const value = signalStore.getByPath(path);
-  if (value === undefined) return '#8A97A8';
-  const isBool = shortType.includes('Bool');
-  if (isBool) return value === true ? componentColor(shortType) : '#8A97A8';
-  if (typeof value === 'number' && value === 0) return '#8A97A8';
-  return componentColor(shortType);
+  if (value === undefined) return SIGNAL_VALUE_NEUTRAL;
+  if (shortType.includes('Bool')) return signalValueColor(dir, value === true);
+  return signalValueColorForValue(dir, value);
 }
 
 /** Get color for a sensor reference chip — gray when not occupied, green when occupied. */
 export function getSensorRefColor(signalStore: SignalStore | null, path: string): string {
-  if (!signalStore) return '#8A97A8';
+  if (!signalStore) return '#808080';
   const value = signalStore.getByPath(path);
-  if (value === undefined) return '#8A97A8';
-  return value === true ? (BADGE_COLORS['Sensor'] ?? '#5FB37A') : '#8A97A8';
+  if (value === undefined) return '#808080';
+  return value === true ? (BADGE_COLORS['Sensor'] ?? '#66bb6a') : '#808080';
 }
 
 // ── Signal component type detection (the component itself, not a ref) ─────
@@ -230,87 +359,26 @@ export function isSignalComponentType(type: string): boolean {
   return type.startsWith('PLCInput') || type.startsWith('PLCOutput');
 }
 
-/** Get signal header color matching hierarchy badge style.
- *  Bool false → gray, Bool true → Input red / Output green,
- *  Numeric 0 → gray, empty string → gray, otherwise → component color. */
+/**
+ * Colour of the inspector's live signal value — a signal-VALUE surface
+ * (plan-341 §2.3). Hue = direction, intensity = state; an empty reading or an
+ * em dash is "no value" and takes the neutral step, not the direction hue.
+ * Non-signal component types keep their component colour.
+ */
 export function getSignalHeaderColor(componentType: string, signalValue: string): string {
-  const isBool = componentType.includes('Bool');
-  if (isBool) {
-    if (signalValue === 'true') {
-      return componentType.startsWith('PLCInput') ? '#D9534F' : '#5FB37A';
-    }
-    return '#8A97A8';
-  }
-  const num = parseFloat(signalValue);
-  if (!isNaN(num) && num === 0) return '#8A97A8';
-  if (signalValue === '' || signalValue === '\u2014') return '#8A97A8';
-  return componentColor(componentType);
-}
-
-/** Get live signal value for display in component header. */
-export function getSignalDisplayValue(
-  signalStore: SignalStore | null,
-  nodePath: string,
-  componentType: string,
-  data: Record<string, unknown>,
-): string | null {
-  if (!signalStore || !isSignalComponentType(componentType)) return null;
-
-  // Try path-based lookup first, then fall back to name-based
-  let value = signalStore.getByPath(nodePath);
-  if (value === undefined) {
-    const signalName = (data['Name'] as string) || nodePath.split('/').pop() || '';
-    if (signalName) value = signalStore.get(signalName);
-  }
-
-  if (value === undefined) return null;
+  const dir = signalDirectionFromType(componentType);
+  if (dir === 'unknown') return componentColor(componentType);
   if (componentType.includes('Bool')) {
-    return value === true ? 'true' : 'false';
+    if (signalValue === 'true') return signalValueColor(dir, true);
+    if (signalValue === 'false') return signalValueColor(dir, false);
+    return SIGNAL_VALUE_NEUTRAL;
   }
-  if (typeof value === 'number') {
-    return componentType.includes('Int') ? Math.trunc(value).toString() : value.toFixed(2);
-  }
-  return String(value);
+  return signalValueColorForValue(dir, signalValue);
 }
 
-// ── Drive live value helpers ───────────────────────────────────────────────
-
-/** Get live drive position for display in Drive component header (like signals show their value). */
-export function getDriveDisplayValue(
-  registry: NodeRegistry | null,
-  nodePath: string,
-  componentType: string,
-): string | null {
-  if (!registry || (componentType !== 'Drive' && !componentType.startsWith('Drive_'))) return null;
-  const drive = registry.getByPath<RVDrive>('Drive', nodePath);
-  if (!drive) return null;
-  const pos = drive.currentPosition;
-  const unit = drive.isRotary ? '°' : ' mm';
-  return pos.toFixed(1) + unit;
-}
-
-/** Runtime Drive fields to overlay on static GLB data for live inspector display. */
-export function getLiveDriveFields(
-  registry: NodeRegistry | null,
-  nodePath: string,
-  componentType: string,
-): Record<string, unknown> | null {
-  if (!registry || (componentType !== 'Drive' && !componentType.startsWith('Drive_'))) return null;
-  const drive = registry.getByPath<RVDrive>('Drive', nodePath);
-  if (!drive) return null;
-  return {
-    CurrentPosition: drive.currentPosition,
-    CurrentSpeed: drive.currentSpeed,
-    IsPosition: drive.currentPosition, // WebViewer has no separate IsPosition; currentPosition is the effective value
-    IsSpeed: drive.currentSpeed,
-    IsRunning: drive.isRunning,
-    IsAtTarget: drive.isAtTarget,
-    TargetPosition: drive.targetPosition,
-    TargetSpeed: drive.targetSpeed,
-    JogForward: drive.jogForward,
-    JogBackward: drive.jogBackward,
-  };
-}
+// Header/live-value reads were moved to rv-value-resolver.ts:
+//   getSignalDisplayValue / getDriveDisplayValue → getPrimaryDisplayValue
+//   getLiveDriveFields → Drive.getLiveState() merged via getDisplayState
 
 // ── Reverse reference helpers (who points to this node?) ──────────────────
 

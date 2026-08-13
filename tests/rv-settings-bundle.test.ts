@@ -10,6 +10,7 @@ import {
   loadModelSettingsConfig,
 } from '../src/core/hmi/rv-settings-bundle';
 import type { RVSettingsBundle } from '../src/core/hmi/rv-settings-bundle';
+import { loadVisualSettings, saveVisualSettings } from '../src/core/hmi/visual-settings-store';
 
 function createTestBundle(settings: RVSettingsBundle['settings']): RVSettingsBundle {
   return {
@@ -45,14 +46,17 @@ describe('collectSettingsBundle', () => {
     expect(bundle.$schema).toBe('rv-settings-bundle/1.0');
     expect(bundle.exportedAt).toBeTruthy();
     expect(bundle.settings.visual).toBeDefined();
-    expect(bundle.settings.physics).toBeDefined();
+    expect(bundle.settings.interface).toBeDefined();
     expect(bundle.settings.groupVisibility).toBeDefined();
   });
 
-  test('includes panelLayouts from localStorage', () => {
+  test('does not collect panelLayouts (panels re-anchor on each open)', () => {
+    // Stale rv-panel-* keys from prior versions are intentionally ignored:
+    // floating panels now reposition next to the user's last click on
+    // every open, so persisting layouts has no effect.
     localStorage.setItem('rv-panel-groups', JSON.stringify({ x: 10, y: 20, w: 300, h: 200 }));
     const bundle = collectSettingsBundle('models/demo.glb');
-    expect(bundle.settings.panelLayouts?.groups).toEqual({ x: 10, y: 20, w: 300, h: 200 });
+    expect(bundle.settings.panelLayouts).toBeUndefined();
   });
 });
 
@@ -91,12 +95,46 @@ describe('applySettingsBundle', () => {
   });
 
   test('does not overwrite stores for missing sections', () => {
-    localStorage.setItem('rv-physics-settings', JSON.stringify({ enabled: true }));
+    localStorage.setItem('rv-search-settings', JSON.stringify({ query: 'preserved' }));
     const bundle = createTestBundle({ visual: { bloomEnabled: true } });
-    // physics not in bundle
+    // search not in bundle
     applySettingsBundle(bundle);
-    const raw = JSON.parse(localStorage.getItem('rv-physics-settings') ?? '{}');
-    expect(raw.enabled).toBe(true);
+    const raw = JSON.parse(localStorage.getItem('rv-search-settings') ?? '{}');
+    expect(raw.query).toBe('preserved');
+  });
+
+  // ── Navigation Sensitivity (Plan 148) ─────────────────────────────────
+  test('includes navigation settings in export bundle', () => {
+    const s = loadVisualSettings();
+    s.orbitRotateSpeed = 2.0;
+    s.orbitPanSpeed = 0.5;
+    s.orbitZoomSpeed = 1.7;
+    s.orbitDampingFactor = 0.15;
+    saveVisualSettings(s);
+
+    const bundle = collectSettingsBundle('models/demo.glb');
+    const v = bundle.settings.visual as Record<string, unknown>;
+    expect(v.orbitRotateSpeed).toBe(2.0);
+    expect(v.orbitPanSpeed).toBe(0.5);
+    expect(v.orbitZoomSpeed).toBe(1.7);
+    expect(v.orbitDampingFactor).toBe(0.15);
+  });
+
+  test('applies navigation settings from imported bundle to localStorage', () => {
+    const bundle = createTestBundle({
+      visual: {
+        orbitRotateSpeed: 2.5,
+        orbitPanSpeed: 0.5,
+        orbitZoomSpeed: 1.8,
+        orbitDampingFactor: 0.20,
+      },
+    });
+    applySettingsBundle(bundle);
+    const loaded = loadVisualSettings();
+    expect(loaded.orbitRotateSpeed).toBe(2.5);
+    expect(loaded.orbitPanSpeed).toBe(0.5);
+    expect(loaded.orbitZoomSpeed).toBe(1.8);
+    expect(loaded.orbitDampingFactor).toBe(0.20);
   });
 });
 
@@ -105,11 +143,11 @@ describe('loadModelSettingsConfig', () => {
   afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 
   test('applies settings from sidecar on first visit', async () => {
-    const bundle = { $schema: 'rv-settings-bundle/1.0', exportedAt: '', settings: { physics: { enabled: false } } };
+    const bundle = { $schema: 'rv-settings-bundle/1.0', exportedAt: '', settings: { search: { query: 'sidecar' } } };
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify(bundle), { status: 200 }));
     await loadModelSettingsConfig('models/demo.glb');
-    const raw = JSON.parse(localStorage.getItem('rv-physics-settings') ?? '{}');
-    expect(raw.enabled).toBe(false);
+    const raw = JSON.parse(localStorage.getItem('rv-search-settings') ?? '{}');
+    expect(raw.query).toBe('sidecar');
   });
 
   test('silent on 404', async () => {

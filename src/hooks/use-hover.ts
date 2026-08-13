@@ -27,6 +27,8 @@ export interface ObjectHoverState {
   nodePath: string;
   /** Pointer position in screen coordinates. */
   pointer: { x: number; y: number };
+  /** 3D world-space hit point on the mesh surface. */
+  hitPoint: [number, number, number] | null;
   /** The actual mesh that was hit. */
   mesh: Object3D;
 }

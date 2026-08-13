@@ -62,9 +62,10 @@ function getOpsSnapshot(viewer: RVViewer, scenario: ScenarioId): OpsSnapshot {
   const registry = viewer.registry as unknown as { size?: number; nodes?: unknown[] } | undefined;
   return {
     drives: result?.drives?.length ?? 0,
-    surfaces: result?.surfaces?.length ?? 0,
-    sensors: result?.sensors?.length ?? 0,
-    signals: result?.signals?.length ?? 0,
+    // Surfaces and sensors live on the transport manager; signals on the store.
+    surfaces: result?.transportManager?.surfaces?.length ?? 0,
+    sensors: result?.transportManager?.sensors?.length ?? 0,
+    signals: result?.signalStore?.getAll().size ?? 0,
     nodes: registry?.size ?? registry?.nodes?.length ?? 0,
     availability: scenario === 'dock4-blocked' ? 82 : Number(DEMO_PROFILE.kpis.availability),
     casesPacked: scenario === 'dock4-blocked' ? '1,112' : DEMO_PROFILE.kpis.casesPacked,

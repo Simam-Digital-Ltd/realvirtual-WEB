@@ -8,32 +8,45 @@
  * updated on every 'mcp-bridge-changed' event.
  */
 
-import { useState, useEffect } from 'react';
+import { useViewerEvent } from './use-viewer-event';
 import { useViewer } from './use-viewer';
-import type { McpBridgeSnapshot } from '../plugins/mcp-bridge-plugin';
+import type { McpBridgePluginAPI } from '../core/types/plugin-types';
+import { DEFAULT_BRIDGE_PORT } from '../plugins/mcp-bridge-plugin';
+import type { McpBridgeSnapshot, McpServerLogLine } from '../plugins/mcp-bridge-plugin';
 
 /** Default state when MCP plugin is not loaded or model not yet available. */
 const INITIAL: McpBridgeSnapshot = {
   connected: false,
-  port: '18712',
+  port: DEFAULT_BRIDGE_PORT,
   toolCount: 0,
   toolNames: [],
   enabled: false,
   reconnectAttempt: 0,
   reconnectDelay: 0,
+  serverStatus: null,
 };
 
-/** Subscribe to mcp-bridge-changed events. Returns current snapshot. */
+/**
+ * Subscribe to mcp-bridge-changed events. Returns the current snapshot.
+ *
+ * Seeds from the plugin's live snapshot on mount so a persisted (restored)
+ * enabled/port state is shown immediately — the plugin's `init()` emit happens
+ * before this component subscribes, so without seeding the UI would briefly
+ * show the disabled default after a page reload.
+ */
 export function useMcpBridge(): McpBridgeSnapshot {
   const viewer = useViewer();
-  const [state, setState] = useState<McpBridgeSnapshot>(INITIAL);
+  const plugin = viewer.getPlugin<McpBridgePluginAPI & { getSnapshot?: () => McpBridgeSnapshot }>('mcp-bridge');
+  const initial = plugin?.getSnapshot?.() ?? INITIAL;
+  return useViewerEvent('mcp-bridge-changed', initial, (data) => data);
+}
 
-  useEffect(() => {
-    const off = viewer.on('mcp-bridge-changed' as string, (data: unknown) => {
-      setState(data as McpBridgeSnapshot);
-    });
-    return off;
-  }, [viewer]);
+const NO_LOG: McpServerLogLine[] = [];
 
-  return state;
+/** Subscribe to mcp-bridge-log events. Returns the buffered server log lines (seeded from the plugin on mount). */
+export function useMcpBridgeLog(): McpServerLogLine[] {
+  const viewer = useViewer();
+  const plugin = viewer.getPlugin<McpBridgePluginAPI & { serverLog?: McpServerLogLine[] }>('mcp-bridge');
+  const initial = plugin?.serverLog ?? NO_LOG;
+  return useViewerEvent('mcp-bridge-log', initial, (data) => data);
 }

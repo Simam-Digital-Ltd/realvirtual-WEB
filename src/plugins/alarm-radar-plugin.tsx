@@ -163,11 +163,8 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
     this.emit('alarms-changed', []);
   }
 
-  onFixedUpdatePost(): void {
-    if (this._viewer?.highlighter) {
-      this._viewer.highlighter.updateAlarmPulse(performance.now() / 1000);
-    }
-  }
+  // No per-frame work needed: RVHighlightManager.ping() self-animates its pulse
+  // (blinkHz over a fixed duration), so the alarm highlight drives itself.
 
   private _scanSignals(): void {
     if (!this._viewer?.signalStore) return;
@@ -223,7 +220,7 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
       
       // Visual highlight
       if (node && this._viewer?.highlighter) {
-        this._viewer.highlighter.highlightAlarm(node, name);
+        this._viewer.highlighter.ping(node);
       }
 
       this.emit('alarms-changed', this.activeAlarms);
@@ -238,7 +235,7 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
       
       // Clear highlight
       if (this._viewer?.highlighter) {
-        this._viewer.highlighter.clearAlarm(name);
+        this._viewer.highlighter.clearPing();
       }
 
       this.emit('alarms-changed', this.activeAlarms);

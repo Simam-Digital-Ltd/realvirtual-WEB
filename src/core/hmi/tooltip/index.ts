@@ -30,6 +30,9 @@ export {
   tooltipRegistry,
   type TooltipContentProps,
   type TooltipProviderEntry,
+  type TooltipDataResolver,
+  type SearchResolver,
+  type SearchDisplayResolver,
 } from './tooltip-registry';
 
 // Utilities
@@ -41,12 +44,11 @@ export {
 
 // React components
 export { TooltipLayer } from './TooltipLayer';
-export { DriveTooltipController } from './DriveTooltipController';
+export { GenericTooltipController } from './GenericTooltipController';
 export { DriveTooltipContent, type DriveTooltipData } from './DriveTooltipContent';
 export { PipeTooltipContent, type PipeTooltipData } from './PipeTooltipContent';
 export { TankTooltipContent, type TankTooltipData } from './TankTooltipContent';
 export { PumpTooltipContent, type PumpTooltipData } from './PumpTooltipContent';
 export { ProcessingUnitTooltipContent, type ProcessingUnitTooltipData } from './ProcessingUnitTooltipContent';
-export { PipelineTooltipController } from './PipelineTooltipController';
-export { MetadataTooltipController } from './MetadataTooltipController';
 export { MetadataTooltipContent, type MetadataTooltipData } from './MetadataTooltipContent';
+export { PdfTooltipSection, type PdfTooltipData } from './PdfTooltipSection';

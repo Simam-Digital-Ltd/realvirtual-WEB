@@ -23,16 +23,16 @@ export const CHART_DEFAULT_WIDTH = 700;
 
 /** Drive chart color palette (cyan-first). */
 export const DRIVE_PALETTE = [
-  '#3FB8C4', '#8B7BC7', '#5FB37A', '#D9A441', '#8B7BC7',
-  '#3FB8C4', '#D9534F', '#D9A441', '#8d6e63', '#8A97A8',
-  '#8B7BC7', '#8B7BC7', '#3FB8C4', '#5FB37A', '#D9A441',
-  '#3FB8C4', '#3FB8C4', '#5FB37A', '#D9534F', '#3FB8C4',
+  '#4fc3f7', '#e94078', '#66bb6a', '#ffa726', '#ab47bc',
+  '#26c6da', '#ef5350', '#ffee58', '#8d6e63', '#78909c',
+  '#ec407a', '#7e57c2', '#29b6f6', '#9ccc65', '#ff7043',
+  '#5c6bc0', '#26a69a', '#d4e157', '#f44336', '#42a5f5',
 ] as const;
 
 /** Sensor chart color palette (green-first). */
 export const SENSOR_PALETTE = [
-  '#5FB37A', '#3FB8C4', '#D9A441', '#D9534F', '#8B7BC7',
-  '#3FB8C4', '#8B7BC7', '#D9A441', '#8d6e63', '#8A97A8',
-  '#8B7BC7', '#8B7BC7', '#3FB8C4', '#5FB37A', '#D9A441',
-  '#3FB8C4', '#3FB8C4', '#5FB37A', '#D9534F', '#3FB8C4',
+  '#66bb6a', '#4fc3f7', '#ffa726', '#ef5350', '#ab47bc',
+  '#26c6da', '#e94078', '#ffee58', '#8d6e63', '#78909c',
+  '#ec407a', '#7e57c2', '#29b6f6', '#9ccc65', '#ff7043',
+  '#5c6bc0', '#26a69a', '#d4e157', '#f44336', '#42a5f5',
 ] as const;

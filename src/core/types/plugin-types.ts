@@ -118,6 +118,28 @@ export interface FpvPluginAPI {
   toggle(): void;
 }
 
+// ─── Camera Follow / Sit-On Types ─────────────────────────────────────────
+
+/** Active camera follow mode exposed by CameraFollowPlugin (null = inactive). */
+export type CameraFollowMode = 'follow' | 'siton' | null;
+
+/**
+ * Public API surface of CameraFollowPlugin consumed by the camera toolbar.
+ */
+export interface CameraFollowPluginAPI {
+  readonly id: string;
+  /** Active mode, or null when neither Follow nor Sit-On is running. */
+  readonly mode: CameraFollowMode;
+  /** Toggle a mode: re-invoking the active mode exits, otherwise enters it. */
+  toggle(mode: 'follow' | 'siton'): void;
+  /** Enter a mode for the current selection (no-op if nothing followable). */
+  enter(mode: 'follow' | 'siton'): void;
+  /** Leave the active mode and restore the entry view. */
+  exit(): void;
+  /** Whether a followable part is currently selected. */
+  canFollow(): boolean;
+}
+
 // ─── MCP Bridge Types ───────────────────────────────────────────────────
 
 /**
@@ -127,6 +149,14 @@ export interface McpBridgePluginAPI {
   readonly id: string;
   reconnect(port?: string): void;
   setEnabled(enabled: boolean): void;
+  /** Set the target port without connecting (applied on next enable/reconnect). */
+  setPort(port: string): void;
+  /** Ask the bridge server to shut down (process exits; restart via the MCP host). */
+  shutdownServer(): void;
+  /** Pause the bridge server (stop accepting browser connections). */
+  pauseServer(): void;
+  /** Resume accepting browser connections. */
+  resumeServer(): void;
 }
 
 // ─── Multiuser Types ────────────────────────────────────────────────────
@@ -189,8 +219,76 @@ export interface AnnotationPluginAPI {
   addDrawing?(points: [number, number, number][], lineColor?: string, lineWidth?: number): Annotation;
 }
 
+// ─── Order Manager Types ──────────────────────────────────────────────
 
-// ??? Measurement Types ??????????????????????????????????????????????????
+/** A single item in the order cart. */
+export interface OrderItem {
+  /** AAS ID or unique component identifier. */
+  aasId: string;
+  /** Display name (ManufacturerProductDesignation or node name). */
+  displayName: string;
+  /** Manufacturer name from AAS nameplate. */
+  manufacturer: string;
+  /** Article/order number from AAS nameplate. */
+  articleNumber: string;
+  /** Quantity (min 1). */
+  quantity: number;
+  /** Timestamp when added. */
+  addedAt: number;
+  /** Optional: node path in scene for camera navigation. */
+  nodePath?: string;
+}
+
+/** Snapshot of the order store state for React useSyncExternalStore. */
+export interface OrderSnapshot {
+  items: readonly OrderItem[];
+  totalPositions: number;
+  totalQuantity: number;
+}
+
+/**
+ * Public API surface of OrderManagerPlugin consumed by core HMI panels
+ * and other plugins (e.g. aas-link-plugin tooltip).
+ */
+export interface OrderManagerPluginAPI {
+  readonly id: string;
+  addItem(aasId: string, displayName: string, manufacturer: string, articleNumber: string, nodePath?: string): void;
+  removeItem(aasId: string): void;
+  updateQuantity(aasId: string, qty: number): void;
+  clear(): void;
+  getItems(): readonly OrderItem[];
+  exportCsv(): string;
+  orderOnline(): void;
+}
+
+/** Configuration for the Order Manager plugin in settings.json or constructor. */
+export interface OrderManagerConfig {
+  /** URL for online ordering. If absent or empty, demo mode is used. */
+  orderUrl?: string;
+  /** HTTP method for orderUrl (default: 'POST'). */
+  orderMethod?: 'GET' | 'POST';
+  /** Default recipient email for mailto export. */
+  orderEmail?: string;
+  /**
+   * Metadata value labels to match as article number (first match wins,
+   * exact label matches preferred over substring matches).
+   * Compared case-insensitively against `<value label="...">` in RuntimeMetadata content.
+   * Default: ['Article', 'ArticleNumber', 'OrderCode', 'PartNumber', 'Artikel', 'Artikelnummer']
+   */
+  metadataArticleLabels?: string[];
+  /**
+   * Metadata value labels to match as description (first match wins).
+   * Default: ['English', 'Description', 'Designation', 'Beschreibung', 'Bezeichnung']
+   */
+  metadataDescriptionLabels?: string[];
+  /**
+   * Metadata value labels to match as manufacturer (first match wins).
+   * Default: ['Manufacturer', 'ManufacturerName', 'Hersteller']
+   */
+  metadataManufacturerLabels?: string[];
+}
+
+// ─── Measurement Types ──────────────────────────────────────────────────
 
 /** A 3D distance measurement between two surface points. */
 export interface Measurement {
@@ -200,7 +298,7 @@ export interface Measurement {
   pointB: [number, number, number];
   normalA: [number, number, number] | null;
   normalB: [number, number, number] | null;
-  distance: number;
+  distance: number;       // Meters
   visible: boolean;
   color: string;
   timestamp: number;
@@ -208,7 +306,9 @@ export interface Measurement {
   cameraTarget?: [number, number, number];
 }
 
-/** Public API surface of MeasurementPlugin consumed by core HMI panels. */
+/**
+ * Public API surface of MeasurementPlugin consumed by core HMI panels.
+ */
 export interface MeasurementPluginAPI {
   readonly id: string;
   measurementMode: boolean;

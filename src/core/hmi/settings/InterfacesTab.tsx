@@ -6,109 +6,18 @@ import { Typography, Box, Button, CircularProgress, Select, MenuItem, Switch, Te
 import { useViewer } from '../../../hooks/use-viewer';
 import { loadInterfaceSettings, saveInterfaceSettings, type InterfaceSettings, type InterfaceType, INTERFACE_DEFAULTS } from '../../../interfaces/interface-settings-store';
 import { InterfaceManager } from '../../../interfaces/interface-manager';
-import { StatRow, tfSx } from './settings-helpers';
+import { StatRow, tfSx, SettingsSection, FieldRow } from './settings-helpers';
+import { connectionStateColor } from '../isa-colors';
+import { useSignalDisplaySettings, setChipVariant, setTooltipField, type SignalChipVariant } from '../signal-display-store';
 
 const INTERFACE_OPTIONS: { value: InterfaceType; label: string; available: boolean }[] = [
   { value: 'none', label: 'None', available: true },
   { value: 'websocket-realtime', label: 'WebSocket Realtime', available: true },
   { value: 'ctrlx', label: 'ctrlX (Bosch Rexroth)', available: true },
-  { value: 'twincat-hmi', label: 'TwinCAT HMI', available: false },
-  { value: 'mqtt', label: 'MQTT', available: false },
+  { value: 'twincat-hmi', label: 'TwinCAT HMI (Beckhoff)', available: true },
+  { value: 'mqtt', label: 'MQTT', available: true },
   { value: 'keba', label: 'KEBA', available: false },
 ];
-
-/** Max signals rendered in the live monitor (keeps the panel readable). */
-const MONITOR_LIMIT = 12;
-
-/**
- * LiveSignalMonitor — streams the actual signal values arriving from the PLC.
- *
- * A connection state of "connected" only proves a socket opened; showing real
- * names and ticking values is what proves the link is carrying live process data.
- */
-function LiveSignalMonitor() {
-  const viewer = useViewer();
-  const manager = viewer.getPlugin<InterfaceManager>('interface-manager');
-  const [rows, setRows] = useState<{ name: string; direction: string; value: string }[]>([]);
-
-  useEffect(() => {
-    const read = () => {
-      const active = manager?.getActive();
-      const store = viewer.signalStore;
-      if (!active || !store) {
-        setRows([]);
-        return;
-      }
-      const next = active.discoveredSignals.slice(0, MONITOR_LIMIT).map((sig) => {
-        const raw = store.get(sig.name);
-        return {
-          name: sig.name,
-          direction: sig.direction,
-          value:
-            raw === undefined ? '--'
-              : typeof raw === 'boolean' ? (raw ? 'TRUE' : 'FALSE')
-              : typeof raw === 'number' ? (Number.isInteger(raw) ? String(raw) : raw.toFixed(2))
-              : String(raw),
-        };
-      });
-      setRows((prev) => {
-        // Avoid re-rendering when nothing actually changed.
-        if (prev.length === next.length && prev.every((p, i) => p.value === next[i].value && p.name === next[i].name)) {
-          return prev;
-        }
-        return next;
-      });
-    };
-    read();
-    const interval = setInterval(read, 250);
-    return () => clearInterval(interval);
-  }, [manager, viewer]);
-
-  if (rows.length === 0) {
-    return (
-      <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          Connected, but no signals discovered yet.
-        </Typography>
-      </Box>
-    );
-  }
-
-  return (
-    <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
-      <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-        Live Signals
-      </Typography>
-      <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.25, maxHeight: 220, overflowY: 'auto' }}>
-        {rows.map((row) => (
-          <Box
-            key={row.name}
-            sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.3, borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-          >
-            <Box
-              sx={{
-                width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                bgcolor: row.direction === 'input' ? '#3FB8C4' : '#5FB37A',
-              }}
-            />
-            <Typography
-              sx={{ fontSize: 11, fontFamily: 'monospace', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              title={row.name}
-            >
-              {row.name}
-            </Typography>
-            <Typography sx={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: '#D9A441', flexShrink: 0 }}>
-              {row.value}
-            </Typography>
-          </Box>
-        ))}
-      </Box>
-      <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 9, mt: 0.5, display: 'block' }}>
-        Blue = PLC input (written by viewer) · Green = PLC output (read by viewer)
-      </Typography>
-    </Box>
-  );
-}
 
 export function InterfacesTab() {
   const viewer = useViewer();
@@ -121,6 +30,7 @@ export function InterfacesTab() {
     manager?.getActive()?.discoveredSignals.length ?? 0,
   );
   const [connecting, setConnecting] = useState(false);
+  const display = useSignalDisplaySettings();
 
   // Poll connection state
   useEffect(() => {
@@ -172,119 +82,111 @@ export function InterfacesTab() {
     setSignalCount(0);
   };
 
-  const stateColor = connectionState === 'connected' ? '#5FB37A'
-    : connectionState === 'connecting' ? '#D9A441'
-    : connectionState === 'error' ? '#D9534F'
-    : 'rgba(255,255,255,0.5)';
+  const stateColor = connectionStateColor(connectionState) ?? 'rgba(255,255,255,0.5)';
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       {/* Interface selector */}
-      <Box>
-        <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-          Interface Protocol
-        </Typography>
-        <Select
-          size="small"
-          fullWidth
-          value={settings.activeType}
-          onChange={(e) => {
-            const type = e.target.value as InterfaceType;
-            if (isConnected) handleDisconnect();
-            persist({ activeType: type });
-          }}
-          sx={{ mt: 0.5, fontSize: 13, '& .MuiSelect-select': { py: 0.75 } }}
-        >
-          {INTERFACE_OPTIONS.map((opt) => (
-            <MenuItem key={opt.value} value={opt.value} disabled={!opt.available} sx={{ fontSize: 13 }}>
-              {opt.label}
-              {!opt.available && (
-                <Typography component="span" sx={{ ml: 1, fontSize: 10, color: 'text.disabled' }}>coming soon</Typography>
-              )}
-            </MenuItem>
-          ))}
-        </Select>
-      </Box>
+      <SettingsSection id="interfaces-protocol" title="Interface Protocol">
+        <FieldRow label="Protocol">
+          <Select
+            size="small"
+            fullWidth
+            value={settings.activeType}
+            onChange={(e) => {
+              const type = e.target.value as InterfaceType;
+              if (isConnected) handleDisconnect();
+              persist({ activeType: type });
+            }}
+          >
+            {INTERFACE_OPTIONS.map((opt) => (
+              <MenuItem key={opt.value} value={opt.value} disabled={!opt.available} sx={{ fontSize: 13 }}>
+                {opt.label}
+                {!opt.available && (
+                  <Typography component="span" sx={{ ml: 1, fontSize: 10, color: 'text.disabled' }}>coming soon</Typography>
+                )}
+              </MenuItem>
+            ))}
+          </Select>
+        </FieldRow>
+      </SettingsSection>
 
       {/* WebSocket-based settings */}
       {showSettings && isWsBased && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-          <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-            Connection
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1 }}>
+        <SettingsSection id="interfaces-connection" title="Connection">
+          <FieldRow label="Address">
+            <Box sx={{ display: 'flex', gap: 1, flex: 1, minWidth: 0 }}>
+              <TextField
+                size="small"
+                fullWidth
+                value={settings.wsAddress}
+                onChange={(e) => persist({ wsAddress: e.target.value })}
+                placeholder="localhost"
+                sx={tfSx}
+              />
+              <TextField
+                size="small"
+                type="number"
+                value={settings.wsPort}
+                onChange={(e) => persist({ wsPort: Number(e.target.value) || INTERFACE_DEFAULTS.wsPort })}
+                placeholder="Port"
+                sx={{ ...tfSx, width: 90, flexShrink: 0 }}
+              />
+            </Box>
+          </FieldRow>
+          <FieldRow label="Path">
             <TextField
-              label="Address"
               size="small"
               fullWidth
-              value={settings.wsAddress}
-              onChange={(e) => persist({ wsAddress: e.target.value })}
-              placeholder="localhost"
+              value={settings.wsPath}
+              onChange={(e) => persist({ wsPath: e.target.value })}
+              placeholder="/"
               sx={tfSx}
             />
-            <TextField
-              label="Port"
-              size="small"
-              type="number"
-              value={settings.wsPort}
-              onChange={(e) => persist({ wsPort: Number(e.target.value) || INTERFACE_DEFAULTS.wsPort })}
-              sx={{ ...tfSx, width: 90, flexShrink: 0 }}
-            />
-          </Box>
-          <TextField
-            label="Path"
-            size="small"
-            fullWidth
-            value={settings.wsPath}
-            onChange={(e) => persist({ wsPath: e.target.value })}
-            placeholder="/"
-            sx={tfSx}
-          />
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="body2" sx={{ color: 'text.primary', fontSize: 13 }}>Use SSL (wss://)</Typography>
+          </FieldRow>
+          <FieldRow label="Use SSL (wss://)">
             <Switch size="small" checked={settings.wsUseSSL} onChange={(_, v) => persist({ wsUseSSL: v })} />
-          </Box>
-          {(settings.wsUseSSL || settings.activeType === 'ctrlx') && (
-            <TextField
-              label="Auth Token"
-              size="small"
-              fullWidth
-              type="password"
-              value={settings.wsAuthToken}
-              onChange={(e) => persist({ wsAuthToken: e.target.value })}
-              placeholder="Bearer token (ctrlX SSL)"
-              sx={tfSx}
-            />
+          </FieldRow>
+          {(settings.wsUseSSL || settings.activeType === 'ctrlx' || settings.activeType === 'twincat-hmi') && (
+            <FieldRow label="Auth Token">
+              <TextField
+                size="small"
+                fullWidth
+                type="password"
+                value={settings.wsAuthToken}
+                onChange={(e) => persist({ wsAuthToken: e.target.value })}
+                placeholder={settings.activeType === 'twincat-hmi' ? 'Session token (cid)' : 'Bearer token (ctrlX SSL)'}
+                sx={tfSx}
+              />
+            </FieldRow>
           )}
-        </Box>
+        </SettingsSection>
       )}
 
       {/* MQTT settings */}
       {showSettings && isMqtt && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-          <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-            MQTT Broker
-          </Typography>
-          <TextField
-            label="Broker URL"
-            size="small"
-            fullWidth
-            value={settings.mqttBrokerUrl}
-            onChange={(e) => persist({ mqttBrokerUrl: e.target.value })}
-            placeholder="ws://localhost:8080/mqtt"
-            sx={tfSx}
-          />
-          <Box sx={{ display: 'flex', gap: 1 }}>
+        <SettingsSection id="interfaces-mqtt" title="MQTT Broker">
+          <FieldRow label="Broker URL">
             <TextField
-              label="Username"
+              size="small"
+              fullWidth
+              value={settings.mqttBrokerUrl}
+              onChange={(e) => persist({ mqttBrokerUrl: e.target.value })}
+              placeholder="ws://localhost:8080/mqtt"
+              sx={tfSx}
+            />
+          </FieldRow>
+          <FieldRow label="Username">
+            <TextField
               size="small"
               fullWidth
               value={settings.mqttUsername}
               onChange={(e) => persist({ mqttUsername: e.target.value })}
               sx={tfSx}
             />
+          </FieldRow>
+          <FieldRow label="Password">
             <TextField
-              label="Password"
               size="small"
               fullWidth
               type="password"
@@ -292,79 +194,113 @@ export function InterfacesTab() {
               onChange={(e) => persist({ mqttPassword: e.target.value })}
               sx={tfSx}
             />
-          </Box>
-          <TextField
-            label="Topic Prefix"
-            size="small"
-            fullWidth
-            value={settings.mqttTopicPrefix}
-            onChange={(e) => persist({ mqttTopicPrefix: e.target.value })}
-            placeholder="rv/"
-            sx={tfSx}
-          />
-        </Box>
+          </FieldRow>
+          <FieldRow label="Topic Prefix">
+            <TextField
+              size="small"
+              fullWidth
+              value={settings.mqttTopicPrefix}
+              onChange={(e) => persist({ mqttTopicPrefix: e.target.value })}
+              placeholder="rv/"
+              sx={tfSx}
+            />
+          </FieldRow>
+        </SettingsSection>
       )}
 
-      {/* Auto-connect toggle */}
+      {/* Connection control — auto-connect toggle + connect/disconnect */}
       {showSettings && (
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Box>
-            <Typography variant="body2" sx={{ color: 'text.primary', fontSize: 13 }}>Auto-Connect</Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: 10 }}>
-              Connect automatically when a model is loaded
-            </Typography>
-          </Box>
-          <Switch size="small" checked={settings.autoConnect} onChange={(_, v) => persist({ autoConnect: v })} />
-        </Box>
-      )}
+        <SettingsSection id="interfaces-control" title="Connection Control">
+          <FieldRow label="Auto-Connect" hint="Connect automatically when a model is loaded">
+            <Switch size="small" checked={settings.autoConnect} onChange={(_, v) => persist({ autoConnect: v })} />
+          </FieldRow>
 
-      {/* Connect / Disconnect button */}
-      {showSettings && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          {isConnected ? (
-            <Button
-              variant="outlined"
-              size="small"
-              color="warning"
-              onClick={handleDisconnect}
-              sx={{ fontSize: 11, textTransform: 'none' }}
-            >
-              Disconnect
-            </Button>
-          ) : (
-            <Button
-              variant="contained"
-              size="small"
-              onClick={handleConnect}
-              disabled={connecting || !manager}
-              startIcon={connecting ? <CircularProgress size={12} color="inherit" /> : undefined}
-              sx={{ fontSize: 11, textTransform: 'none' }}
-            >
-              {connecting ? 'Connecting...' : 'Connect'}
-            </Button>
-          )}
-        </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            {isConnected ? (
+              <Button
+                variant="outlined"
+                size="small"
+                color="warning"
+                onClick={handleDisconnect}
+                sx={{ fontSize: 11, textTransform: 'none' }}
+              >
+                Disconnect
+              </Button>
+            ) : (
+              <Button
+                variant="contained"
+                size="small"
+                onClick={handleConnect}
+                disabled={connecting || !manager}
+                startIcon={connecting ? <CircularProgress size={12} color="inherit" /> : undefined}
+                sx={{ fontSize: 11, textTransform: 'none' }}
+              >
+                {connecting ? 'Connecting...' : 'Connect'}
+              </Button>
+            )}
+          </Box>
+        </SettingsSection>
       )}
 
       {/* Status */}
       {showSettings && (
-        <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.5 }}>
-          <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}>
-            Status
-          </Typography>
-          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+        <SettingsSection id="interfaces-status" title="Status">
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
             <StatRow label="State" value={connectionState} color={stateColor} />
             <StatRow label="Signals" value={isConnected ? String(signalCount) : '--'} />
             <StatRow label="Protocol" value={INTERFACE_OPTIONS.find(o => o.value === settings.activeType)?.label ?? '--'} />
           </Box>
-        </Box>
+        </SettingsSection>
       )}
 
-      {/* Live signal monitor — proof the link is actually carrying data */}
-      {showSettings && isConnected && <LiveSignalMonitor />}
+      {/* Signal Display — how signal chips + tooltips render (persisted in the browser) */}
+      <SettingsSection id="interfaces-signal-display" title="Signal Display">
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          <FieldRow label="Signal chips" hint="Global default for how signal chips render (per-usage overrides win).">
+            <Select
+              size="small"
+              value={display.chipVariant}
+              onChange={(e) => setChipVariant(e.target.value as SignalChipVariant)}
+              renderValue={(v) => v === 'full' ? 'Full' : v === 'standard' ? 'Standard' : 'Minimal'}
+              sx={tfSx}
+            >
+              <MenuItem value="full">
+                Full
+                <Typography component="span" sx={{ ml: 1, fontSize: 10, color: 'text.disabled' }}>
+                  Conveyor.Start OutBool ●
+                </Typography>
+              </MenuItem>
+              <MenuItem value="standard">
+                Standard
+                <Typography component="span" sx={{ ml: 1, fontSize: 10, color: 'text.disabled' }}>
+                  Conveyor.Start ●
+                </Typography>
+              </MenuItem>
+              <MenuItem value="minimal">
+                Minimal
+                <Typography component="span" sx={{ ml: 1, fontSize: 10, color: 'text.disabled' }}>
+                  O ●
+                </Typography>
+              </MenuItem>
+            </Select>
+          </FieldRow>
+          <FieldRow label="Tooltip: value">
+            <Switch size="small" checked={display.tooltip.value} onChange={(e) => setTooltipField('value', e.target.checked)} />
+          </FieldRow>
+          <FieldRow label="Tooltip: address / source">
+            <Switch size="small" checked={display.tooltip.address} onChange={(e) => setTooltipField('address', e.target.checked)} />
+          </FieldRow>
+          <FieldRow label="Tooltip: comment">
+            <Switch size="small" checked={display.tooltip.comment} onChange={(e) => setTooltipField('comment', e.target.checked)} />
+          </FieldRow>
+          <FieldRow label="Tooltip: binding">
+            <Switch size="small" checked={display.tooltip.binding} onChange={(e) => setTooltipField('binding', e.target.checked)} />
+          </FieldRow>
+        </Box>
+      </SettingsSection>
 
       {!manager && (
-        <Typography variant="caption" sx={{ color: '#D9534F' }}>
+        <Typography variant="caption" sx={{ color: '#ef5350' }}>
           InterfaceManager not registered. Add it to the viewer plugins in main.ts.
         </Typography>
       )}
