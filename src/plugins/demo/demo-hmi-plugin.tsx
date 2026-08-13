@@ -70,6 +70,8 @@ function isSewModel(viewer: { currentModelUrl: string | null }): boolean {
 import { useDriveChartOpen } from '../../hooks/use-drive-chart';
 import { useSensorChartOpen } from '../../hooks/use-sensor-chart';
 import { useMaintenanceMode } from '../../hooks/use-maintenance-mode';
+import { useProduction } from '../../hooks/use-production';
+import { WAKEFIELD_DEMO_PROFILE as DEMO_PROFILE } from './demo-profile';
 
 // Layout constants
 import { MACHINE_PANEL_WIDTH } from '../../core/hmi/layout-constants';
@@ -79,9 +81,23 @@ import { useMessagePanelOpen, toggleMessagePanel } from '../../core/hmi/message-
 
 function OeeKpi(_props: UISlotProps) {
   const [open, setOpen] = useState(false);
+  const metrics = useProduction();
+  // Real value once the sim has drives and has run long enough to be meaningful.
+  const live = metrics.hasDrives && metrics.elapsedSec > 2;
   return (
     <>
-      <KpiCard label="OEE" value="87" unit="%" color="#66bb6a" secondary="Target: 90%" onClick={() => setOpen((o) => !o)} />
+      <KpiCard
+        label="Line Availability"
+        value={live ? metrics.availabilityPct.toFixed(0) : DEMO_PROFILE.kpis.availability}
+        unit="%"
+        color="#5FB37A"
+        secondary={live ? `LIVE · ${metrics.drivesRunning}/${metrics.driveCount} drives running` : DEMO_PROFILE.kpis.availabilityTarget}
+        sparkline={live ? metrics.availabilityTrend : undefined}
+        // Real measurements must never be animated over — KpiCard's rolling
+        // demo animation would random-walk the value away from the truth.
+        animate={false}
+        onClick={() => setOpen((o) => !o)}
+      />
       <OeeChart open={open} onClose={() => setOpen(false)} />
     </>
   );
@@ -89,9 +105,21 @@ function OeeKpi(_props: UISlotProps) {
 
 function PartsKpi(_props: UISlotProps) {
   const [open, setOpen] = useState(false);
+  const metrics = useProduction();
+  // Only claim a real throughput number when the model actually has sinks.
+  const live = metrics.hasSinks && metrics.elapsedSec > 2;
   return (
     <>
-      <KpiCard label="Parts/h" value="28" unit="p/h" color="#4fc3f7" secondary="Shift total: 186" onClick={() => setOpen((o) => !o)} />
+      <KpiCard
+        label="Cases Packed"
+        value={live ? Math.round(metrics.casesPerHour).toLocaleString() : DEMO_PROFILE.kpis.casesPacked}
+        unit="/h"
+        color="#3FB8C4"
+        secondary={live ? `LIVE · ${metrics.casesTotal} this run` : DEMO_PROFILE.kpis.shiftTotal}
+        sparkline={live ? metrics.throughputTrend : undefined}
+        animate={false}
+        onClick={() => setOpen((o) => !o)}
+      />
       <PartsChart open={open} onClose={() => setOpen(false)} />
     </>
   );
