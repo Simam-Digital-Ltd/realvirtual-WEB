@@ -79,6 +79,18 @@ import { WebComponentPlugin } from './plugins/web-component-plugin';
 import { ConnectionSystemPlugin } from './plugins/connection-system-plugin';
 import { ConnectionGizmoPlugin } from './plugins/connection-gizmo-plugin';
 
+// --- Simam layer ---
+import { ProductionMetricsPlugin } from './core/production-metrics';
+import { ConnectionStatusPlugin } from './plugins/connection-status-plugin';
+import { DemoHMIPlugin } from './plugins/demo/demo-hmi-plugin';
+import { OSMMapPlugin } from './plugins/osm-map-plugin';
+import { SiteIntelligencePlugin } from './plugins/site-intelligence-plugin';
+import { SiteManagerPlugin } from './plugins/site-manager-plugin';
+import { AlarmRadarPlugin } from './plugins/alarm-radar-plugin';
+import { AIAssistantPlugin } from './plugins/ai-assistant-plugin';
+import { HistorianPlugin } from './plugins/historian-plugin';
+import { MaintenanceInsightPlugin } from './plugins/maintenance-insight-plugin';
+
 // Extras editor plugin (hierarchy browser + property editor)
 import { RvExtrasEditorPlugin } from './core/hmi/rv-extras-editor';
 
@@ -678,6 +690,21 @@ async function init() {
     // StopOnExit dispatch + cable visualization (overlay category 'connections').
     .use(new ConnectionSystemPlugin(), 'core')
     .use(new ConnectionGizmoPlugin(), 'core');
+
+  // --- Simam layer (origin 'project') -----------------------------------
+  // Registered separately from upstream core so the boundary stays obvious and
+  // future upstream merges only ever touch the 'core' chain above.
+  viewer
+    .use(new ProductionMetricsPlugin(), 'project')
+    .use(new ConnectionStatusPlugin(), 'project')
+    .use(new DemoHMIPlugin(), 'project')
+    .use(new OSMMapPlugin(), 'project')
+    .use(new SiteIntelligencePlugin(), 'project')
+    .use(new SiteManagerPlugin(), 'project')
+    .use(new AlarmRadarPlugin(), 'project')
+    .use(new AIAssistantPlugin(), 'project')
+    .use(new HistorianPlugin(), 'project')
+    .use(new MaintenanceInsightPlugin(), 'project');
 
   // --- Lazy Plugins (code-split, loaded on demand) ---
   viewer.registerLazy('gaussian-splat', () =>
