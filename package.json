@@ -42,6 +42,8 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@dataconnect/generated": "file:src/dataconnect-generated",
+    "@dimforge/rapier3d-compat": "^0.20.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@fontsource/inter": "^5.2.8",
@@ -52,10 +54,13 @@
     "@mui/material": "^7.3.9",
     "@noble/ed25519": "3.1.0",
     "@tanstack/react-virtual": "^3.13.22",
+    "@vis.gl/react-google-maps": "^1.9.0",
     "chevrotain": "^12.0.0",
     "echarts": "^6.0.0",
+    "firebase": "^12.12.0",
     "fuse.js": "^7.4.2",
     "jszip": "^3.10.1",
+    "lucide-react": "^1.8.0",
     "monaco-editor": "^0.55.1",
     "mqtt": "^5.15.1",
     "n8ao": "^1.10.1",
@@ -67,11 +72,7 @@
     "read-excel-file": "^5.8.5",
     "stats-gl": "^4.1.0",
     "three": "0.185.1",
-    "three-mesh-bvh": "^0.9.9",
-    "@dataconnect/generated": "file:src/dataconnect-generated",
-    "@vis.gl/react-google-maps": "^1.9.0",
-    "firebase": "^12.12.0",
-    "lucide-react": "^1.8.0"
+    "three-mesh-bvh": "^0.9.9"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",

@@ -30,8 +30,10 @@ export function loadPhysicsSettings(): PhysicsSettings {
   // Layer 1+2: DEFAULTS + localStorage
   const fromStorage = loadFromLocalStorage();
 
-  // Layer 3: Config override (from singleton)
-  const override = getAppConfig().physics;
+  // Layer 3: Config override (from singleton).
+  // `physics` is not part of upstream's RVAppConfig — it is a settings.json
+  // extension used by the Rapier plugin, so read it defensively.
+  const override = (getAppConfig() as { physics?: Partial<PhysicsSettings> }).physics;
   if (!override) return fromStorage;
   return {
     enabled: override.enabled ?? fromStorage.enabled,

@@ -680,7 +680,7 @@ export class RapierPhysicsPlugin implements RVViewerPlugin {
         ` meshAABB/2=(${(_boxSize.x / 2).toFixed(3)}, ${(_boxSize.y / 2).toFixed(3)}, ${(_boxSize.z / 2).toFixed(3)})` +
         ` ratio=(${heRatioX.toFixed(2)}, ${heRatioY.toFixed(2)}, ${heRatioZ.toFixed(2)})`;
       if (hasIssue) {
-        debugWarn('physics', msg);
+        debugWarn('transport', msg);
       } else {
         debug('transport', msg);
       }
