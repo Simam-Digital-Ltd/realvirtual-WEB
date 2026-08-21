@@ -82,7 +82,6 @@ import { ConnectionGizmoPlugin } from './plugins/connection-gizmo-plugin';
 // --- Simam layer ---
 import { ProductionMetricsPlugin } from './core/production-metrics';
 import { ConnectionStatusPlugin } from './plugins/connection-status-plugin';
-import { DemoHMIPlugin } from './plugins/demo/demo-hmi-plugin';
 import { OSMMapPlugin } from './plugins/osm-map-plugin';
 import { SiteIntelligencePlugin } from './plugins/site-intelligence-plugin';
 import { SiteManagerPlugin } from './plugins/site-manager-plugin';
@@ -697,7 +696,6 @@ async function init() {
   viewer
     .use(new ProductionMetricsPlugin(), 'project')
     .use(new ConnectionStatusPlugin(), 'project')
-    .use(new DemoHMIPlugin(), 'project')
     .use(new OSMMapPlugin(), 'project')
     .use(new SiteIntelligencePlugin(), 'project')
     .use(new SiteManagerPlugin(), 'project')

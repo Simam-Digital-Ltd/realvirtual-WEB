@@ -27,6 +27,10 @@ import { DemoHMIPlugin } from '../../demo/demo-hmi-plugin';
 import { TestAxesPlugin } from '../../demo/test-axes-plugin';
 import { MachineControlPlugin } from '../../demo/machine-control-plugin';
 import { MaintenancePlugin } from '../../demo/maintenance-plugin';
+// Wakefield set dressing — floor, envelope, racks, zones, signage, pallets,
+// dock doors, flow arrows, beacons. Lost when the upstream rebase replaced
+// this file; without it the scene renders as the stock demo.
+import { WakefieldSceneDressingPlugin } from '../../demo/wakefield-scene-dressing-plugin';
 
 // Optional feature plugins
 import { WebXRPlugin } from '../../webxr-plugin';
@@ -118,6 +122,7 @@ export function registerModelPlugins(viewer: RVViewer): void {
     new TestAxesPlugin(),
     new MachineControlPlugin(),
     new MaintenancePlugin(),
+    new WakefieldSceneDressingPlugin(),
     // Optional features
     new WebXRPlugin(),
     new MultiuserPlugin(),
