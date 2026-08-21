@@ -55,6 +55,7 @@
     "@noble/ed25519": "3.1.0",
     "@tanstack/react-virtual": "^3.13.22",
     "@vis.gl/react-google-maps": "^1.9.0",
+    "3d-tiles-renderer": "^0.5.1",
     "chevrotain": "^12.0.0",
     "echarts": "^6.0.0",
     "firebase": "^12.12.0",

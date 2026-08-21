@@ -28,6 +28,7 @@ import { WAKEFIELD_DEMO_PROFILE as DEMO_PROFILE } from './demo-profile';
 import { createWakefieldInterior } from './wakefield-interior';
 import { createWakefieldExterior } from './wakefield-exterior';
 import { WakefieldLodController } from './wakefield-lod';
+import { WakefieldTilesLayer } from './wakefield-tiles';
 
 interface ZoneSpec {
   id: string;
@@ -173,6 +174,7 @@ export class WakefieldSceneDressingPlugin implements RVViewerPlugin {
   private _group: Group | null = null;
   private _beacons: Mesh[] = [];
   private _lod: WakefieldLodController | null = null;
+  private _tiles: WakefieldTilesLayer | null = null;
   private _time = 0;
 
   onModelLoaded(_result: LoadResult, viewer: RVViewer): void {
@@ -192,6 +194,15 @@ export class WakefieldSceneDressingPlugin implements RVViewerPlugin {
     group.add(exterior);
     group.add(interior);
     this._lod = new WakefieldLodController(interior, exterior, new Vector3(0, 0, -1.15));
+
+    // Region band: Google photorealistic 3D tiles of the real site. Optional —
+    // without a key the band just shows the hand-built estate, which is why
+    // this is a soft attach rather than a hard dependency.
+    const tilesKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
+    if (tilesKey) {
+      this._tiles = new WakefieldTilesLayer(group, { apiToken: tilesKey });
+      this._lod.setTilesLayer(this._tiles);
+    }
     group.add(this._createBuildingBlock('wpf-reception-block', -10.2, 0.45, 2.75, 2.35, 0.82, 1.45, 0x2d3440, 0x7e57c2));
     group.add(this._createBuildingBlock('wpf-staff-block', -10.2, 0.42, 0.65, 2.35, 0.78, 1.35, 0x26362d, 0x66bb6a));
     group.add(this._createBuildingBlock('wpf-qa-lab-block', -3.2, 0.38, -6.8, 2.3, 0.72, 1.3, 0x3a2529, 0xef5350));
@@ -258,7 +269,13 @@ export class WakefieldSceneDressingPlugin implements RVViewerPlugin {
     // Zoom LOD: estate -> site -> building opens -> process floor.
     // Driven from the render camera, so it tracks free orbit as well as
     // scripted camera moves.
-    if (this._lod && this._viewer) this._lod.update(this._viewer.camera, dt);
+    if (this._lod && this._viewer) {
+      const canvas = this._viewer.renderer?.domElement;
+      const viewport = canvas
+        ? { width: canvas.width, height: canvas.height }
+        : undefined;
+      this._lod.update(this._viewer.camera, dt, viewport);
+    }
   }
 
   onModelCleared(_viewer: RVViewer): void {
@@ -614,6 +631,8 @@ export class WakefieldSceneDressingPlugin implements RVViewerPlugin {
     });
     this._lod?.dispose();
     this._lod = null;
+    this._tiles?.dispose();
+    this._tiles = null;
     this._group = null;
     this._beacons = [];
   }

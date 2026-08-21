@@ -34,6 +34,7 @@
 
 import type { Camera, Group, Material, Mesh, Object3D } from 'three';
 import { Vector3 } from 'three';
+import type { WakefieldTilesLayer } from './wakefield-tiles';
 
 export type WakefieldLodBand = 'region' | 'site' | 'building' | 'process';
 
@@ -100,6 +101,7 @@ export class WakefieldLodController {
   private _shellMats: TrackedMaterial[] = [];
   private _centre: Vector3;
 
+  private _tiles: WakefieldTilesLayer | null = null;
   private _band: WakefieldLodBand = 'site';
   /** 0 = shell fully open (interior visible), 1 = shell fully closed. */
   private _shellFactor = 1;
@@ -120,8 +122,14 @@ export class WakefieldLodController {
 
   get band(): WakefieldLodBand { return this._band; }
 
+  /**
+   * Attach the Google photorealistic tiles layer to the `region` band.
+   * Optional: without it the region band simply shows the hand-built estate.
+   */
+  setTilesLayer(tiles: WakefieldTilesLayer | null): void { this._tiles = tiles; }
+
   /** Call once per frame with the render camera and frame delta. */
-  update(camera: Camera, dt: number): void {
+  update(camera: Camera, dt: number, viewport?: { width: number; height: number }): void {
     const dist = this._tmp.setFromMatrixPosition(camera.matrixWorld).distanceTo(this._centre);
     this._band = this._resolveBand(dist);
 
@@ -138,6 +146,13 @@ export class WakefieldLodController {
     if (this._shellFactor < this._target) this._shellFactor = Math.min(this._target, this._shellFactor + step);
     else if (this._shellFactor > this._target) this._shellFactor = Math.max(this._target, this._shellFactor - step);
 
+    // Region layer: only stream tiles while they are actually on screen.
+    if (this._tiles && !this._tiles.failed) {
+      const wantTiles = this._band === 'region';
+      this._tiles.setVisible(wantTiles);
+      if (wantTiles && viewport) this._tiles.update(camera, viewport.width, viewport.height);
+    }
+
     applyFade(this._shellMats, this._shellFactor);
     for (const part of this._shellParts) part.visible = this._shellFactor > 0.01;
 
@@ -149,6 +164,7 @@ export class WakefieldLodController {
 
   /** Restore every material to its authored state. */
   dispose(): void {
+    this._tiles?.setVisible(false);
     applyFade(this._shellMats, 1);
     applyFade(this._interiorMats, 1);
     this._interior.visible = true;
