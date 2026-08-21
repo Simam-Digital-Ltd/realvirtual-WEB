@@ -16,6 +16,7 @@ import { useViewer } from '../../hooks/use-viewer';
 
 // Core HMI components
 import { rvDarkTheme, createBrandedTheme } from './theme';
+import { applySimamLayer, simamDarkTheme } from './simam-theme';
 import { useCustomBranding } from './branding-store';
 import { HMIShell, SlotRenderer } from './HMIShell';
 import { TopBar } from './TopBar';
@@ -161,8 +162,10 @@ export function App() {
   // Build theme: apply custom branding colors if set
   const theme = useMemo(
     () => branding?.primaryColor || branding?.secondaryColor
-      ? createBrandedTheme(branding.primaryColor, branding.secondaryColor)
-      : rvDarkTheme,
+      // Simam layer sits on top of whichever base theme applies, so branding
+      // overrides still work while type/surface/radius stay corrected.
+      ? applySimamLayer(createBrandedTheme(branding.primaryColor, branding.secondaryColor))
+      : simamDarkTheme,
     [branding?.primaryColor, branding?.secondaryColor],
   );
 

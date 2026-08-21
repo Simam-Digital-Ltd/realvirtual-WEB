@@ -20,7 +20,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { ThemeProvider } from '@mui/material/styles';
 import { Box, Typography, Button, Paper, Link } from '@mui/material';
 import { Cookie } from '@mui/icons-material';
-import { rvDarkTheme } from './theme';
+import { simamDarkTheme } from './simam-theme';
 import { getAppConfig } from '../rv-app-config';
 import { isAnalyticsConfigured, hasAnalyticsConsent, grantAnalyticsConsent } from '../consent-store';
 
@@ -49,7 +49,7 @@ export function requireAnalyticsConsent(): Promise<void> {
     };
 
     root.render(
-      <ThemeProvider theme={rvDarkTheme}>
+      <ThemeProvider theme={simamDarkTheme}>
         <ConsentGate onAccept={finish} />
       </ThemeProvider>,
     );
