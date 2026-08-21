@@ -1,0 +1,142 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2025 realvirtual GmbH <https://realvirtual.io> */
+
+/*
+ * Simam token system.
+ *
+ * Single source of truth for colour, elevation, radius, tracking and motion.
+ * Declared in OKLCH because lightness is perceptually uniform there: stepping
+ * a surface from 14% to 18% looks like the same size step everywhere on the
+ * ramp, which sRGB hex cannot promise. That is what makes the surface ladder
+ * below read as a ladder rather than as six arbitrary greys.
+ *
+ * Rules (from CASE-STUDY.md §4):
+ *   1. Colour encodes STATE, never identity.
+ *   2. The accent is reserved for live and interactive elements.
+ *   3. Everything else is neutral. Structure carries hierarchy.
+ */
+
+:root {
+  /* ---- Surface ladder ------------------------------------------------
+     Six rungs, evenly spaced in perceptual lightness. `void` is the page
+     behind the 3D viewport; each rung up floats one layer closer.        */
+  --sim-void:            oklch(11% 0.008 240);
+  --sim-surface:         oklch(15% 0.008 240);
+  --sim-surface-raised:  oklch(19% 0.009 240);
+  --sim-surface-high:    oklch(24% 0.010 240);
+  --sim-surface-hover:   oklch(28% 0.011 240);
+  --sim-scrim:           oklch(8%  0.006 240 / 0.72);
+
+  /* Glass variants — these sit over live 3D, so they must stay translucent. */
+  --sim-glass:           oklch(16% 0.008 240 / 0.72);
+  --sim-glass-strong:    oklch(13% 0.008 240 / 0.86);
+
+  /* ---- Text ramp ----------------------------------------------------- */
+  --sim-text:            oklch(96% 0.004 240);
+  --sim-text-secondary:  oklch(76% 0.008 240);
+  --sim-text-dim:        oklch(60% 0.010 240);
+  --sim-text-muted:      oklch(46% 0.010 240);
+
+  /* ---- Lines ---------------------------------------------------------
+     Hairlines are white-at-low-alpha rather than a solid grey so they
+     hold up over both the dark chrome and the bright 3D viewport.        */
+  --sim-line:            oklch(100% 0 0 / 0.09);
+  --sim-line-strong:     oklch(100% 0 0 / 0.16);
+  --sim-line-focus:      oklch(100% 0 0 / 0.28);
+
+  /* ---- Accent — live + interactive ONLY ------------------------------ */
+  --sim-accent:          oklch(78% 0.13 200);
+  --sim-accent-dim:      oklch(64% 0.10 200);
+  --sim-accent-wash:     oklch(78% 0.13 200 / 0.14);
+  --sim-accent-ink:      oklch(14% 0.02 200);
+
+  /* ---- State — the only other chromatic values allowed ---------------- */
+  --sim-ok:              oklch(74% 0.15 150);
+  --sim-warn:            oklch(80% 0.14 80);
+  --sim-critical:        oklch(65% 0.20 25);
+  --sim-info:            oklch(72% 0.12 275);
+
+  --sim-ok-wash:         oklch(74% 0.15 150 / 0.14);
+  --sim-warn-wash:       oklch(80% 0.14 80  / 0.14);
+  --sim-critical-wash:   oklch(65% 0.20 25  / 0.16);
+
+  /* ---- Elevation -----------------------------------------------------
+     `bevel` is the signature: a 1px inner top edge reading as light
+     catching the panel lip. It is what separates a crafted surface from
+     a plain translucent rectangle, and it belongs on every floating panel. */
+  --sim-bevel:           inset 0 1px 0 0 oklch(100% 0 0 / 0.10);
+  --sim-bevel-strong:    inset 0 1px 0 0 oklch(100% 0 0 / 0.18);
+  --sim-lift-1:          0 2px 8px -2px oklch(0% 0 0 / 0.40);
+  --sim-lift-2:          0 16px 40px -12px oklch(0% 0 0 / 0.55);
+  --sim-lift-3:          0 28px 64px -16px oklch(0% 0 0 / 0.65);
+  --sim-glow-accent:     0 0 0 1px oklch(78% 0.13 200 / 0.30),
+                         0 8px 28px -8px oklch(78% 0.13 200 / 0.35);
+
+  /* ---- Radius — three values, no exceptions -------------------------- */
+  --sim-radius-control:  8px;
+  --sim-radius-panel:    12px;
+  --sim-radius-pill:     999px;
+
+  /* ---- Type ----------------------------------------------------------
+     Integers only. Fractional px get resampled by the rasteriser, which
+     is what made the pre-token build read soft.                          */
+  --sim-text-micro:      10px;
+  --sim-text-small:      11px;
+  --sim-text-body:       13px;
+  --sim-text-strong:     14px;
+  --sim-text-heading:    18px;
+  --sim-text-display:    28px;
+
+  /* Small type needs air; display numerals need the opposite. */
+  --sim-track-micro:     0.08em;
+  --sim-track-label:     0.04em;
+  --sim-track-display:   -0.02em;
+
+  /* ---- Motion — one curve across the whole app ----------------------- */
+  --sim-ease:            cubic-bezier(0.4, 0, 0.2, 1);
+  --sim-fast:            120ms;
+  --sim-base:            180ms;
+  --sim-slow:            320ms;
+
+  /* Tabular figures for every readout, so digits stop jittering as they
+     tick. Without this a live KPI visibly reflows on each update. */
+  --sim-numeric:         "tnum" 1, "cv01" 1;
+}
+
+/* Readouts must not reflow while counting. */
+.sim-numeric,
+[data-sim-numeric] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: var(--sim-numeric);
+}
+
+/*
+ * Micro-label ("eyebrow").
+ * The tracked 10px uppercase caption above a readout. This single texture is
+ * most of what separates an instrument panel from a generic dashboard — the
+ * reference apps carry 200-460 of these per screen.
+ */
+.sim-eyebrow {
+  font-size: var(--sim-text-micro);
+  font-weight: 700;
+  letter-spacing: var(--sim-track-micro);
+  text-transform: uppercase;
+  line-height: 1.4;
+  color: var(--sim-text-dim);
+}
+
+/* Hairline rule used to separate an eyebrow from the group it titles. */
+.sim-rule {
+  height: 1px;
+  background: var(--sim-line);
+  border: 0;
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --sim-fast: 0ms;
+    --sim-base: 0ms;
+    --sim-slow: 0ms;
+  }
+}

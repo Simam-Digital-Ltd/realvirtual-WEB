@@ -11,6 +11,11 @@ import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
 import '@fontsource/inter/600.css';
 import '@fontsource/inter/700.css';
+// 800 carries display readouts — the reference builds all use a heavy weight
+// for numerals; 700 alone leaves the hierarchy flat.
+import '@fontsource/inter/800.css';
+// Token system must load before the theme reads var(--sim-*).
+import './simam-tokens.css';
 import { VisibilityOff } from '@mui/icons-material';
 import { useViewer } from '../../hooks/use-viewer';
 

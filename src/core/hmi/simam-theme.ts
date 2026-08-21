@@ -29,6 +29,36 @@
 import { createTheme, type Theme } from '@mui/material/styles';
 import { rvDarkTheme } from './theme';
 
+
+/**
+ * sRGB mirrors of the OKLCH tokens in `simam-tokens.css`.
+ *
+ * MUI's palette cannot take `var()` or `oklch()` — it runs `alpha()`,
+ * `lighten()` and `darken()` over the values and needs something it can
+ * parse, so feeding it CSS variables throws "Unsupported color" at render.
+ * These are the resolved sRGB equivalents, obtained by painting each token to
+ * a canvas and reading the pixel back.
+ *
+ * The CSS tokens remain the source of truth. If one changes, re-resolve and
+ * update its twin here.
+ */
+export const SIMAM_HEX = {
+  void:           '#030506',
+  surface:        '#080c0e',
+  surfaceRaised:  '#101417',
+  surfaceHigh:    '#1b2024',
+  text:           '#eff2f4',
+  textSecondary:  '#adb2b6',
+  textDim:        '#7b8186',
+  textMuted:      '#53595d',
+  accent:         '#17d0d8',
+  accentDim:      '#269ea4',
+  ok:             '#5ac576',
+  warn:           '#edb345',
+  critical:       '#f14d4c',
+  info:           '#8f9eef',
+} as const;
+
 /** Type scale. Integers only — see note 1 above. */
 export const SIMAM_TYPE = {
   /** Micro-labels: units, eyebrows, axis ticks. Always tracked, often upper. */
@@ -64,9 +94,9 @@ export const SIMAM_RADIUS = {
  * drop shadow for depth off the 3D viewport behind it.
  */
 export const SIMAM_SURFACE = {
-  hairline: 'rgba(255, 255, 255, 0.09)',
-  insetHighlight: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.10)',
-  lift: '0 16px 40px -12px rgba(0, 0, 0, 0.55)',
+  hairline: 'var(--sim-line)',
+  insetHighlight: 'var(--sim-bevel)',
+  lift: 'var(--sim-lift-2)',
 } as const;
 
 /** Tracking for micro-labels. Small type needs air to stay legible. */
@@ -140,6 +170,20 @@ export function applySimamLayer(base: Theme): Theme {
       overline: { ...simamEyebrowSx },
     },
     shape: { borderRadius: SIMAM_RADIUS.control },
+    palette: {
+      // Literal sRGB, not var() — see the note on SIMAM_HEX above.
+      primary: { main: SIMAM_HEX.accent, dark: SIMAM_HEX.accentDim },
+      success: { main: SIMAM_HEX.ok },
+      warning: { main: SIMAM_HEX.warn },
+      error:   { main: SIMAM_HEX.critical },
+      info:    { main: SIMAM_HEX.info },
+      divider: 'rgba(255, 255, 255, 0.09)',
+      text: {
+        primary: SIMAM_HEX.text,
+        secondary: SIMAM_HEX.textSecondary,
+        disabled: SIMAM_HEX.textMuted,
+      },
+    },
     components: {
       MuiPaper: {
         styleOverrides: {
@@ -147,6 +191,9 @@ export function applySimamLayer(base: Theme): Theme {
             borderRadius: `${SIMAM_RADIUS.panel}px`,
             boxShadow: `${SIMAM_SURFACE.insetHighlight}, ${SIMAM_SURFACE.lift}`,
             border: `1px solid ${SIMAM_SURFACE.hairline}`,
+            // saturate() keeps the 3D viewport's colour showing through the
+            // glass instead of washing it to grey.
+            backdropFilter: 'blur(calc(16px * var(--rv-ui-blur-scale, 1))) saturate(140%)',
           },
         },
       },
@@ -178,6 +225,21 @@ export function applySimamLayer(base: Theme): Theme {
           root: { fontSize: '20px' },
           fontSizeLarge: { fontSize: '28px' },
         },
+      },
+      MuiChip: {
+        styleOverrides: {
+          root: {
+            borderRadius: `${SIMAM_RADIUS.pill}px`,
+            fontSize: SIMAM_TYPE.micro,
+            fontWeight: 700,
+            letterSpacing: SIMAM_TRACKING.label,
+            textTransform: 'uppercase',
+            height: 20,
+          },
+        },
+      },
+      MuiDivider: {
+        styleOverrides: { root: { borderColor: 'rgba(255, 255, 255, 0.09)' } },
       },
       MuiTooltip: {
         styleOverrides: {

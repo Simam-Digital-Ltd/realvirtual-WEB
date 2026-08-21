@@ -14,7 +14,7 @@ import type { RVViewerPlugin } from '../../core/rv-plugin';
 import type { UISlotEntry, UISlotProps } from '../../core/rv-ui-plugin';
 
 // Core reusable components
-import { KpiCard } from '../../core/hmi/KpiCard';
+import { SimamKpiCard } from '../../core/hmi/SimamKpiCard';
 import { TileCard } from '../../core/hmi/TileCard';
 import { pulseSeverityOutline } from '../../core/hmi/severity-pulse';
 import { NavButton } from '../../core/hmi/NavButton';
@@ -86,16 +86,16 @@ function OeeKpi(_props: UISlotProps) {
   const live = metrics.hasDrives && metrics.elapsedSec > 2;
   return (
     <>
-      <KpiCard
+      <SimamKpiCard
         label="Line Availability"
         value={live ? metrics.availabilityPct.toFixed(0) : DEMO_PROFILE.kpis.availability}
         unit="%"
-        color="#5FB37A"
-        secondary={live ? `LIVE · ${metrics.drivesRunning}/${metrics.driveCount} drives running` : DEMO_PROFILE.kpis.availabilityTarget}
+        // `live` drives the pulsing provenance dot, so the secondary line no
+        // longer has to spell out "LIVE ·" — it can carry detail instead.
+        live={live}
+        tone="ok"
+        secondary={live ? `${metrics.drivesRunning}/${metrics.driveCount} drives running` : DEMO_PROFILE.kpis.availabilityTarget}
         sparkline={live ? metrics.availabilityTrend : undefined}
-        // Real measurements must never be animated over — KpiCard's rolling
-        // demo animation would random-walk the value away from the truth.
-        animate={false}
         onClick={() => setOpen((o) => !o)}
       />
       <OeeChart open={open} onClose={() => setOpen(false)} />
@@ -110,14 +110,14 @@ function PartsKpi(_props: UISlotProps) {
   const live = metrics.hasSinks && metrics.elapsedSec > 2;
   return (
     <>
-      <KpiCard
+      <SimamKpiCard
         label="Cases Packed"
         value={live ? Math.round(metrics.casesPerHour).toLocaleString() : DEMO_PROFILE.kpis.casesPacked}
         unit="/h"
-        color="#3FB8C4"
-        secondary={live ? `LIVE · ${metrics.casesTotal} this run` : DEMO_PROFILE.kpis.shiftTotal}
+        live={live}
+        tone="accent"
+        secondary={live ? `${metrics.casesTotal} this run` : DEMO_PROFILE.kpis.shiftTotal}
         sparkline={live ? metrics.throughputTrend : undefined}
-        animate={false}
         onClick={() => setOpen((o) => !o)}
       />
       <PartsChart open={open} onClose={() => setOpen(false)} />
@@ -129,7 +129,7 @@ function CycleTimeKpi(_props: UISlotProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <KpiCard label="Cycle Time" value="129" unit="s" color="#ffa726" secondary="Avg last hour" onClick={() => setOpen((o) => !o)} />
+      <SimamKpiCard label="Cycle Time" value="129" unit="s" tone="warn" secondary="Avg last hour" onClick={() => setOpen((o) => !o)} />
       <CycleTimeChart open={open} onClose={() => setOpen(false)} />
     </>
   );
@@ -139,7 +139,7 @@ function PowerKpi(_props: UISlotProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <KpiCard label="Power" value="23.4" unit="kW" color="#ef5350" secondary="Avg: 18.7 kW" onClick={() => setOpen((o) => !o)} />
+      <SimamKpiCard label="Power" value="23.4" unit="kW" tone="default" secondary="Avg: 18.7 kW" onClick={() => setOpen((o) => !o)} />
       <EnergyChart open={open} onClose={() => setOpen(false)} />
     </>
   );
