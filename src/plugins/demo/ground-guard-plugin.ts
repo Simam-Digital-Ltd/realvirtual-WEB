@@ -52,9 +52,15 @@ export class GroundGuardPlugin implements RVViewerPlugin {
     const mode = viewer.modes?.activeMode;
     if (mode === 'fpv' || mode === 'walk') return;
 
-    const controls = (viewer as unknown as {
-      cameraManager?: { state?: { controls?: { maxPolarAngle: number; target: { y: number } } } };
-    }).cameraManager?.state?.controls;
+    // `viewer.controls` is the PUBLIC, typed OrbitControls handle.
+    //
+    // This previously reached through `viewer.cameraManager.state.controls`
+    // behind an `as unknown as` cast. That cast compiled cleanly and was
+    // silently undefined at runtime — the manager is the private field
+    // `_cameraManager` — so the polar cap and the target clamp never ran and
+    // only the eye-height floor did any work. Casting around the public API
+    // turns a compile error into an invisible one; don't.
+    const controls = viewer.controls;
 
     // Set the polar cap once; it is sticky, unlike the per-frame position clamp.
     if (controls && !this._applied) {

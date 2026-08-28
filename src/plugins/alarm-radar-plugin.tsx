@@ -12,6 +12,13 @@ import type { RVViewer } from '../core/rv-viewer';
 import type { UISlotEntry, UISlotProps } from '../core/rv-ui-plugin';
 import type { LoadResult } from '../core/engine/rv-scene-loader';
 import type { Object3D } from 'three';
+import { SEVERITY_COLORS } from '../core/hmi/severity-pulse';
+
+/** Alarm outline colour — the message system's own error red, so a 3D alarm
+ *  and its message card agree. `SEVERITY_COLORS` is the single source. */
+const ALARM_FLASH_COLOR = parseInt(SEVERITY_COLORS.error.replace('#', ''), 16);
+/** Matches the message-system alarm pulse length. */
+const ALARM_FLASH_MS = 3500;
 
 // ─── Types ───
 
@@ -163,8 +170,38 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
     this.emit('alarms-changed', []);
   }
 
-  // No per-frame work needed: RVHighlightManager.ping() self-animates its pulse
-  // (blinkHz over a fixed duration), so the alarm highlight drives itself.
+  // No per-frame work needed: RVHighlightManager.flash() self-animates its
+  // pulse over a fixed duration, so the alarm highlight drives itself.
+
+  /**
+   * Outline every currently-alarmed asset in the standard error colour.
+   *
+   * Deliberately `flash()` and not `ping()`. `ping()` is the hierarchy-browser
+   * "where is this row" pulse: an opaque mesh-glow HULL in the hover colour,
+   * which on a robot arm reads as the machine being on fire rather than as an
+   * alarm. `flash()` is the message-system alarm channel — translucent fill
+   * plus an outline in the severity colour, the same visual every WebError
+   * card produces — so an alarm looks like an alarm.
+   *
+   * Flashing the whole set (rather than one node) also fixes a real defect:
+   * both channels hold ONE target, so per-alarm calls meant the newest alarm
+   * silently erased the previous one's highlight, and clearing any single
+   * alarm cleared the highlight for all of them.
+   */
+  private _refreshAlarmHighlight(): void {
+    const highlighter = this._viewer?.highlighter;
+    if (!highlighter) return;
+
+    const nodes = this.activeAlarms
+      .map((a) => a.node)
+      .filter((n): n is Object3D => !!n);
+
+    if (nodes.length === 0) {
+      highlighter.clearFlash();
+      return;
+    }
+    highlighter.flash(nodes, { color: ALARM_FLASH_COLOR, durationMs: ALARM_FLASH_MS });
+  }
 
   private _scanSignals(): void {
     if (!this._viewer?.signalStore) return;
@@ -218,11 +255,7 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
 
       this._activeAlarms.set(name, alarm);
       
-      // Visual highlight
-      if (node && this._viewer?.highlighter) {
-        this._viewer.highlighter.ping(node);
-      }
-
+      this._refreshAlarmHighlight();
       this.emit('alarms-changed', this.activeAlarms);
       
       // Auto-focus if it's the first alarm (optional behavior)
@@ -233,11 +266,9 @@ export class AlarmRadarPlugin extends EventEmitter implements RVViewerPlugin {
 
       this._activeAlarms.delete(name);
       
-      // Clear highlight
-      if (this._viewer?.highlighter) {
-        this._viewer.highlighter.clearPing();
-      }
-
+      // Re-flash what is STILL alarmed rather than clearing outright, so
+      // resolving one alarm does not blank the highlight on the others.
+      this._refreshAlarmHighlight();
       this.emit('alarms-changed', this.activeAlarms);
     }
   }

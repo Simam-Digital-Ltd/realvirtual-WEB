@@ -31,6 +31,10 @@ import { MaintenancePlugin } from '../../demo/maintenance-plugin';
 // dock doors, flow arrows, beacons. Lost when the upstream rebase replaced
 // this file; without it the scene renders as the stock demo.
 import { WakefieldSceneDressingPlugin } from '../../demo/wakefield-scene-dressing-plugin';
+import {
+  setInstructionTypeColors,
+  resetInstructionTypeColors,
+} from '../../../core/engine/rv-custom-runtime-instruction';
 
 // Optional feature plugins
 import { WebXRPlugin } from '../../webxr-plugin';
@@ -108,7 +112,21 @@ export function registerModelPlugins(viewer: RVViewer): void {
   // Optional: recolor the 3D instruction highlights for this model. Pass only
   // the types you want to change (0xRRGGBB); the rest keep the product defaults.
   // Must be paired with resetInstructionTypeColors() in unregisterModelPlugins.
-  //   setInstructionTypeColors({ maintenance: 0x673ab7, info: 0x00bcd4 });
+  //
+  // WHY WE OVERRIDE `warning`: instruction highlights render as a
+  // `mesh-glow-hull` — an opaque glowing shell wrapped around the whole
+  // component. The product default for `warning` is 0xffb300, a saturated
+  // orange-yellow, and on a large light-coloured asset like the FANUC cobot
+  // that shell reads as the machine being ON FIRE rather than as an advisory.
+  // Every other highlight channel in the app is comparatively cool (hover and
+  // selection blue, planner green), so the orange also sat outside the
+  // palette. 0xd4a03c is the same amber hue held at lower chroma: still
+  // unmistakably "warning", no longer incandescent.
+  //
+  // Done here, through upstream's own per-model hook, rather than by editing
+  // the core palette — the fork keeps ZERO upstream core modifications.
+  setInstructionTypeColors({ warning: 0xd4a03c });
+
   const instances = [
     // Model options (AAS supplier swap) — MUST be first so the remap runs
     // before AasLinkPlugin pre-parses the AASX for the swapped ids.
@@ -146,9 +164,10 @@ export function registerModelPlugins(viewer: RVViewer): void {
 }
 
 export function unregisterModelPlugins(viewer: RVViewer): void {
-  // If you called setInstructionTypeColors() in registerModelPlugins, restore
-  // the default palette here so the override does not leak into the next model:
-  //   resetInstructionTypeColors();
+  // Restore the default palette so our `warning` override cannot leak into
+  // whatever model is loaded next.
+  resetInstructionTypeColors();
+
   for (const id of registeredIds) {
     viewer.removePlugin(id);
   }
