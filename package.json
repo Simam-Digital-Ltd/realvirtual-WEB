@@ -36,7 +36,9 @@
     "deploy:embed:dry-run": "npm run build:embed && node scripts/embed-deploy.mjs --dry-run",
     "test:node": "vitest run --config vitest.node.config.ts",
     "test:all": "node scripts/run-all-tests.mjs",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "check:plugins": "node scripts/check-plugin-registration.mjs",
+    "verify": "tsc --noEmit && npm run check:plugins && npm test"
   },
   "engines": {
     "node": ">=18"

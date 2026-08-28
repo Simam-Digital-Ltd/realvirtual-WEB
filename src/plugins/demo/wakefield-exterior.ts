@@ -423,5 +423,15 @@ export function createWakefieldExterior(): Group {
   }
   root.add(shell);
   root.add(rf);
+
+  // Same rule as the interior: a transparent material casts an opaque shadow,
+  // so office glazing and rooflight strips must not be casters.
+  root.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    if (mats.some((m) => (m as MeshStandardMaterial)?.transparent)) mesh.castShadow = false;
+  });
+
   return root;
 }

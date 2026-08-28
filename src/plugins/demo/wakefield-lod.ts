@@ -57,24 +57,47 @@ interface TrackedMaterial {
   baseTransparent: boolean;
 }
 
+interface TrackedGroup {
+  materials: TrackedMaterial[];
+  /** Meshes that were shadow casters before any fade began. */
+  casters: Mesh[];
+}
+
 /**
  * Collect every material under a subtree exactly once, remembering its
  * original opacity so a fade can be undone rather than accumulated.
  */
-function trackMaterials(root: Object3D): TrackedMaterial[] {
+function trackGroup(root: Object3D): TrackedGroup {
   const seen = new Set<Material>();
-  const out: TrackedMaterial[] = [];
+  const materials: TrackedMaterial[] = [];
+  const casters: Mesh[] = [];
   root.traverse((o) => {
     const mesh = o as Mesh;
     if (!mesh.isMesh || !mesh.material) return;
+    if (mesh.castShadow) casters.push(mesh);
     const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const m of list) {
       if (seen.has(m)) continue;
       seen.add(m);
-      out.push({ material: m, baseOpacity: m.opacity, baseTransparent: m.transparent });
+      materials.push({ material: m, baseOpacity: m.opacity, baseTransparent: m.transparent });
     }
   });
-  return out;
+  return { materials, casters };
+}
+
+/**
+ * Fade a tracked group, and take its meshes out of the shadow map while they
+ * are transparent.
+ *
+ * This is not cosmetic. A transparent material casts a FULLY OPAQUE shadow in
+ * three.js, so fading a layer without this leaves solid black silhouettes of
+ * every faded object stamped across the floor — which is exactly the artefact
+ * that showed up mid-zoom.
+ */
+function applyGroupFade(group: TrackedGroup, factor: number): void {
+  applyFade(group.materials, factor);
+  const opaque = factor >= 0.999;
+  for (const mesh of group.casters) mesh.castShadow = opaque;
 }
 
 function applyFade(tracked: TrackedMaterial[], factor: number): void {
@@ -97,8 +120,8 @@ export class WakefieldLodController {
   private _interior: Group;
   private _exterior: Group;
   private _shellParts: Object3D[] = [];
-  private _interiorMats: TrackedMaterial[] = [];
-  private _shellMats: TrackedMaterial[] = [];
+  private _interiorTracked: TrackedGroup = { materials: [], casters: [] };
+  private _shellTracked: TrackedGroup = { materials: [], casters: [] };
   private _centre: Vector3;
 
   private _tiles: WakefieldTilesLayer | null = null;
@@ -116,8 +139,12 @@ export class WakefieldLodController {
     for (const child of exterior.children) {
       if (child.userData?.wpfLod === 'shell') this._shellParts.push(child);
     }
-    this._interiorMats = trackMaterials(interior);
-    for (const part of this._shellParts) this._shellMats.push(...trackMaterials(part));
+    this._interiorTracked = trackGroup(interior);
+    for (const part of this._shellParts) {
+      const t = trackGroup(part);
+      this._shellTracked.materials.push(...t.materials);
+      this._shellTracked.casters.push(...t.casters);
+    }
   }
 
   get band(): WakefieldLodBand { return this._band; }
@@ -153,20 +180,20 @@ export class WakefieldLodController {
       if (wantTiles && viewport) this._tiles.update(camera, viewport.width, viewport.height);
     }
 
-    applyFade(this._shellMats, this._shellFactor);
+    applyGroupFade(this._shellTracked, this._shellFactor);
     for (const part of this._shellParts) part.visible = this._shellFactor > 0.01;
 
     // Interior is the complement: fully on once the shell is at all open.
     const interiorFactor = 1 - this._shellFactor;
     this._interior.visible = interiorFactor > 0.01;
-    if (this._interior.visible) applyFade(this._interiorMats, Math.min(1, interiorFactor * 1.6));
+    if (this._interior.visible) applyGroupFade(this._interiorTracked, Math.min(1, interiorFactor * 1.6));
   }
 
   /** Restore every material to its authored state. */
   dispose(): void {
     this._tiles?.setVisible(false);
-    applyFade(this._shellMats, 1);
-    applyFade(this._interiorMats, 1);
+    applyGroupFade(this._shellTracked, 1);
+    applyGroupFade(this._interiorTracked, 1);
     this._interior.visible = true;
     for (const part of this._shellParts) part.visible = true;
   }

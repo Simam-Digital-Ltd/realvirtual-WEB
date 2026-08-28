@@ -81,6 +81,12 @@ import { ConnectionGizmoPlugin } from './plugins/connection-gizmo-plugin';
 
 // --- Simam layer ---
 import { ProductionMetricsPlugin } from './core/production-metrics';
+import { GroundGuardPlugin } from './plugins/demo/ground-guard-plugin';
+// Physics pair. Both were registered before the upstream rebase replaced this
+// file, and both went silently dead — while the README still advertised them.
+import { RapierPhysicsPlugin } from './core/engine/rapier-physics-plugin';
+import { PhysicsPointerPlugin } from './plugins/physics-pointer-plugin';
+import { loadPhysicsSettings } from './core/hmi/physics-settings-store';
 import { ConnectionStatusPlugin } from './plugins/connection-status-plugin';
 import { OSMMapPlugin } from './plugins/osm-map-plugin';
 import { SiteIntelligencePlugin } from './plugins/site-intelligence-plugin';
@@ -693,8 +699,19 @@ async function init() {
   // --- Simam layer (origin 'project') -----------------------------------
   // Registered separately from upstream core so the boundary stays obvious and
   // future upstream merges only ever touch the 'core' chain above.
+  // Rapier WASM is fetched in the background: if it lands before the model
+  // does, physics drives transport; if not, kinematic transport runs and
+  // physics picks up on the next model load. It stays inert until the physics
+  // settings enable it (default: off), so restoring it cannot change the
+  // out-of-the-box demo behaviour.
+  const rapierPlugin = new RapierPhysicsPlugin(loadPhysicsSettings);
+  void rapierPlugin.preload();
+
   viewer
     .use(new ProductionMetricsPlugin(), 'project')
+    .use(new GroundGuardPlugin(), 'project')
+    .use(rapierPlugin, 'project')
+    .use(new PhysicsPointerPlugin(), 'project')
     .use(new ConnectionStatusPlugin(), 'project')
     .use(new OSMMapPlugin(), 'project')
     .use(new SiteIntelligencePlugin(), 'project')

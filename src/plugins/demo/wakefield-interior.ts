@@ -439,6 +439,32 @@ function hazardMarkings(M: Materials): Group {
  * Returns a single group; caller owns adding it to the scene and calling
  * `disposeWakefieldInterior` on teardown.
  */
+/**
+ * Transparent materials cast FULLY OPAQUE shadows in three.js unless given a
+ * custom depth material. Leaving `castShadow` on the glazing produced large
+ * black parallelograms across the floor and the schematic zone plates.
+ *
+ * Wafer-thin decorative geometry (panel joints, hazard tape, rooflights) is
+ * stripped too: it contributes nothing readable to the shadow map and thin
+ * casters are the classic source of shadow acne.
+ */
+function pruneShadowCasters(root: Group): void {
+  root.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const transparent = mats.some((m) => (m as MeshStandardMaterial)?.transparent);
+    if (transparent) { mesh.castShadow = false; return; }
+    const p = mesh.geometry?.attributes?.position;
+    if (!p) return;
+    mesh.geometry.computeBoundingBox();
+    const bb = mesh.geometry.boundingBox;
+    if (!bb) return;
+    const thinnest = Math.min(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
+    if (thinnest < 0.06) mesh.castShadow = false;
+  });
+}
+
 export function createWakefieldInterior(): Group {
   const root = new Group();
   root.name = 'wpf-interior';
@@ -477,6 +503,7 @@ export function createWakefieldInterior(): Group {
   root.add(palletStack(M, 'c', X0 + 5.2, HALL.centreZ + 8.6, 2));
   root.add(palletStack(M, 'd', X1 - 3.0, HALL.centreZ + 8.4, 3));
 
+  pruneShadowCasters(root);
   return root;
 }
 
