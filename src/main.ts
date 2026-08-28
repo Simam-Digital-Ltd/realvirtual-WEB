@@ -93,6 +93,9 @@ import { SiteIntelligencePlugin } from './plugins/site-intelligence-plugin';
 import { SiteManagerPlugin } from './plugins/site-manager-plugin';
 import { AlarmRadarPlugin } from './plugins/alarm-radar-plugin';
 import { AIAssistantPlugin } from './plugins/ai-assistant-plugin';
+// The listener AIAssistantPlugin.startDemo() never had — it emits
+// 'wpf-start-demo' and, until this plugin, nothing subscribed.
+import { GuidedScenarioPlugin } from './plugins/demo/guided-scenario-plugin';
 import { HistorianPlugin } from './plugins/historian-plugin';
 import { MaintenanceInsightPlugin } from './plugins/maintenance-insight-plugin';
 
@@ -718,6 +721,7 @@ async function init() {
     .use(new SiteManagerPlugin(), 'project')
     .use(new AlarmRadarPlugin(), 'project')
     .use(new AIAssistantPlugin(), 'project')
+    .use(new GuidedScenarioPlugin(), 'project')
     .use(new HistorianPlugin(), 'project')
     .use(new MaintenanceInsightPlugin(), 'project');
 
