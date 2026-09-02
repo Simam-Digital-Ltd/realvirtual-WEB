@@ -122,6 +122,60 @@ function plane(name: string, mat: Material, w: number, d: number, x: number, y: 
   return m;
 }
 
+/**
+ * Force the draw order of the flat ground stack in DEPTH-BUFFER units.
+ *
+ * WHY WORLD-SPACE SEPARATION IS NOT ENOUGH HERE
+ * ---------------------------------------------
+ * The layers below are 5 mm to 60 mm apart, which looks generous until you
+ * work out what the depth buffer can actually resolve. With the viewer's
+ * near = 0.01 and far = 1000 (a 100,000:1 ratio), a 24-bit hyperbolic depth
+ * buffer resolves roughly z^2 / (near * 2^24):
+ *
+ *      at  50 m  ->  ~15 mm
+ *      at 150 m  ->  ~134 mm
+ *      at 400 m  ->  ~954 mm
+ *
+ * The site is normally viewed from 150-250 m, where the smallest resolvable
+ * step is TWENTY TIMES the gap between the road and its own markings. Every
+ * one of these layers therefore lands in the same depth bucket and the
+ * winner is decided by floating-point noise per pixel — the shimmering the
+ * whole apron shows when the camera moves.
+ *
+ * Nudging the Y values further apart would need decimetres, which would be
+ * visible as floating kerbs from close up. polygonOffset is the right tool:
+ * it biases the depth value by a fixed number of buffer units at rasterise
+ * time, so the ordering holds at any distance without moving the geometry.
+ *
+ * Lower `layer` = further back. Offsets are negative because in GL a
+ * negative offset pulls a fragment TOWARDS the viewer.
+ *
+ * Returns a CLONE rather than mutating the shared material: `M.concrete` also
+ * builds the dock levellers and `M.lineWhite` the parking bays, and silently
+ * biasing geometry elsewhere in the scene because it happens to share a
+ * material is exactly the kind of action-at-a-distance that makes a later
+ * artefact impossible to trace. Clones are cached per (material, layer), so
+ * this adds a handful of materials, not one per mesh.
+ */
+const _offsetCache = new WeakMap<Material, Map<number, Material>>();
+
+function groundLayer(mat: Material, layer: number): Material {
+  let byLayer = _offsetCache.get(mat);
+  if (!byLayer) { byLayer = new Map(); _offsetCache.set(mat, byLayer); }
+
+  const cached = byLayer.get(layer);
+  if (cached) return cached;
+
+  const clone = mat.clone();
+  clone.polygonOffset = true;
+  // Factor scales with the polygon's depth slope, which is ~0 for these flat
+  // planes; `units` is the constant term and does the real work here.
+  clone.polygonOffsetFactor = -layer;
+  clone.polygonOffsetUnits = -layer * 4;
+  byLayer.set(layer, clone);
+  return clone;
+}
+
 /* ------------------------------------------------------------------ *
  * Ground
  * ------------------------------------------------------------------ */
@@ -132,21 +186,21 @@ function ground(M: Materials): Group {
 
   // Fields beyond the estate — the aerials are ringed by open farmland, and
   // without it the estate reads as floating in a void.
-  g.add(plane('wpf-ext-fields', M.field, 400, 400, 0, -0.06, SITE_Z));
+  g.add(plane('wpf-ext-fields', groundLayer(M.field, 1), 400, 400, 0, -0.06, SITE_Z));
   // Estate hardstanding.
-  g.add(plane('wpf-ext-hardstanding', M.concrete, 180, 130, 0, -0.03, SITE_Z));
+  g.add(plane('wpf-ext-hardstanding', groundLayer(M.concrete, 2), 180, 130, 0, -0.03, SITE_Z));
   // Service road ring.
-  g.add(plane('wpf-ext-road-n', M.tarmac, 180, 9, 0, -0.01, SITE_Z - 52));
-  g.add(plane('wpf-ext-road-e', M.tarmac, 9, 130, 78, -0.01, SITE_Z));
-  g.add(plane('wpf-ext-road-approach', M.tarmac, 9, 46, 26, -0.01, SITE_Z + 34));
+  g.add(plane('wpf-ext-road-n', groundLayer(M.tarmac, 4), 180, 9, 0, -0.01, SITE_Z - 52));
+  g.add(plane('wpf-ext-road-e', groundLayer(M.tarmac, 4), 9, 130, 78, -0.01, SITE_Z));
+  g.add(plane('wpf-ext-road-approach', groundLayer(M.tarmac, 4), 9, 46, 26, -0.01, SITE_Z + 34));
 
   // Road centre dashes.
   for (let x = -84; x <= 84; x += 7) {
-    g.add(box(`wpf-ext-roadmark-${x}`, M.lineWhite, 3, 0.02, 0.24, x, 0.005, SITE_Z - 52));
+    g.add(box(`wpf-ext-roadmark-${x}`, groundLayer(M.lineWhite, 5), 3, 0.02, 0.24, x, 0.005, SITE_Z - 52));
   }
 
   // Grass verges.
-  g.add(plane('wpf-ext-verge-n', M.grass, 180, 14, 0, -0.02, SITE_Z - 62));
+  g.add(plane('wpf-ext-verge-n', groundLayer(M.grass, 3), 180, 14, 0, -0.02, SITE_Z - 62));
   return g;
 }
 
@@ -313,7 +367,7 @@ function yard(M: Materials): Group {
     for (let i = 0; i < 11; i++) {
       const z = SITE_Z - 12 + i * 2.6;
       const x = bayX + row * 12;
-      g.add(box(`wpf-ext-bay-${row}-${i}`, M.lineWhite, 5.0, 0.02, 0.12, x, 0.01, z + 1.3));
+      g.add(box(`wpf-ext-bay-${row}-${i}`, groundLayer(M.lineWhite, 5), 5.0, 0.02, 0.12, x, 0.01, z + 1.3));
       // Leave roughly one bay in four empty — a full car park reads as staged.
       if (rand() > 0.26) {
         const colour = CAR_COLOURS[Math.floor(rand() * CAR_COLOURS.length)];

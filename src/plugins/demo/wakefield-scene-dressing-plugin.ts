@@ -615,6 +615,30 @@ export class WakefieldSceneDressingPlugin implements RVViewerPlugin {
     ctx.closePath();
   }
 
+  /**
+   * NOTE ON THE GROUND STACK (kept here because the fix lives elsewhere)
+   *
+   * The viewer draws its own 200x200 ground plane at y = 0 with a reflector
+   * 2 mm under it, and our estate stack runs from y = -0.06 (fields) to
+   * y = +0.01 (bay markings). That is four large near-coplanar surfaces in a
+   * 7 cm band, viewed from 150-250 m where the depth buffer resolves ~134 mm
+   * (near 0.01 / far 1000). Which surface won was decided per pixel by
+   * rounding — the shimmer across the whole apron.
+   *
+   * The fix is `groundLayer()` in wakefield-exterior.ts: polygonOffset biases
+   * each layer by a fixed number of depth-buffer units, which is
+   * distance-independent and also wins against the stock plane, since ours
+   * are all pulled towards the viewer and it is not.
+   *
+   * An earlier attempt turned the stock ground OFF from here instead. It did
+   * not hold: `applyVisualSettings` re-applies `groundEnabled` from the
+   * settings store after model plugins run and on every later settings
+   * change, so the suppression was silently reverted (measured: the setter
+   * worked, the value was true again once the scene settled). Latching it on
+   * the first frame would have won that race and then fought the user's own
+   * Settings toggle. Biasing our own geometry is the layer that actually
+   * owns the problem.
+   */
   private _clear(): void {
     if (!this._group) return;
     this._group.parent?.remove(this._group);

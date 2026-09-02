@@ -31,6 +31,9 @@ import { MaintenancePlugin } from '../../demo/maintenance-plugin';
 // dock doors, flow arrows, beacons. Lost when the upstream rebase replaced
 // this file; without it the scene renders as the stock demo.
 import { WakefieldSceneDressingPlugin } from '../../demo/wakefield-scene-dressing-plugin';
+// Clickable way in. The zoom LOD already opened the building at < 28 m, but
+// only for someone who knew to keep scrolling.
+import { WakefieldEntryPlugin } from '../../demo/wakefield-entry-plugin';
 import {
   setInstructionTypeColors,
   resetInstructionTypeColors,
@@ -141,6 +144,7 @@ export function registerModelPlugins(viewer: RVViewer): void {
     new MachineControlPlugin(),
     new MaintenancePlugin(),
     new WakefieldSceneDressingPlugin(),
+    new WakefieldEntryPlugin(),
     // Optional features
     new WebXRPlugin(),
     new MultiuserPlugin(),

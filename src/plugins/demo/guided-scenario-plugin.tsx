@@ -114,11 +114,23 @@ function useProductionSnapshot() {
   return getProductionSnapshot();
 }
 
+/**
+ * The shape this panel needs from a plugin it looks up.
+ *
+ * `getPlugin<T>` constrains T to RVViewerPlugin, so an intersection with a
+ * bare EventEmitter does not satisfy it — the emitter has no `id`. Declaring
+ * the contract explicitly is better than casting: it says exactly which
+ * members are relied on, and it breaks loudly if either plugin stops
+ * providing them.
+ */
+type EmittingPlugin = RVViewerPlugin & Pick<EventEmitter, 'on' | 'off'>;
+type AlarmRadarLike = EmittingPlugin & { activeAlarms?: { path: string }[] };
+
 /** Live alarm paths, read from the Alarm Radar plugin if it is present. */
 function useAlarmPaths(viewer: RVViewer): string[] {
   const [paths, setPaths] = useState<string[]>([]);
   useEffect(() => {
-    const plugin = viewer.getPlugin<EventEmitter & { activeAlarms?: { path: string }[] }>('alarm-radar');
+    const plugin = viewer.getPlugin<AlarmRadarLike>('alarm-radar');
     if (!plugin) return;
     const sync = () => setPaths((plugin.activeAlarms ?? []).map((a) => a.path));
     sync();
@@ -141,7 +153,7 @@ const GuidedScenarioPanel: React.FC<UISlotProps> = ({ viewer }) => {
 
   // Open on the copilot's "start demo", which is what wpf-start-demo means.
   useEffect(() => {
-    const plugin = viewer.getPlugin<EventEmitter>('guided-scenario');
+    const plugin = viewer.getPlugin<EmittingPlugin>('guided-scenario');
     if (!plugin) return;
     const onOpen = () => {
       setItems(buildReview(getProductionSnapshot(), alarmPaths));
