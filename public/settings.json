@@ -2,5 +2,14 @@
   "defaultModel": "DemoRealvirtualWeb.glb",
   "analytics": {
     "googleAnalyticsId": ""
+  },
+  "ui": {
+    "visibilityOverrides": {
+      "welcome-auto-open": {
+        "shownOnlyIn": [
+          "simam-never"
+        ]
+      }
+    }
   }
 }

@@ -77,6 +77,7 @@ import {
 } from './wakefield-thumbnails';
 import { HotspotLayer } from './HotspotLayer';
 import { ZoneStrip } from './ZoneStrip';
+import { WakefieldEntryScreen } from './WakefieldEntryScreen';
 
 /** Movement below this is not worth a React render. */
 const MOVE_EPSILON_PX = 0.6;
@@ -136,6 +137,9 @@ export class WakefieldCommandCenterPlugin extends EventEmitter implements RVView
     // can never sit on top of the fleet or review panels.
     { slot: 'overlay', order: 5, component: (p: UISlotProps) => <HotspotLayer {...p} /> },
     { slot: 'overlay', order: 70, component: (p: UISlotProps) => <ZoneStrip {...p} /> },
+    // The front door. Order 900 puts it above every other overlay: while it is
+    // up it is the only thing the user should be able to reach.
+    { slot: 'overlay', order: 900, component: (p: UISlotProps) => <WakefieldEntryScreen {...p} /> },
   ];
 
   /* ---- read side, for the React layer ---------------------------------- */
@@ -319,6 +323,13 @@ export class WakefieldCommandCenterPlugin extends EventEmitter implements RVView
    */
   private _pumpCaptures(viewer: RVViewer): void {
     if (this._captureQueue.length === 0) return;
+
+    // Never shoot before the HDR environment exists. Until it does the scene
+    // has a single directional light and no ambient term, so a capture comes
+    // back a black rectangle — and unlike the live view, which fixes itself a
+    // moment later, a thumbnail is captured once and kept. This is why the
+    // strip could come up as seven black cards on a cold cache.
+    if (!(viewer.scene as Scene).environment) return;
 
     if (this._framesUntilCapture > 0) {
       this._framesUntilCapture--;

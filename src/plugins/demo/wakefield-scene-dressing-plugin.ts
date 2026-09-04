@@ -9,6 +9,7 @@ import {
   CylinderGeometry,
   DoubleSide,
   Group,
+  HemisphereLight,
   Mesh,
   MeshBasicMaterial,
   Material,
@@ -177,6 +178,22 @@ export class WakefieldSceneDressingPlugin implements RVViewerPlugin {
   private _tiles: WakefieldTilesLayer | null = null;
   private _time = 0;
 
+  /**
+   * Fill light that exists only until the HDR environment finishes loading.
+   *
+   * The scene ships ONE DirectionalLight and no ambient term at all — every
+   * bit of fill comes from `scene.environment`, which is fetched and PMREM'd
+   * asynchronously (see rv-visual-settings-manager). Between first paint and
+   * that promise resolving there is no ambient light in the scene, so every
+   * surface facing away from the sun renders pure black. On a cold cache that
+   * window is seconds long, and it is what users report as "the app loads
+   * black".
+   *
+   * This is a floor, not a look: it is removed the moment the real
+   * environment arrives, so it can never double up with the HDR.
+   */
+  private _bootstrapLight: HemisphereLight | null = null;
+
   onModelLoaded(_result: LoadResult, viewer: RVViewer): void {
     this._viewer = viewer;
     this._clear();
@@ -254,10 +271,38 @@ export class WakefieldSceneDressingPlugin implements RVViewerPlugin {
     }
 
     viewer.scene.add(group);
+
+    // Sky/ground fill so the very first frames are lit. Intensity is low on
+    // purpose: enough to read shape and depth, not enough to flatten the
+    // scene if the HDR were ever to arrive late rather than never.
+    if (!this._bootstrapLight) {
+      const fill = new HemisphereLight(0xbfd4e6, 0x4a4a48, 1.15);
+      fill.name = 'wpf-bootstrap-fill';
+      this._bootstrapLight = fill;
+      viewer.scene.add(fill);
+    }
+  }
+
+  /**
+   * Drop the bootstrap fill once the real environment map is in place.
+   *
+   * Checked per frame rather than hooked to a load event because the env map
+   * is owned by the core visual-settings manager, and this fork does not
+   * modify core. A property read per frame is cheaper than the alternative.
+   */
+  private _retireBootstrapLight(): void {
+    const light = this._bootstrapLight;
+    if (!light) return;
+    const scene = this._viewer?.scene;
+    if (!scene || !scene.environment) return;
+    light.removeFromParent();
+    light.dispose();
+    this._bootstrapLight = null;
   }
 
   onRender(dt: number): void {
     this._time += dt;
+    this._retireBootstrapLight();
     for (let i = 0; i < this._beacons.length; i++) {
       const beacon = this._beacons[i];
       const phase = typeof beacon.userData.pulsePhase === 'number' ? beacon.userData.pulsePhase : i * 0.9;
@@ -279,6 +324,11 @@ export class WakefieldSceneDressingPlugin implements RVViewerPlugin {
   }
 
   onModelCleared(_viewer: RVViewer): void {
+    if (this._bootstrapLight) {
+      this._bootstrapLight.removeFromParent();
+      this._bootstrapLight.dispose();
+      this._bootstrapLight = null;
+    }
     this._clear();
   }
 
