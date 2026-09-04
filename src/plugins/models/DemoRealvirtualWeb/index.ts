@@ -34,6 +34,9 @@ import { WakefieldSceneDressingPlugin } from '../../demo/wakefield-scene-dressin
 // Clickable way in. The zoom LOD already opened the building at < 28 m, but
 // only for someone who knew to keep scrolling.
 import { WakefieldEntryPlugin } from '../../demo/wakefield-entry-plugin';
+// The dock boundary as a mechanism: trailers fill from the line's real case
+// count, depart when full, and become fleet movements you can follow.
+import { WakefieldFleetPlugin } from '../../demo/wakefield-fleet-plugin';
 import {
   setInstructionTypeColors,
   resetInstructionTypeColors,
@@ -145,6 +148,7 @@ export function registerModelPlugins(viewer: RVViewer): void {
     new MaintenancePlugin(),
     new WakefieldSceneDressingPlugin(),
     new WakefieldEntryPlugin(),
+    new WakefieldFleetPlugin(),
     // Optional features
     new WebXRPlugin(),
     new MultiuserPlugin(),
