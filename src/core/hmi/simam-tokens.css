@@ -44,11 +44,33 @@
   --sim-line-strong:     oklch(100% 0 0 / 0.16);
   --sim-line-focus:      oklch(100% 0 0 / 0.28);
 
-  /* ---- Accent — live + interactive ONLY ------------------------------ */
-  --sim-accent:          oklch(78% 0.13 200);
-  --sim-accent-dim:      oklch(64% 0.10 200);
-  --sim-accent-wash:     oklch(78% 0.13 200 / 0.14);
+  /* ---- Accent — live + interactive ONLY ------------------------------
+     TEAL means live, healthy, spatial, connected, moving, and 3D selection.
+     GOLD (below) means brand, chosen, active. They never mean the same
+     thing, and that split is the whole identity: gold is what YOU picked,
+     teal is what the PLANT is doing. Success states are teal-green, never
+     gold — otherwise "good" and "selected" become indistinguishable.
+
+     Stated in sRGB rather than OKLCH because these two are brand-fixed
+     values from the design specification, not rungs on a generated ramp.
+     The neutral ladder above stays OKLCH; it needs perceptual evenness,
+     and these need to be exactly the specified colours.                   */
+  --sim-accent:          #2ED7C0;
+  --sim-accent-light:    #79F1DF;
+  --sim-accent-dim:      #137D73;
+  --sim-accent-wash:     rgba(46, 215, 192, 0.11);
+  --sim-accent-border:   rgba(46, 215, 192, 0.34);
   --sim-accent-ink:      oklch(14% 0.02 200);
+
+  /* ---- Gold — brand, selection, active mode --------------------------
+     Must read as metallic and restrained. Bright yellow is the failure
+     mode: it turns an instrument panel into a warning light.             */
+  --sim-gold:            #D9AE4A;
+  --sim-gold-light:      #F1D178;
+  --sim-gold-bright:     #E7BE59;
+  --sim-gold-dark:       #7F5A17;
+  --sim-gold-wash:       rgba(217, 174, 74, 0.12);
+  --sim-gold-border:     rgba(217, 174, 74, 0.38);
 
   /* ---- State — the only other chromatic values allowed ---------------- */
   --sim-ok:              oklch(74% 0.15 150);
@@ -131,6 +153,40 @@
   background: var(--sim-line);
   border: 0;
   margin: 0;
+}
+
+/*
+ * Spatial hotspot layer.
+ *
+ * The anchor/connector/card triad is the signature of this interface: a
+ * point in the 3D world, a thin technical line, and a glass readout parked
+ * clear of the geometry. These tokens exist so all three agree — a card
+ * whose border does not match the line that reaches it reads as two
+ * unrelated widgets rather than one callout.
+ */
+:root {
+  /* Anchor dot sitting on the 3D asset. */
+  --sim-anchor-core:     #71F7E6;
+  --sim-anchor-glow:     0 0 0 3px rgba(46, 215, 192, 0.15),
+                         0 0 10px rgba(46, 215, 192, 0.55),
+                         0 0 24px rgba(46, 215, 192, 0.25);
+
+  /* Connector. Deliberately near-white rather than teal: at 1px a
+     saturated line disappears against the scene, and the callout has to
+     stay legible over both dark tarmac and a lit roof. */
+  --sim-connector:       rgba(213, 239, 235, 0.62);
+  --sim-connector-live:  rgba(115, 244, 226, 0.92);
+
+  /* Hotspot card. Heavier blur than a docked panel — it sits directly over
+     moving geometry, so it needs to separate without going opaque. */
+  --sim-hotspot-bg:      linear-gradient(180deg,
+                           rgba(255, 255, 255, 0.025),
+                           rgba(255, 255, 255, 0.006)),
+                         rgba(7, 16, 20, 0.94);
+  --sim-hotspot-lift:    0 12px 34px rgba(0, 0, 0, 0.36),
+                         inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --sim-hotspot-lift-hi: 0 16px 42px rgba(0, 0, 0, 0.42),
+                         0 0 18px rgba(46, 215, 192, 0.07);
 }
 
 @media (prefers-reduced-motion: reduce) {

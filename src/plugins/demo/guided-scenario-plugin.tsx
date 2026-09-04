@@ -210,7 +210,7 @@ const GuidedScenarioPanel: React.FC<UISlotProps> = ({ viewer }) => {
         }}
       >
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
-          <Typography sx={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', color: '#17d0d8' }}>
+          <Typography sx={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', color: 'var(--sim-accent)' }}>
             {PROFILE.client.siteCode} · GUIDED REVIEW
           </Typography>
           <IconButton size="small" onClick={() => setPhase('closed')} aria-label="Close guided review">

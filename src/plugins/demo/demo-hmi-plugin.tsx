@@ -125,21 +125,60 @@ function PartsKpi(_props: UISlotProps) {
   );
 }
 
+/**
+ * Cycle time, derived from measured throughput.
+ *
+ * Seconds per case is just 3600 / cases-per-hour, and cases-per-hour is
+ * counted at the model's sinks — so this is a real reading, not a second
+ * independent guess that could drift away from the throughput card beside it.
+ */
 function CycleTimeKpi(_props: UISlotProps) {
   const [open, setOpen] = useState(false);
+  const metrics = useProduction();
+  const live = metrics.hasSinks && metrics.elapsedSec > 2 && metrics.casesPerHour > 0;
+  const seconds = live ? 3600 / metrics.casesPerHour : 0;
   return (
     <>
-      <SimamKpiCard label="Cycle Time" value="129" unit="s" tone="warn" secondary="Avg last hour" onClick={() => setOpen((o) => !o)} />
+      <SimamKpiCard
+        label="Cycle Time"
+        value={live ? seconds.toFixed(1) : '—'}
+        unit="s"
+        live={live}
+        tone="default"
+        secondary={live
+          ? `From ${Math.round(metrics.casesPerHour).toLocaleString()} cases/h`
+          : 'No cases counted yet'}
+        onClick={() => setOpen((o) => !o)}
+      />
       <CycleTimeChart open={open} onClose={() => setOpen(false)} />
     </>
   );
 }
 
+/**
+ * Power draw — deliberately empty.
+ *
+ * This carried a hardcoded "23.4 kW". Nothing in the model measures
+ * electrical load, and the spatial hotspot layer says exactly that on the
+ * Power Distribution callout: "No energy meter on this site". The two sit on
+ * screen at the same time, so a made-up number here was not just unverifiable,
+ * it was the app openly contradicting itself in front of the customer.
+ *
+ * See `wakefield-hotspots.ts` for the reasoning; the rule is the same
+ * everywhere: an unmeasured quantity reads as unmeasured.
+ */
 function PowerKpi(_props: UISlotProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <SimamKpiCard label="Power" value="23.4" unit="kW" tone="default" secondary="Avg: 18.7 kW" onClick={() => setOpen((o) => !o)} />
+      <SimamKpiCard
+        label="Power"
+        value="—"
+        unit="kW"
+        tone="default"
+        secondary="No energy meter on this site"
+        onClick={() => setOpen((o) => !o)}
+      />
       <EnergyChart open={open} onClose={() => setOpen(false)} />
     </>
   );

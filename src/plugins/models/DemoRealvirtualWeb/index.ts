@@ -37,6 +37,9 @@ import { WakefieldEntryPlugin } from '../../demo/wakefield-entry-plugin';
 // The dock boundary as a mechanism: trailers fill from the line's real case
 // count, depart when full, and become fleet movements you can follow.
 import { WakefieldFleetPlugin } from '../../demo/wakefield-fleet-plugin';
+// The command centre: spatial hotspot callouts over the twin, and the zone
+// strip that flies the camera to the exact pose each thumbnail was shot from.
+import { WakefieldCommandCenterPlugin } from '../../demo/wakefield-command-center-plugin';
 import {
   setInstructionTypeColors,
   resetInstructionTypeColors,
@@ -149,6 +152,7 @@ export function registerModelPlugins(viewer: RVViewer): void {
     new WakefieldSceneDressingPlugin(),
     new WakefieldEntryPlugin(),
     new WakefieldFleetPlugin(),
+    new WakefieldCommandCenterPlugin(),
     // Optional features
     new WebXRPlugin(),
     new MultiuserPlugin(),

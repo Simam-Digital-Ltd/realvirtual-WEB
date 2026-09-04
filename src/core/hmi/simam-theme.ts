@@ -51,8 +51,14 @@ export const SIMAM_HEX = {
   textSecondary:  '#adb2b6',
   textDim:        '#7b8186',
   textMuted:      '#53595d',
-  accent:         '#17d0d8',
-  accentDim:      '#269ea4',
+  accent:         '#2ed7c0',
+  accentLight:    '#79f1df',
+  accentDim:      '#137d73',
+  /* Gold is brand + selection, never status. See the note in
+     simam-tokens.css on why the two accents mean different things. */
+  gold:           '#d9ae4a',
+  goldLight:      '#f1d178',
+  goldDark:       '#7f5a17',
   ok:             '#5ac576',
   warn:           '#edb345',
   critical:       '#f14d4c',
@@ -172,7 +178,11 @@ export function applySimamLayer(base: Theme): Theme {
     shape: { borderRadius: SIMAM_RADIUS.control },
     palette: {
       // Literal sRGB, not var() — see the note on SIMAM_HEX above.
-      primary: { main: SIMAM_HEX.accent, dark: SIMAM_HEX.accentDim },
+      primary: { main: SIMAM_HEX.accent, light: SIMAM_HEX.accentLight, dark: SIMAM_HEX.accentDim },
+      // Gold rides on `secondary` rather than a custom palette key, because
+      // MUI only runs its colour manipulators over keys it knows about — a
+      // custom key gets no `alpha()` support and silently degrades.
+      secondary: { main: SIMAM_HEX.gold, light: SIMAM_HEX.goldLight, dark: SIMAM_HEX.goldDark },
       success: { main: SIMAM_HEX.ok },
       warning: { main: SIMAM_HEX.warn },
       error:   { main: SIMAM_HEX.critical },

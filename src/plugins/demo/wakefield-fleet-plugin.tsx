@@ -272,8 +272,8 @@ const FleetPanel: React.FC<UISlotProps> = ({ viewer }) => {
       >
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
           <Stack direction="row" spacing={0.75} alignItems="center">
-            <LocalShipping sx={{ fontSize: 15, color: '#17d0d8' }} />
-            <Typography sx={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', color: '#17d0d8' }}>
+            <LocalShipping sx={{ fontSize: 15, color: 'var(--sim-accent)' }} />
+            <Typography sx={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.08em', color: 'var(--sim-accent)' }}>
               OUTBOUND FLEET
             </Typography>
           </Stack>

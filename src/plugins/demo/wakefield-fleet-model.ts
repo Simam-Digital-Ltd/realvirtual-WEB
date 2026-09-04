@@ -41,7 +41,7 @@ export function makeFleetMaterials() {
     glass: new MeshStandardMaterial({ color: 0x243038, roughness: 0.15, metalness: 0.4 }),
     /** Fill indicator — emissive so it reads at distance without a light on it. */
     load: new MeshStandardMaterial({
-      color: 0x17d0d8, roughness: 0.4, metalness: 0,
+      color: 0x2ed7c0, roughness: 0.4, metalness: 0,
       emissive: 0x0e6f74, emissiveIntensity: 0.9,
     }),
   };

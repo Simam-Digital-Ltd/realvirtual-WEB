@@ -83,7 +83,7 @@ export const ENTRY_HOTSPOTS: readonly EntryHotspot[] = [
     anchor: new Vector3(0, 0, SITE_Z + 12.5),
     cameraPos: new Vector3(2.5, 6.5, SITE_Z + 15),
     cameraTarget: new Vector3(0, 1.4, SITE_Z),
-    colour: 0x17d0d8,
+    colour: 0x2ed7c0,
   },
   {
     id: 'entry-dock',
