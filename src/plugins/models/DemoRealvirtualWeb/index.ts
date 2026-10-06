@@ -40,6 +40,9 @@ import { WakefieldFleetPlugin } from '../../demo/wakefield-fleet-plugin';
 // The command centre: spatial hotspot callouts over the twin, and the zone
 // strip that flies the camera to the exact pose each thumbnail was shot from.
 import { WakefieldCommandCenterPlugin } from '../../demo/wakefield-command-center-plugin';
+// Shift change: the AM crew arriving, badging in and taking their stations,
+// plus the film director for the social clip. After the command centre.
+import { WakefieldShiftPlugin } from '../../demo/wakefield-shift-plugin';
 import {
   setInstructionTypeColors,
   resetInstructionTypeColors,
@@ -153,6 +156,7 @@ export function registerModelPlugins(viewer: RVViewer): void {
     new WakefieldEntryPlugin(),
     new WakefieldFleetPlugin(),
     new WakefieldCommandCenterPlugin(),
+    new WakefieldShiftPlugin(),
     // Optional features
     new WebXRPlugin(),
     new MultiuserPlugin(),
