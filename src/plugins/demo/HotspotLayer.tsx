@@ -51,6 +51,7 @@ const CARD_W = 190;
 const CARD_H = 92;
 
 type CommandCenterLike = RVViewerPlugin & Pick<EventEmitter, 'on' | 'off'> & {
+  mapActive: boolean;
   views: HotspotView[];
   selectedId: string | null;
   hoveredId: string | null;
@@ -152,7 +153,7 @@ export const HotspotLayer: React.FC<UISlotProps> = ({ viewer }) => {
 
   const byId = useMemo(() => new Map(placed.map((p) => [p.id, p])), [placed]);
 
-  if (!plugin) return null;
+  if (!plugin || plugin.mapActive) return null;
 
   return (
     <div

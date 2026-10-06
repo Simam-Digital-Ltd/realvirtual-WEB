@@ -127,6 +127,8 @@ export class WakefieldCommandCenterPlugin extends EventEmitter implements RVView
   private _framesUntilCapture = 0;
 
   private _notifyAccum = 0;
+  private _mapActive = false;
+  private _offMapToggle: (() => void) | null = null;
   private _dirty = false;
 
   /** Scratch vector — never allocate in a render callback. */
@@ -150,6 +152,11 @@ export class WakefieldCommandCenterPlugin extends EventEmitter implements RVView
   get selectedZoneId(): string | null { return this._selectedZoneId; }
   get zones(): readonly SiteZone[] { return WAKEFIELD_ZONES; }
   get thumbnails(): ReadonlyMap<string, string> { return this._thumbnails; }
+  /**
+   * True while the Google yard map is up. The cards and the strip describe
+   * the 3D scene; over a map they point at nothing, so they stand down.
+   */
+  get mapActive(): boolean { return this._mapActive; }
 
   /** The canvas rect, so the overlay can convert client coords to its own. */
   get canvasRect(): DOMRect | null {
@@ -225,6 +232,13 @@ export class WakefieldCommandCenterPlugin extends EventEmitter implements RVView
 
   init(viewer: RVViewer): void {
     this._viewer = viewer;
+    const onMap = (e: { active?: boolean } | undefined) => {
+      this._mapActive = !!e?.active;
+      this.emit('hotspots-changed');
+      this.emit('selection-changed');
+    };
+    viewer.on('osm-map-toggled' as string, onMap as never);
+    this._offMapToggle = () => viewer.off('osm-map-toggled' as string, onMap as never);
   }
 
   onModelLoaded(_result: LoadResult, viewer: RVViewer): void {
@@ -264,6 +278,8 @@ export class WakefieldCommandCenterPlugin extends EventEmitter implements RVView
   }
 
   dispose(): void {
+    this._offMapToggle?.();
+    this._offMapToggle = null;
     if (this._rig) {
       disposeCaptureRig(this._rig);
       this._rig = null;

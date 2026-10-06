@@ -641,6 +641,34 @@ const OSMMapToggle: React.FC<UISlotProps> = ({ viewer }) => {
   );
 };
 
+/**
+ * Get the map's host element, creating it if the page does not provide one.
+ *
+ * This used to be a bare `getElementById('map')` against a div hard-coded
+ * in index.html. The August upstream rebase replaced index.html and that div
+ * went with it. Nothing errored: the lookup returned null, `_show()` still
+ * hid the 3D viewport, and the React portal - which bails out on a null
+ * container - never mounted, so Google Maps was never even requested. Map
+ * mode became a button that blanked the screen.
+ *
+ * Owning the element here means the plugin no longer depends on markup it
+ * does not control, and the next rebase of index.html cannot break it again.
+ * The style matches the original div exactly; `_show()`/`_hide()` drive
+ * opacity, pointer-events and display from there.
+ */
+function ensureMapContainer(): HTMLElement {
+  const existing = document.getElementById('map');
+  if (existing) return existing;
+  const el = document.createElement('div');
+  el.id = 'map';
+  el.style.cssText = 'position: fixed; inset: 0; z-index: 0; opacity: 0; pointer-events: none; display: none;'
+    + ' filter: saturate(1.2) contrast(1.1) brightness(0.9);';
+  const app = document.getElementById('app');
+  if (app && app.parentNode) app.parentNode.insertBefore(el, app.nextSibling);
+  else document.body.appendChild(el);
+  return el;
+}
+
 export class OSMMapPlugin implements RVViewerPlugin {
   readonly id = 'osm-map';
   readonly order = 1000;
@@ -788,7 +816,7 @@ export class OSMMapPlugin implements RVViewerPlugin {
 
   onModelLoaded(_result: LoadResult, viewer: RVViewer): void {
     this._viewer = viewer;
-    this._container = document.getElementById('map');
+    this._container = ensureMapContainer();
     this._appContainer = document.getElementById('app');
     const siteData = viewer.scene.userData?.site;
     if (siteData) {

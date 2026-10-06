@@ -30,6 +30,7 @@ const CARD_W = 160;
 const CARD_H = 98;
 
 type CommandCenterLike = RVViewerPlugin & Pick<EventEmitter, 'on' | 'off'> & {
+  mapActive: boolean;
   zones: readonly SiteZone[];
   thumbnails: ReadonlyMap<string, string>;
   selectedZoneId: string | null;
@@ -53,7 +54,7 @@ export const ZoneStrip: React.FC<UISlotProps> = ({ viewer }) => {
     };
   }, [plugin]);
 
-  if (!plugin) return null;
+  if (!plugin || plugin.mapActive) return null;
 
   const zones = plugin.zones;
   const selected = plugin.selectedZoneId;
